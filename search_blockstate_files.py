@@ -3,7 +3,6 @@ import sys
 from pathlib import Path
 
 
-# Funktion zum Laden der JSON-Daten aus einer Datei
 def load_json_file(filepath):
     try:
         with filepath.open('r') as file:
@@ -13,48 +12,59 @@ def load_json_file(filepath):
         return None
 
 
-# Funktion, um alle Einträge mit dem gesuchten Model zu finden
 def find_model_entries(data, search_model, filepath):
-    result = []
+    result = [('o', 0)]
     for key, value in data.get('variants', {}).items():
+        # print(str(key)," ",str(value))
+        if not isinstance(value, list):
+            value = [value]
         for entry in value:
-            # Prüfen, ob das Model mit dem gesuchten Model übereinstimmt
+            # print(search_model)
+            # print(entry.get('model'))
             if entry.get('model') == search_model:
+                print("Found model in blockstate file.")
                 # Die Einträge "x", "y", "z" extrahieren, falls vorhanden
                 x = entry.get('x', 0)
                 y = entry.get('y', 0)
                 z = entry.get('z', 0)
                 print(f'Gefunden in Datei {filepath}, {key}: x={x}, y={y}, z={z}')
                 if x != 0:
-                    if 'x' not in result:
+                    if ('x', x) not in result:
                         result.extend(('x', x))
+                        print("x: ",x)
                 else:
                     if y != 0:
-                        if 'y' not in result:
+                        if ('y', y) not in result:
                             result.extend(('y', y))
+                            print("y ",y)
                     else:
-                        if y != 0:
-                            if 'z' not in result:
+                        if z != 0:
+                            if ('z', z) not in result:
                                 result.extend(('z', z))
+                                print("z: ",z)
                         else:
-                            if 'o' not in result:
+                            if ('o', 0) not in result:
                                 result.extend(('o', 0))
-
-        return result
-
-    # Funktion, um durch alle Dateien im Verzeichnis zu iterieren
+                                print("o (should never occur!): ",0)
+    # print(str(result))
+    return result
 
 
 def process_directory(directory, search_model):
-    directory = Path(directory)  # Verzeichnis in ein Path-Objekt umwandeln
+    print("Searching blockstate files in: ", str(directory))
+    #  directory = Path(directory)  # Verzeichnis in ein Path-Objekt umwandeln
+    result = []
     for filepath in directory.rglob("*.json"):  # Alle JSON-Dateien rekursiv durchsuchen
-        print(f"Verarbeite Datei: {filepath}")
+        # print(f"Blockstate file: {filepath}")
         data = load_json_file(filepath)
         if data:
-            return find_model_entries(data, search_model, filepath)
+            for key, value in find_model_entries(data, search_model, filepath):
+                if (key, value) not in result:
+                    result.append((key, value))
+    # print(str(result))
+    return result
 
 
-# Hauptfunktion, um das Verzeichnis und das Modell als Argument zu übergeben
 def main():
     if len(sys.argv) < 3:
         print("Verwendung: python script.py <directory> <search_model>")

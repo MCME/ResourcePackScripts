@@ -1,0 +1,6 @@
+generate vanilla resource pack files from sodium files
+- for each .json model file in mcme/models/block
+    + create a list of all needed rotations (axis and angle) by checking each blockstate file linking this model file
+    + for each rotation run objmc script with optional settings from .objmeta file to create vanilla model and texture with vertex data
+    - shape output texture to be power of 2 (in objmc script?)
+    - create vanilla blockstate file from sodium blockstate file by replacing rotations with rotated vanilla models

@@ -1,10 +1,11 @@
 import math
 import sys
 import os
+from pathlib import Path
 
 
 def rotate(vertex, axis, angle):
-    """Rotiert einen Vertex oder eine Normale um die angegebene Achse um den gegebenen Winkel (in Grad)."""
+    """Rotates a vertex or a normal."""
     x, y, z = vertex
     rad = math.radians(angle)
 
@@ -21,12 +22,11 @@ def rotate(vertex, axis, angle):
         new_y = x * math.sin(rad) + y * math.cos(rad)
         return new_x, new_y, z
     else:
-        raise ValueError("Ungültige Achse. Muss 'x', 'y' oder 'z' sein.")
+        raise ValueError("Invalid axis. Needs to be 'x', 'y' or 'z'.")
 
 
 def process_obj_line(line, axis, angle):
-    """Verarbeitet eine Zeile aus einer .obj-Datei, dreht Vertices oder Normalen und gibt die aktualisierte Zeile
-    zurück. """
+    """Rotates all data of a single line."""
     parts = line.split()
     x, y, z = float(parts[1]), float(parts[2]), float(parts[3])
     rotated = rotate((x, y, z), axis, angle)
@@ -34,12 +34,11 @@ def process_obj_line(line, axis, angle):
     return f"{parts[0]} {rotated[0]} {rotated[1]} {rotated[2]}\n"
 
 
-def rotate_obj_file(input_file, axis, angle):
-    """Liest eine .obj-Datei, rotiert die Vertices und Normalen um die angegebene Achse und den Winkel und speichert
-    sie in einer neuen Datei. """
-    # Bestimme den Namen der Ausgabedatei
+def rotate_obj_file(input_path, output_path, file_path, axis, angle):
+    """Rotates all vertices and normals of a .obj file."""
+    input_file = str(input_path / file_path)
     base_name, ext = os.path.splitext(input_file)
-    output_file = f"{base_name}_{axis}_{angle}{ext}"
+    output_file = output_path / Path(f"{base_name}_{axis}_{angle}{ext}")
 
     with open(input_file, 'r') as file:
         lines = file.readlines()
@@ -50,27 +49,29 @@ def rotate_obj_file(input_file, axis, angle):
                 rotated_line = process_obj_line(line, axis, angle)
                 file.write(rotated_line)
             else:
-                # Alle anderen Zeilen unverändert lassen
+                # don't change other lines
                 file.write(line)
 
-    print(f"Datei gespeichert: {output_file}")
+    print(f"File saved: {output_file}")
 
 
 if __name__ == "__main__":
-    # Überprüfen, ob die erforderlichen Argumente übergeben wurden
+    # check arguments
     if len(sys.argv) != 4:
-        print("Verwendung: python3 rotate_obj.py <obj_datei> <achse> <winkel>")
+        print("Usage: python3 rotate_obj.py <obj_file> <axis> <angle>")
         sys.exit(1)
 
-    # Argumente aus der Kommandozeile lesen
-    main_input_file = sys.argv[1]
+    # read arguments from command line
+    main_input_file = Path(sys.argv[1])
     main_axis = sys.argv[2].lower()
     main_angle = int(sys.argv[3])
 
-    # Überprüfen, ob der Winkel gültig ist (90, 180 oder 270)
+    if not main_input_file.is_absolute():
+        main_input_file = Path.cwd() / main_input_file
+    # check angle (90, 180 oder 270)
     if main_angle not in [90, 180, 270]:
-        print("Ungültiger Winkel. Muss 90, 180 oder 270 sein.")
+        print("Invalid angle. Needs to be 90, 180 oder 270.")
         sys.exit(1)
 
-    # Führe die Rotation durch
-    rotate_obj_file(main_input_file, main_axis, main_angle)
+    # do rotation
+    rotate_obj_file(main_input_file.parent, main_input_file.parent, Path(main_input_file.name), main_axis, main_angle)
