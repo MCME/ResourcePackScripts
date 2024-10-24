@@ -7,6 +7,7 @@ from pathlib import Path
 from PIL import Image
 
 import search_blockstate_files
+import generateVanillaBlockstateFiles
 import rotate_obj
 
 
@@ -17,13 +18,15 @@ def work_on_obj_file(relative_filepath):
     printDebug(f"input path is: {input_path}")
     blockstate_path = input_path / Path('assets/minecraft/blockstates')
     printDebug(f"blockstates path is: {blockstate_path}")
-    rotations = search_blockstate_files.process_directory(blockstate_path,
+    blockstate_files_and_rotations = search_blockstate_files.process_directory(blockstate_path,
                                                           'mcme:block/' + filename.replace('.obj', ''))
+    rotations = blockstate_files_and_rotations[0]
+    blockstate_files = blockstate_files_and_rotations[1]
 
     # if rotations list is empty no blockstate file is linking this model, no vanilla model created in this case
-    if not rotations:
+    if not blockstate_files:
         print("Model not linked by any blockstate file. Skipped!")
-        return
+        return []
 
     meta_filename = str(input_path / relative_filepath).replace('.obj', '.objmeta')
 
@@ -126,6 +129,7 @@ def work_on_obj_file(relative_filepath):
                 json.dump(data, texture_file, indent=4)
     else:
         print(f"Missing one of the required parameters for {filename}")
+    return blockstate_files
 
 
 def printDebug(message):
@@ -174,11 +178,17 @@ if args.changes:
         lines = file.readlines()
 
     for line in lines:
-        work_on_obj_file(input_path / Path(line.split('\t')[1].strip()))
+        blockstate_files = work_on_obj_file(input_path / Path(line.split('\t')[1].strip()))
+        generateVanillaBlockstateFiles.convert_blockstate_files(blockstate_files, input_path, output_path)
 else:
     print(f"Processing all .obj files in: {input_path}")
 
     # absolute_input_path = Path.cwd() / input_path
+    all_blockstate_files = []
     for file_path in input_path.rglob('*.obj'):
         if file_path.is_file():
-            work_on_obj_file(file_path.relative_to(input_path))  # .relative_to(Path.cwd())))
+            blockstate_files = work_on_obj_file(file_path.relative_to(input_path))  # .relative_to(Path.cwd())))
+            for filename in blockstate_files:
+                if filename not in all_blockstate_files:
+                    all_blockstate_files.append(filename)
+    generateVanillaBlockstateFiles.convert_blockstate_files(all_blockstate_files, input_path, output_path)
