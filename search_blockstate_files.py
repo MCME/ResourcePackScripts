@@ -44,7 +44,7 @@ def find_model_entries(value, search_model, filepath):
                     else:
                         if ('o', 0) not in rotations:
                             rotations.append(('o', 0))
-                            print("o (this should never occur!): ",0)
+                            print("o (this should never occur!): ", 0)
     # print(str(result))
     return [rotations, model_found]
 

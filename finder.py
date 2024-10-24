@@ -1,5 +1,5 @@
 import os
-import shutil
+# import shutil
 import json
 import sys
 
@@ -42,14 +42,14 @@ def collect_linked_parent_models(models_block_dir, custom_model_block_dir, exclu
                             print("Linked as parent in: ", model_path)
 
 
-def collect_linked_model_paths_from_blockstate_files(blockstates_dir, blockstate_files, model_to_test):
+def collect_linked_model_paths_from_blockstate_files(blockstates_directory, blockstate_files, model_to_test):
     for filename in blockstate_files:
         if "parent" in filename:
             print(f"Skipping file with 'parent' in its name: {filename}")
             continue
 
         if filename.endswith('.json'):
-            blockstate_path = os.path.join(blockstates_dir, filename)
+            blockstate_path = os.path.join(blockstates_directory, filename)
             # print(f"Processing blockstate file: {blockstate_path}")
 
             try:

@@ -40,7 +40,8 @@ def collect_linked_parent_models(models_block_dir, custom_model_block_dir, exclu
                     data = json.load(file)
                     if 'parent' in data:
                         parent_model = data['parent']
-                        linked_model_paths.add(os.path.join(models_dir, 'block', f"{parent_model.replace('block/', '')}.json"))
+                        linked_model_paths.add(os.path.join(models_dir, 'block',
+                                                            f"{parent_model.replace('block/', '')}.json"))
 
 
 def collect_linked_textures(models_block_dir, custom_model_block_dir, excluded_files):
@@ -54,17 +55,18 @@ def collect_linked_textures(models_block_dir, custom_model_block_dir, excluded_f
                     data = json.load(file)
                     if 'textures' in data:
                         for texture_path in data['textures'].values():
-                            linked_texture_paths.add(os.path.join(textures_dir, 'block', f"{texture_path.replace('block/', '')}.png"))
+                            linked_texture_paths.add(os.path.join(textures_dir, 'block',
+                                                                  f"{texture_path.replace('block/', '')}.png"))
 
 
-def collect_linked_model_paths_from_blockstate_files(blockstates_dir, blockstate_files):
+def collect_linked_model_paths_from_blockstate_files(blockstates_directory, blockstate_files):
     for filename in blockstate_files:
         if "parent" in filename:
             print(f"Skipping file with 'parent' in its name: {filename}")
             continue
         
         if filename.endswith('.json'):
-            blockstate_path = os.path.join(blockstates_dir, filename)
+            blockstate_path = os.path.join(blockstates_directory, filename)
             print(f"Processing blockstate file: {blockstate_path}")
             
             try:

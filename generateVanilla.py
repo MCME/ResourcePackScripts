@@ -19,7 +19,8 @@ def work_on_obj_file(relative_filepath):
     blockstate_path = input_path / Path('assets/minecraft/blockstates')
     printDebug(f"blockstates path is: {blockstate_path}")
     blockstate_files_and_rotations = search_blockstate_files.process_directory(blockstate_path,
-                                                          'mcme:block/' + filename.replace('.obj', ''))
+                                                                               'mcme:block/' + filename.replace('.obj',
+                                                                                                                ''))
     rotations = blockstate_files_and_rotations[0]
     blockstate_files = blockstate_files_and_rotations[1]
 
@@ -123,8 +124,8 @@ def work_on_obj_file(relative_filepath):
             with open(rot_output_model, 'r') as texture_file:
                 data = json.load(texture_file)
                 data['textures']['0'] \
-                    = "mcme:"+str(Path(rot_output_texture).relative_to(output_path / Path("assets/mcme/textures")))\
-                            .replace("\\","/")
+                    = "mcme:" + str(Path(rot_output_texture).relative_to(output_path / Path("assets/mcme/textures"))) \
+                    .replace("\\", "/")
             with open(rot_output_model, 'w') as texture_file:
                 json.dump(data, texture_file, indent=4)
     else:
@@ -178,8 +179,8 @@ if args.changes:
         lines = file.readlines()
 
     for line in lines:
-        blockstate_files = work_on_obj_file(input_path / Path(line.split('\t')[1].strip()))
-        generateVanillaBlockstateFiles.convert_blockstate_files(blockstate_files, input_path, output_path)
+        blockstate_file_list = work_on_obj_file(input_path / Path(line.split('\t')[1].strip()))
+        generateVanillaBlockstateFiles.convert_blockstate_files(blockstate_file_list, input_path, output_path)
 else:
     print(f"Processing all .obj files in: {input_path}")
 
@@ -187,8 +188,8 @@ else:
     all_blockstate_files = []
     for file_path in input_path.rglob('*.obj'):
         if file_path.is_file():
-            blockstate_files = work_on_obj_file(file_path.relative_to(input_path))  # .relative_to(Path.cwd())))
-            for filename in blockstate_files:
-                if filename not in all_blockstate_files:
-                    all_blockstate_files.append(filename)
+            blockstate_file_list = work_on_obj_file(file_path.relative_to(input_path))  # .relative_to(Path.cwd())))
+            for file in blockstate_file_list:
+                if file not in all_blockstate_files:
+                    all_blockstate_files.append(file)
     generateVanillaBlockstateFiles.convert_blockstate_files(all_blockstate_files, input_path, output_path)

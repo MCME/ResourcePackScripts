@@ -1,5 +1,5 @@
 import json
-import re
+# import re
 from pathlib import Path
 
 
@@ -68,7 +68,5 @@ def process_json(file_path, output_path):
 
 def convert_blockstate_files(blockstate_list, input_path, output_path):
     for blockstate_file in blockstate_list:
-        process_json(input_path / Path("assets/minecraft/blockstates/",blockstate_file),
-                     output_path / Path("assets/minecraft/blockstates/",blockstate_file))
-
-
+        process_json(input_path / Path("assets/minecraft/blockstates/", blockstate_file),
+                     output_path / Path("assets/minecraft/blockstates/", blockstate_file))
