@@ -32,35 +32,45 @@ def update_model(entry):
 
 
 # work on variant blockstates
-def process_variants(variants):
+def process_variants(variants, limit):
     for key, model in variants.items():
         if isinstance(model, list):
-            for entry in model:
-                update_model(entry)
+            model_count = 0
+            for entry in model[:]:
+                if limit < 0 or model_count < limit:
+                    update_model(entry)
+                else:
+                    model.remove(entry)
+                model_count = model_count + 1;
         else:
             update_model(model)
 
 
 # work on multipart blockstates
-def process_multipart(multipart):
+def process_multipart(multipart, limit):
     for part in multipart:
         if isinstance(part["apply"], list):
-            for entry in part["apply"]:
-                update_model(entry)
+            model_count = 0
+            for entry in part["apply"][:]:
+                if limit < 0 or model_count < limit:
+                    update_model(entry)
+                else:
+                    part["apply"].remove(entry)
+                model_count = model_count + 1
         else:
             update_model(part["apply"])
 
 
 # load JSON-file
-def process_json(input_file, output_file):
+def process_json(input_file, output_file, limit):
     with open(input_file, 'r') as file:
         data = json.load(file)
 
     # check blockstate structure
     if "variants" in data:
-        process_variants(data["variants"])
+        process_variants(data["variants"], limit)
     elif "multipart" in data:
-        process_multipart(data["multipart"])
+        process_multipart(data["multipart"], limit)
 
     # write vanilla blockstate file
     if output_file.parent:
@@ -70,7 +80,7 @@ def process_json(input_file, output_file):
         # json.dump(data, file, separators=(',', ':'))
 
 
-def convert_blockstate_files(blockstate_list, input_path, output_path):
+def convert_blockstate_files(blockstate_list, input_path, output_path, limit):
     for blockstate_file in blockstate_list:
         process_json(input_path / Path("assets/minecraft/blockstates/", blockstate_file),
-                     output_path / Path("assets/minecraft/blockstates/", blockstate_file))
+                     output_path / Path("assets/minecraft/blockstates/", blockstate_file), limit)

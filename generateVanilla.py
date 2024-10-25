@@ -156,6 +156,9 @@ parser.add_argument('--changes',
                     help='Filename read changed files from. Only these files will be considered. Without this '
                          'argument all files are considered.',
                     default=None)
+parser.add_argument('--limit',
+                    help='Limit for number of alternate models for one blockstate. Defaults to no limit.',
+                    default="-1")
 parser.add_argument('--objmc',
                     help='Path to objmc script. Defaults to working directory.',
                     default='objmc.py')
@@ -170,6 +173,7 @@ input_path = Path(args.input_path)
 output_path = Path(args.output_path)
 objmc_path = Path(args.objmc)
 debug = args.debug
+limit = int(args.limit)
 
 if not input_path.is_absolute():
     input_path = Path.cwd() / input_path
@@ -200,4 +204,4 @@ else:
             for file in blockstate_file_list:
                 if file not in all_blockstate_files:
                     all_blockstate_files.append(file)
-    generateVanillaBlockstateFiles.convert_blockstate_files(all_blockstate_files, input_path, output_path)
+    generateVanillaBlockstateFiles.convert_blockstate_files(all_blockstate_files, input_path, output_path, limit)
