@@ -13,11 +13,11 @@ import rotate_obj
 
 def work_on_obj_file(relative_filepath):
     filename = relative_filepath.name
-    printDebug(" ")
+    # printDebug(" ")
     printDebug(f"work_on_obj_file: {relative_filepath}")
-    printDebug(f"input path is: {input_path}")
+    # printDebug(f"input path is: {input_path}")
     blockstate_path = input_path / Path('assets/minecraft/blockstates')
-    printDebug(f"blockstates path is: {blockstate_path}")
+    # printDebug(f"blockstates path is: {blockstate_path}")
     blockstate_files_and_rotations = search_blockstate_files.process_directory(blockstate_path,
                                                                                'mcme:block/' + filename.replace('.obj',
                                                                                                                 ''))
@@ -58,7 +58,7 @@ def work_on_obj_file(relative_filepath):
             print(f"Error parsing YAML file {meta_filename}: {exc}")
 
     if not texture:
-        printDebug("Get texture from .mtl file: " + filename.replace('.obj', '.mtl'))
+        # printDebug("Get texture from .mtl file: " + filename.replace('.obj', '.mtl'))
         with open(str(input_path / relative_filepath).replace('.obj', '.mtl'), 'r') as mtl_file:
             for mtl_line in mtl_file:
                 if mtl_line.startswith('map_Kd'):
@@ -69,13 +69,13 @@ def work_on_obj_file(relative_filepath):
 
     if not output_model:
         output_model = str(output_path / relative_filepath).replace('.obj', '.json')
-        printDebug("Use default output model: " + output_model)
+        # printDebug("Use default output model: " + output_model)
     else:
         output_model = str(output_path) + "/assets/" + output_model.replace(":", "/models/") + ".json"
 
     if not output_texture:
         output_texture = texture.replace(str(input_path) + '/', str(output_path) + '/')
-        printDebug("Use default output texture: " + output_texture)
+        # printDebug("Use default output texture: " + output_texture)
     else:
         output_texture = str(output_path) + "/assets/" + output_texture.replace(":", "/textures/") + ".png"
 
@@ -89,16 +89,19 @@ def work_on_obj_file(relative_filepath):
         if output_texture_dir:
             os.makedirs(output_texture_dir, exist_ok=True)
 
+        # print(str(rotations))
         for axis, angle in rotations:
             if axis == 'o':
                 rot_filename = str(input_path / relative_filepath)
                 rot_output_model = output_model
                 rot_output_texture = output_texture
+                is_rotated_obj = False
             else:
-                rot_filename = str(input_path / relative_filepath).replace('.obj', '_' + axis + '_' + angle + '.obj')
-                rot_output_model = output_model.replace('.json', '_' + axis + '_' + angle + '.json')
-                rot_output_texture = output_model.replace('.png', '_' + axis + '_' + angle + '.png')
+                rot_filename = str(input_path / relative_filepath).replace('.obj', '_' + axis + '_' + str(angle) + '.obj')
+                rot_output_model = output_model.replace('.json', '_' + axis + '_' + str(angle) + '.json')
+                rot_output_texture = output_texture.replace('.png', '_' + axis + '_' + str(angle) + '.png')
                 rotate_obj.rotate_obj_file(input_path, output_path, relative_filepath, axis, angle)
+                is_rotated_obj = True
 
             runList = ['python3', str(objmc_path), '--objs', rot_filename.replace('\\', '/'),
                        '--texs', texture.replace('\\', '/'),
@@ -110,24 +113,29 @@ def work_on_obj_file(relative_filepath):
             if 'flipuv' in options:
                 runList.append('--flipuv')
 
-            printDebug("Running process script with " + str(runList))
+            # printDebug("Running process script with " + str(runList))
 
             try:
                 result = subprocess.run(runList, check=True,
                                         stdout=subprocess.PIPE,
                                         stderr=subprocess.PIPE)
-                print("objmc Script result: ", result.returncode)
+                # print("objmc Script result: ", result.returncode)
+                with open(rot_output_model, 'r') as output_model_json:
+                    data = json.load(output_model_json)
+                    data['textures']['0'] \
+                        = "mcme:" + str(Path(rot_output_texture).relative_to(output_path / Path("assets/mcme/textures"))) \
+                        .replace("\\", "/")
+                with open(rot_output_model, 'w') as output_model_json:
+                    json.dump(data, output_model_json, indent=4)
+                    # json.dump(data, output_model_json, separators=(',', ':'))
             except subprocess.CalledProcessError as e:
                 print(f"Error running process script: {e}")
                 print("Script output (stdout):", e.stdout.decode('utf-8') if e.stdout else "No stdout")
-                print("Script error output (stderr):", e.stderr.decode('utf-8') if e.stderr else "No stderr")
-            with open(rot_output_model, 'r') as texture_file:
-                data = json.load(texture_file)
-                data['textures']['0'] \
-                    = "mcme:" + str(Path(rot_output_texture).relative_to(output_path / Path("assets/mcme/textures"))) \
-                    .replace("\\", "/")
-            with open(rot_output_model, 'w') as texture_file:
-                json.dump(data, texture_file, indent=4)
+                print("Script error output (stderr):", e.stderr.decode('utf-8') if e.stderr else "No stderr", flush=True)
+
+            if is_rotated_obj:
+                Path(rot_filename).unlink()
+
     else:
         print(f"Missing one of the required parameters for {filename}")
     return blockstate_files
@@ -135,7 +143,7 @@ def work_on_obj_file(relative_filepath):
 
 def printDebug(message):
     if debug:
-        print(message)
+        print(message, flush=True)
 
 
 Image.MAX_IMAGE_PIXELS = 1000000000

@@ -1,4 +1,5 @@
 import json
+import os
 # import re
 from pathlib import Path
 
@@ -51,9 +52,9 @@ def process_multipart(multipart):
 
 
 # load JSON-file
-def process_json(file_path, output_path):
-    with open(file_path, 'r') as f:
-        data = json.load(f)
+def process_json(input_file, output_file):
+    with open(input_file, 'r') as file:
+        data = json.load(file)
 
     # check blockstate structure
     if "variants" in data:
@@ -62,8 +63,11 @@ def process_json(file_path, output_path):
         process_multipart(data["multipart"])
 
     # write vanilla blockstate file
-    with open(output_path, 'w') as f:
-        json.dump(data, f, indent=4)
+    if output_file.parent:
+        os.makedirs(output_file.parent, exist_ok=True)
+    with open(output_file, 'w') as file:
+        json.dump(data, file, indent=4)
+        # json.dump(data, file, separators=(',', ':'))
 
 
 def convert_blockstate_files(blockstate_list, input_path, output_path):

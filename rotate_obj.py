@@ -52,7 +52,7 @@ def rotate_obj_file(input_path, output_path, file_path, axis, angle):
                 # don't change other lines
                 file.write(line)
 
-    print(f"File saved: {output_file}")
+    # print(f"File saved: {output_file}")
 
 
 if __name__ == "__main__":
