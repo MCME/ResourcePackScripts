@@ -6,9 +6,17 @@ import argparse
 from pathlib import Path
 from PIL import Image
 
+import constants
+import processBlockstate
 import search_blockstate_files
 import generateVanillaBlockstateFiles
 import rotate_obj
+
+relative_blockstate_path = "assets/minecraft/blockstates"
+relative_sodium_models_path = "assets/mcme/models"
+relative_sodium_textures_path = "assets/mcme/textures"
+relative_vanilla_models_path = "assets/minecraft/models"
+relative_vanilla_textures_path = "assets/minecraft/textures"
 
 
 def work_on_obj_file(relative_filepath):
@@ -97,7 +105,8 @@ def work_on_obj_file(relative_filepath):
                 rot_output_texture = output_texture
                 is_rotated_obj = False
             else:
-                rot_filename = str(input_path / relative_filepath).replace('.obj', '_' + axis + '_' + str(angle) + '.obj')
+                rot_filename = str(input_path / relative_filepath)\
+                    .replace('.obj', '_' + axis + '_' + str(angle) + '.obj')
                 rot_output_model = output_model.replace('.json', '_' + axis + '_' + str(angle) + '.json')
                 rot_output_texture = output_texture.replace('.png', '_' + axis + '_' + str(angle) + '.png')
                 rotate_obj.rotate_obj_file(input_path, output_path, relative_filepath, axis, angle)
@@ -123,7 +132,8 @@ def work_on_obj_file(relative_filepath):
                 with open(rot_output_model, 'r') as output_model_json:
                     data = json.load(output_model_json)
                     data['textures']['0'] \
-                        = "mcme:" + str(Path(rot_output_texture).relative_to(output_path / Path("assets/mcme/textures"))) \
+                        = "mcme:" + str(Path(rot_output_texture)
+                                        .relative_to(output_path / Path("assets/mcme/textures"))) \
                         .replace("\\", "/")
                 with open(rot_output_model, 'w') as output_model_json:
                     json.dump(data, output_model_json, indent=4)
@@ -131,7 +141,8 @@ def work_on_obj_file(relative_filepath):
             except subprocess.CalledProcessError as e:
                 print(f"Error running process script: {e}")
                 print("Script output (stdout):", e.stdout.decode('utf-8') if e.stdout else "No stdout")
-                print("Script error output (stderr):", e.stderr.decode('utf-8') if e.stderr else "No stderr", flush=True)
+                print("Script error output (stderr):",
+                      e.stderr.decode('utf-8') if e.stderr else "No stderr", flush=True)
 
             if is_rotated_obj:
                 Path(rot_filename).unlink()
@@ -163,6 +174,7 @@ parser.add_argument('--objmc',
                     help='Path to objmc script. Defaults to working directory.',
                     default='objmc.py')
 parser.add_argument('--debug', action='store_true', help='Create debug output.')
+parser.add_argument('--compress', action='store_true', help='Compress generated .json files.')
 
 # parse arguments
 args = parser.parse_args()
@@ -174,6 +186,7 @@ output_path = Path(args.output_path)
 objmc_path = Path(args.objmc)
 debug = args.debug
 limit = int(args.limit)
+compress = args.compress
 
 if not input_path.is_absolute():
     input_path = Path.cwd() / input_path
@@ -192,16 +205,10 @@ if args.changes:
 
     for line in lines:
         blockstate_file_list = work_on_obj_file(input_path / Path(line.split('\t')[1].strip()))
-        generateVanillaBlockstateFiles.convert_blockstate_files(blockstate_file_list, input_path, output_path)
+        generateVanillaBlockstateFiles.convert_blockstate_files(blockstate_file_list, input_path, output_path, limit)
 else:
     print(f"Processing all .obj files in: {input_path}")
 
-    # absolute_input_path = Path.cwd() / input_path
-    all_blockstate_files = []
-    for file_path in input_path.rglob('*.obj'):
-        if file_path.is_file():
-            blockstate_file_list = work_on_obj_file(file_path.relative_to(input_path))  # .relative_to(Path.cwd())))
-            for file in blockstate_file_list:
-                if file not in all_blockstate_files:
-                    all_blockstate_files.append(file)
-    generateVanillaBlockstateFiles.convert_blockstate_files(all_blockstate_files, input_path, output_path, limit)
+    for blockstate_file in (input_path / paths.RELATIVE_BLOCKSTATE_PATH).glob('*.json'):
+        if blockstate_file.is_file():
+            processBlockstate.process(blockstate_file.name)
