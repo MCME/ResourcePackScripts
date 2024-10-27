@@ -109,7 +109,7 @@ def work_on_obj_file(relative_filepath):
                     .replace('.obj', '_' + axis + '_' + str(angle) + '.obj')
                 rot_output_model = output_model.replace('.json', '_' + axis + '_' + str(angle) + '.json')
                 rot_output_texture = output_texture.replace('.png', '_' + axis + '_' + str(angle) + '.png')
-                rotate_obj.rotate_obj_file(input_path, output_path, relative_filepath, axis, angle)
+                rotate_obj.rotate_obj_file(input_path / relative_filepath, Path(rot_filename), axis, angle)
                 is_rotated_obj = True
 
             runList = ['python3', str(objmc_path), '--objs', rot_filename.replace('\\', '/'),
@@ -188,12 +188,7 @@ debug = args.debug
 limit = int(args.limit)
 compress = args.compress
 
-if not input_path.is_absolute():
-    input_path = Path.cwd() / input_path
-if not output_path.is_absolute():
-    output_path = Path.cwd() / output_path
-
-print("Generating vanilla files!")
+print("Generating vanilla resource pack!")
 
 if args.changes:
     changed_files_path = args.changes
@@ -209,6 +204,6 @@ if args.changes:
 else:
     print(f"Processing all .obj files in: {input_path}")
 
-    for blockstate_file in (input_path / paths.RELATIVE_BLOCKSTATE_PATH).glob('*.json'):
+    for blockstate_file in (input_path / constants.RELATIVE_BLOCKSTATE_PATH).glob("*"+constants.BLOCKSTATE_EXTENSION):
         if blockstate_file.is_file():
             processBlockstate.process(blockstate_file.name)

@@ -1,4 +1,5 @@
 import os
+import subprocess
 from pathlib import Path
 import json
 import shutil
@@ -7,11 +8,12 @@ import yaml
 
 import constants
 import generateVanilla
+import rotate_obj
 
 
 def convert_model(model_path, axis, angle):
     meta_file = generateVanilla.input_path / constants.RELATIVE_SODIUM_MODELS_PATH \
-                                           / Path(model_path + constants.OBJMETA_EXTENSION)
+                / Path(model_path + constants.OBJMETA_EXTENSION)
 
     # default values
     options = []
@@ -38,90 +40,90 @@ def convert_model(model_path, axis, angle):
             print(f"Error parsing objmeta file for {model_path}: {exc}")
 
     if not texture_path:
-        # printDebug("Get texture_path from .mtl file: " + filename.replace('.obj', '.mtl'))
+        # read texture path from .mtl file
         with open(generateVanilla.input_path / constants.RELATIVE_SODIUM_MODELS_PATH
-                                             / Path(model_path + constants.MTL_EXTENSION), 'r') as f:
+                  / Path(model_path + constants.MTL_EXTENSION), 'r') as f:
             for mtl_line in f:
                 if mtl_line.startswith('map_Kd'):
                     texture_path = mtl_line.split()[1].strip()
                     break
+
+    if not output_texture_path:
+        output_texture_path = texture_path
+    # printDebug("Use default output texture_path: " + output_texture_path)
+
     if texture_path:
         texture_file = generateVanilla.input_path / constants.RELATIVE_SODIUM_TEXTURES_PATH \
-                                                  / Path(texture_path + constants.TEXTURE_EXTENSION)
-    if not output_texture_path:
-        output_texture_file = generateVanilla.output_path / constants.RELATIVE_SODIUM_TEXTURES_PATH \
-                                                          / Path(texture_path + constants.TEXTURE_EXTENSION)
-        # printDebug("Use default output texture_path: " + output_texture_path)
-    else:
-        output_texture_file = generateVanilla.output_path / constants.RELATIVE_SODIUM_TEXTURES_PATH \
-                                                          / Path(output_texture_path + constants.TEXTURE_EXTENSION)
+                       / Path(texture_path + constants.TEXTURE_EXTENSION)
 
-    output_model_file = generateVanilla.output_path / constants.RELATIVE_SODIUM_MODELS_PATH \
-                                                    / Path(model_path + constants.VANILLA_MODEL_EXTENSION)
+        if axis == 'o':
+            model_file = generateVanilla.input_path / constants.RELATIVE_SODIUM_MODELS_PATH \
+                         / Path(model_path + constants.OBJ_MODEL_EXTENSION)
+            output_model_file = generateVanilla.output_path / constants.RELATIVE_SODIUM_MODELS_PATH \
+                                / Path(model_path + constants.VANILLA_MODEL_EXTENSION)
+            output_texture_file = generateVanilla.output_path / constants.RELATIVE_SODIUM_TEXTURES_PATH \
+                                  / Path(output_texture_path + constants.TEXTURE_EXTENSION)
+            is_rotated_obj = False
+        else:
+            rotated_model_suffix = '_' + axis + '_' + str(angle)
+            model_file = generateVanilla.input_path / constants.RELATIVE_SODIUM_MODELS_PATH \
+                         / Path(model_path + rotated_model_suffix + constants.OBJ_MODEL_EXTENSION)
 
-    if texture_path:
+            # create rotated .obj file
+            rotate_obj.rotate_obj_file(generateVanilla.input_path / constants.RELATIVE_SODIUM_MODELS_PATH /
+                                       Path(model_path + constants.OBJ_MODEL_EXTENSION), model_file, axis, angle)
 
+            output_model_file = generateVanilla.output_path / constants.RELATIVE_SODIUM_MODELS_PATH \
+                                / Path(model_path + rotated_model_suffix + constants.VANILLA_MODEL_EXTENSION)
+            output_texture_file = generateVanilla.output_path / constants.RELATIVE_SODIUM_TEXTURES_PATH \
+                                  / Path(output_texture_path + rotated_model_suffix + constants.TEXTURE_EXTENSION)
+            is_rotated_obj = True
+
+        # creating output folders if missing
         output_model_dir = os.path.dirname(output_model_file)
         output_texture_dir = os.path.dirname(output_texture_file)
-
         if output_model_dir:
             os.makedirs(output_model_dir, exist_ok=True)
         if output_texture_dir:
             os.makedirs(output_texture_dir, exist_ok=True)
 
-        # print(str(rotations))
-        for axis, angle in rotations:
-            if axis == 'o':
-                rot_filename = str(input_path / relative_filepath)
-                rot_output_model = output_model_path
-                rot_output_texture = output_texture_path
-                is_rotated_obj = False
-            else:
-                rot_filename = str(input_path / relative_filepath) \
-                    .replace('.obj', '_' + axis + '_' + str(angle) + '.obj')
-                rot_output_model = output_model_path.replace('.json', '_' + axis + '_' + str(angle) + '.json')
-                rot_output_texture = output_texture_path.replace('.png', '_' + axis + '_' + str(angle) + '.png')
-                rotate_obj.rotate_obj_file(input_path, output_path, relative_filepath, axis, angle)
-                is_rotated_obj = True
+        runList = ['python3', str(generateVanilla.objmc_path), '--objs', str(model_file).replace('\\', '/'),
+                   '--texs', str(texture_file).replace('\\', '/'),
+                   '--offset', offset[0], offset[1], offset[2],
+                   '--out', str(output_model_file).replace('\\', '/'), str(output_texture_file).replace('\\', '/'),
+                   '--visibility', str(visibility)]
+        if 'noshadow' in options:
+            runList.append('--noshadow')
+        if 'flipuv' in options:
+            runList.append('--flipuv')
 
-            runList = ['python3', str(objmc_path), '--objs', rot_filename.replace('\\', '/'),
-                       '--texs', texture_path.replace('\\', '/'),
-                       '--offset', offset[0], offset[1], offset[2],
-                       '--out', rot_output_model.replace('\\', '/'), rot_output_texture.replace('\\', '/'),
-                       '--visibility', str(visibility)]
-            if 'noshadow' in options:
-                runList.append('--noshadow')
-            if 'flipuv' in options:
-                runList.append('--flipuv')
+        # printDebug("Running process script with " + str(runList))
 
-            # printDebug("Running process script with " + str(runList))
+        try:
+            result = subprocess.run(runList, check=True,
+                                    stdout=subprocess.PIPE,
+                                    stderr=subprocess.PIPE)
+            # print("objmc Script result: ", result.returncode)
+            with open(output_model, 'r') as output_model_json:
+                data = json.load(output_model_json)
+                data['textures']['0'] \
+                    = "mcme:" + str(Path(rot_output_texture)
+                                    .relative_to(output_path / Path("assets/mcme/textures"))) \
+                    .replace("\\", "/")
+            with open(rot_output_model, 'w') as output_model_json:
+                json.dump(data, output_model_json, indent=4)
+                # json.dump(data, output_model_json, separators=(',', ':'))
+        except subprocess.CalledProcessError as e:
+            print(f"Error running process script: {e}")
+            print("Script output (stdout):", e.stdout.decode('utf-8') if e.stdout else "No stdout")
+            print("Script error output (stderr):",
+                  e.stderr.decode('utf-8') if e.stderr else "No stderr", flush=True)
 
-            try:
-                result = subprocess.run(runList, check=True,
-                                        stdout=subprocess.PIPE,
-                                        stderr=subprocess.PIPE)
-                # print("objmc Script result: ", result.returncode)
-                with open(rot_output_model, 'r') as output_model_json:
-                    data = json.load(output_model_json)
-                    data['textures']['0'] \
-                        = "mcme:" + str(Path(rot_output_texture)
-                                        .relative_to(output_path / Path("assets/mcme/textures"))) \
-                        .replace("\\", "/")
-                with open(rot_output_model, 'w') as output_model_json:
-                    json.dump(data, output_model_json, indent=4)
-                    # json.dump(data, output_model_json, separators=(',', ':'))
-            except subprocess.CalledProcessError as e:
-                print(f"Error running process script: {e}")
-                print("Script output (stdout):", e.stdout.decode('utf-8') if e.stdout else "No stdout")
-                print("Script error output (stderr):",
-                      e.stderr.decode('utf-8') if e.stderr else "No stderr", flush=True)
-
-            if is_rotated_obj:
-                Path(rot_filename).unlink()
+        if is_rotated_obj:
+            Path(rot_filename).unlink()
 
     else:
-        print(f"Missing one of the required parameters for {filename}")
-    return blockstate_files
+        print(f"Missing texture for {model_path}")
 
 
 # convert model entry
@@ -157,7 +159,7 @@ def process(model_data):
         # copy vanilla model and textures to output folder
         model_path = namespace_and_path[-1]
         model_file_relative = generateVanilla.input_path / constants.RELATIVE_VANILLA_MODELS_PATH \
-                                                         / Path(model_path + constants.VANILLA_MODEL_EXTENSION)
+                              / Path(model_path + constants.VANILLA_MODEL_EXTENSION)
         with open(generateVanilla.input_path / model_file_relative, 'r') as f:
             data = json.load(f)
             for texture_name, texture_path in data["textures"].items():

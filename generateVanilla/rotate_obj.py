@@ -34,11 +34,11 @@ def process_obj_line(line, axis, angle):
     return f"{parts[0]} {rotated[0]} {rotated[1]} {rotated[2]}\n"
 
 
-def rotate_obj_file(input_path, output_path, file_path, axis, angle):
+def rotate_obj_file(input_file, output_file, axis, angle):
     """Rotates all vertices and normals of a .obj file."""
-    input_file = str(input_path / file_path)
-    base_name, ext = os.path.splitext(input_file)
-    output_file = output_path / Path(f"{base_name}_{axis}_{angle}{ext}")
+    # input_file = str(input_path / file_path)
+    # base_name, ext = os.path.splitext(input_file)
+    # output_file = output_path / Path(f"{base_name}_{axis}_{angle}{ext}")
 
     with open(input_file, 'r') as file:
         lines = file.readlines()
