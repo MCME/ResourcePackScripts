@@ -128,7 +128,7 @@ def work_on_obj_file(relative_filepath):
                 result = subprocess.run(runList, check=True,
                                         stdout=subprocess.PIPE,
                                         stderr=subprocess.PIPE)
-                # print("objmc Script result: ", result.returncode)
+                printDebug("objmc Script result: " + str(result.returncode))
                 with open(rot_output_model, 'r') as output_model_json:
                     data = json.load(output_model_json)
                     data['textures']['0'] \

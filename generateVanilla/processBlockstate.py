@@ -1,7 +1,6 @@
 import json
 import os
 # import re
-from pathlib import Path
 
 import generateVanilla
 import processModel
@@ -40,7 +39,7 @@ def process_multipart(multipart, limit):
 
 def process(file):
     # load sodium blockstate file
-    input_file = generateVanilla.input_path / paths.RELATIVE_BLOCKSTATE_PATH / file
+    input_file = generateVanilla.input_path / constants.RELATIVE_BLOCKSTATE_PATH / file
     with open(input_file, 'r') as f:
         data = json.load(f)
 
@@ -51,7 +50,7 @@ def process(file):
         process_multipart(data["multipart"], generateVanilla.limit)
 
     # write vanilla blockstate file
-    output_file = generateVanilla.output_path / paths.RELATIVE_BLOCKSTATE_PATH / file
+    output_file = generateVanilla.output_path / constants.RELATIVE_BLOCKSTATE_PATH / file
     os.makedirs(output_file.parent, exist_ok=True)
     with open(output_file, 'w') as file:
         if generateVanilla.compress:

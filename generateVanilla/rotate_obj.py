@@ -1,6 +1,5 @@
 import math
 import sys
-import os
 from pathlib import Path
 
 
@@ -74,4 +73,4 @@ if __name__ == "__main__":
         sys.exit(1)
 
     # do rotation
-    rotate_obj_file(main_input_file.parent, main_input_file.parent, Path(main_input_file.name), main_axis, main_angle)
+    rotate_obj_file(main_input_file, main_input_file, main_axis, main_angle)
