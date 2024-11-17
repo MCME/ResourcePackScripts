@@ -7,12 +7,11 @@ import shutil
 import yaml
 
 import constants
-import generateVanilla
 import rotate_obj
 
 
-def convert_model(model_path, axis, angle):
-    meta_file = generateVanilla.input_path / constants.RELATIVE_SODIUM_MODELS_PATH \
+def convert_model(input_path, output_path, model_path, axis, angle, objmc_path, compress, debug):
+    meta_file = input_path / constants.RELATIVE_SODIUM_MODELS_PATH \
                 / Path(model_path + constants.OBJMETA_EXTENSION)
 
     # default values
@@ -41,42 +40,54 @@ def convert_model(model_path, axis, angle):
 
     if not texture_path:
         # read texture path from .mtl file
-        with open(generateVanilla.input_path / constants.RELATIVE_SODIUM_MODELS_PATH
+        with open(input_path / constants.RELATIVE_SODIUM_MODELS_PATH
                   / Path(model_path + constants.MTL_EXTENSION), 'r') as f:
             for mtl_line in f:
                 if mtl_line.startswith('map_Kd'):
                     texture_path = mtl_line.split()[1].strip()
                     break
 
-    if not output_texture_path:
-        output_texture_path = texture_path
-    # printDebug("Use default output texture_path: " + output_texture_path)
-
     if texture_path:
-        texture_file = generateVanilla.input_path / constants.RELATIVE_SODIUM_TEXTURES_PATH \
-                       / Path(texture_path + constants.TEXTURE_EXTENSION)
+        relative_texture_path = constants.RELATIVE_SODIUM_TEXTURES_PATH
+        if ":" in texture_path:
+            texture_split = texture_path.split(':')
+            namespace = texture_split[0]
+            texture_name = texture_split[1]
+            if namespace == constants.VANILLA_NAMESPACE:
+                relative_texture_path = constants.RELATIVE_VANILLA_TEXTURES_PATH
+            elif namespace != constants.MCME_NAMESPACE:
+                print("WARNING!!! Unexpected texture namespace: "+namespace+"for "+texture_name)
+            texture_path = texture_name
 
+        if not output_texture_path:
+            output_texture_path = texture_path
+            # print("texture_path: "+texture_path)
+            # printDebug("Use default output texture_path: " + output_texture_path)
+
+        texture_file = input_path / relative_texture_path \
+                       / Path(texture_path + constants.TEXTURE_EXTENSION)
+        # print("output_texture_path: "+output_texture_path)
         if axis == 'o':
             model_suffix = ""
-            model_file = generateVanilla.input_path / constants.RELATIVE_SODIUM_MODELS_PATH \
+            model_file = input_path / constants.RELATIVE_SODIUM_MODELS_PATH \
                          / Path(model_path + constants.OBJ_MODEL_EXTENSION)
-            output_model_file = generateVanilla.output_path / constants.RELATIVE_SODIUM_MODELS_PATH \
+            output_model_file = output_path / constants.RELATIVE_SODIUM_MODELS_PATH \
                                 / Path(model_path + constants.VANILLA_MODEL_EXTENSION)
-            output_texture_file = generateVanilla.output_path / constants.RELATIVE_SODIUM_TEXTURES_PATH \
+            output_texture_file = output_path / constants.RELATIVE_SODIUM_TEXTURES_PATH \
                                   / Path(output_texture_path + constants.TEXTURE_EXTENSION)
             is_rotated_obj = False
         else:
             model_suffix = '_' + axis + '_' + str(angle)
-            model_file = generateVanilla.input_path / constants.RELATIVE_SODIUM_MODELS_PATH \
+            model_file = input_path / constants.RELATIVE_SODIUM_MODELS_PATH \
                          / Path(model_path + model_suffix + constants.OBJ_MODEL_EXTENSION)
 
             # create rotated .obj file
-            rotate_obj.rotate_obj_file(generateVanilla.input_path / constants.RELATIVE_SODIUM_MODELS_PATH /
+            rotate_obj.rotate_obj_file(input_path / constants.RELATIVE_SODIUM_MODELS_PATH /
                                        Path(model_path + constants.OBJ_MODEL_EXTENSION), model_file, axis, angle)
 
-            output_model_file = generateVanilla.output_path / constants.RELATIVE_SODIUM_MODELS_PATH \
+            output_model_file = output_path / constants.RELATIVE_SODIUM_MODELS_PATH \
                                 / Path(model_path + model_suffix + constants.VANILLA_MODEL_EXTENSION)
-            output_texture_file = generateVanilla.output_path / constants.RELATIVE_SODIUM_TEXTURES_PATH \
+            output_texture_file = output_path / constants.RELATIVE_SODIUM_TEXTURES_PATH \
                                   / Path(output_texture_path + model_suffix + constants.TEXTURE_EXTENSION)
             is_rotated_obj = True
 
@@ -88,7 +99,7 @@ def convert_model(model_path, axis, angle):
         if output_texture_dir:
             os.makedirs(output_texture_dir, exist_ok=True)
 
-        runList = ['python3', str(generateVanilla.objmc_path), '--objs', str(model_file).replace('\\', '/'),
+        runList = ['python3', str(objmc_path), '--objs', str(model_file).replace('\\', '/'),
                    '--texs', str(texture_file).replace('\\', '/'),
                    '--offset', offset[0], offset[1], offset[2],
                    '--out', str(output_model_file).replace('\\', '/'), str(output_texture_file).replace('\\', '/'),
@@ -104,13 +115,14 @@ def convert_model(model_path, axis, angle):
             result = subprocess.run(runList, check=True,
                                     stdout=subprocess.PIPE,
                                     stderr=subprocess.PIPE)
-            generateVanilla.printDebug("objmc Script result: " + str(result.returncode))
+            if debug:
+                print("objmc Script result: " + str(result.returncode))
             with open(output_model_file, 'r') as output_model_json:
                 data = json.load(output_model_json)
                 data['textures']['0'] \
                     = "mcme:" + output_texture_path + model_suffix + constants.TEXTURE_EXTENSION  # .replace("\\", "/")
             with open(output_model_file, 'w') as output_model_json:
-                if generateVanilla.compress:
+                if compress:
                     json.dump(data, output_model_json, separators=(',', ':'))
                 else:
                     json.dump(data, output_model_json, indent=4)
@@ -127,8 +139,26 @@ def convert_model(model_path, axis, angle):
         print(f"Missing texture for {model_path}")
 
 
+def copy_textures(model_path, texture_path, output_path, model_file_relative):
+    with open(model_path / model_file_relative, 'r') as f:
+        data = json.load(f)
+        for texture_name, texture_filename in data["textures"].items():
+            if ":" in texture_filename:
+                texture_split = texture_filename.split(":")
+                if texture_split[0] == constants.VANILLA_NAMESPACE:
+                    texture_filename = texture_split[1]
+                else:
+                    print(f'WARNING!!! Unexpected texture namespace {texture_split[0]} for {texture_filename}')
+
+            texture_file_relative = constants.RELATIVE_VANILLA_TEXTURES_PATH \
+                                    / Path(texture_filename + constants.TEXTURE_EXTENSION)
+            os.makedirs((output_path / texture_file_relative).parent, exist_ok=True)
+            shutil.copy(texture_path / texture_file_relative,
+                        output_path / texture_file_relative)
+
+
 # convert model entry
-def process(model_data):
+def process(input_path, output_path, vanilla_path, model_data, objmc_path, compress, debug):
     namespace_and_path = model_data.get("model", "").split(":")
 
     if namespace_and_path[0] == constants.MCME_NAMESPACE:
@@ -142,16 +172,16 @@ def process(model_data):
 
         # create vanilla model name
         if x is not None:
-            convert_model(model_path, "x", x)
+            convert_model(input_path, output_path, model_path, "x", x, objmc_path, compress, debug)
             namespace_and_path += f"_x_{x}"
         elif y is not None:
-            convert_model(model_path, "y", y)
+            convert_model(input_path, output_path, model_path, "y", y, objmc_path, compress, debug)
             namespace_and_path += f"_y_{y}"
         elif z is not None:
-            convert_model(model_path, "z", z)
+            convert_model(input_path, output_path, model_path, "z", z, objmc_path, compress, debug)
             namespace_and_path += f"_z_{z}"
         else:
-            convert_model(model_path, "o", 0)
+            convert_model(input_path, output_path, model_path, "o", 0, objmc_path, compress, debug)
 
         # update model entry
         model_data["model"] = constants.MCME_NAMESPACE + ":" + model_path
@@ -159,16 +189,17 @@ def process(model_data):
     else:
         # copy vanilla model and textures to output folder
         model_path = namespace_and_path[-1]
-        model_file_relative = generateVanilla.input_path / constants.RELATIVE_VANILLA_MODELS_PATH \
+        model_file_relative = constants.RELATIVE_VANILLA_MODELS_PATH \
                               / Path(model_path + constants.VANILLA_MODEL_EXTENSION)
-        with open(generateVanilla.input_path / model_file_relative, 'r') as f:
-            data = json.load(f)
-            for texture_name, texture_path in data["textures"].items():
-                texture_file_relative = constants.RELATIVE_VANILLA_TEXTURES_PATH \
-                                        / Path(texture_path + constants.TEXTURE_EXTENSION)
-                os.makedirs((generateVanilla.output_path / texture_file_relative).parent)
-                shutil.copy(generateVanilla.input_path / texture_file_relative,
-                            generateVanilla.output_path / texture_file_relative)
-        os.makedirs((generateVanilla.output_path / model_file_relative).parent)
-        shutil.copy(generateVanilla.input_path / model_file_relative,
-                    generateVanilla.output_path / model_file_relative)
+        if (input_path / model_file_relative).exists():
+            copy_textures(input_path, input_path, output_path, model_file_relative)
+            os.makedirs((output_path / model_file_relative).parent, exist_ok=True)
+            # print(f'Model relative path: {model_file_relative}')
+            shutil.copy(input_path / model_file_relative,
+                        output_path / model_file_relative)
+        else:
+            # read textures to copy from vanilla pack file.
+            if (vanilla_path / model_file_relative).exists():
+                copy_textures(vanilla_path, input_path, output_path, model_file_relative)
+            else:
+                print(f'WARNING!!! Missing model file: {model_file_relative}')

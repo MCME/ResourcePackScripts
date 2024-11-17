@@ -163,6 +163,7 @@ parser = argparse.ArgumentParser(description='Convert OBJ models to vanilla shad
 # add command line arguments
 parser.add_argument('input_path', help='Path to read OBJ models from')
 parser.add_argument('output_path', help='Path to write vanilla shader models in.')
+parser.add_argument('vanilla_path', help='Path to read vanilla RP from.')
 parser.add_argument('--changes',
                     help='Filename read changed files from. Only these files will be considered. Without this '
                          'argument all files are considered.',
@@ -181,6 +182,9 @@ args = parser.parse_args()
 
 print(f'Source path: {args.input_path}')
 print(f'Output path: {args.output_path}')
+print(f'Vanilla path: {args.vanilla_path}')
+
+vanilla_path = Path(args.vanilla_path)
 input_path = Path(args.input_path)
 output_path = Path(args.output_path)
 objmc_path = Path(args.objmc)
@@ -202,8 +206,9 @@ if args.changes:
         blockstate_file_list = work_on_obj_file(input_path / Path(line.split('\t')[1].strip()))
         generateVanillaBlockstateFiles.convert_blockstate_files(blockstate_file_list, input_path, output_path, limit)
 else:
-    print(f"Processing all .obj files in: {input_path}")
+    print(f"Processing Sodium RP in: {input_path}")
 
-    for blockstate_file in (input_path / constants.RELATIVE_BLOCKSTATE_PATH).glob("*"+constants.BLOCKSTATE_EXTENSION):
+    for blockstate_file in (vanilla_path / constants.RELATIVE_BLOCKSTATE_PATH)\
+                        .glob("*"+constants.BLOCKSTATE_EXTENSION):
         if blockstate_file.is_file():
-            processBlockstate.process(blockstate_file.name)
+            processBlockstate.process(input_path, output_path, vanilla_path, blockstate_file.name, limit, compress, objmc_path, debug)
