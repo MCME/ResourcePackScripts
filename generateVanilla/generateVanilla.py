@@ -152,11 +152,6 @@ def work_on_obj_file(relative_filepath):
     return blockstate_files
 
 
-def printDebug(message):
-    if debug:
-        print(message, flush=True)
-
-
 Image.MAX_IMAGE_PIXELS = 1000000000
 parser = argparse.ArgumentParser(description='Convert OBJ models to vanilla shader models.')
 

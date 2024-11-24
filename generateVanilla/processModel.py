@@ -11,6 +11,22 @@ import rotate_obj
 
 
 def convert_model(input_path, output_path, model_path, axis, angle, objmc_path, compress, debug):
+    with open(input_path / constants.RELATIVE_SODIUM_MODELS_PATH
+              / Path(model_path + constants.VANILLA_MODEL_EXTENSION), 'r') as f:
+        data = json.load(f)
+        if "model" in data:
+            model_data = data["model"].split(":")
+            if model_data[0] == constants.MCME_NAMESPACE:
+                model_path = model_data[1]
+            elif len(model_data) == 1:
+                model_path = model_data[0]
+            else:
+                print("Unexpected namespace: {model_data[0]} in mcme model file.")
+        else:
+            return
+        model_path = model_path.removeprefix("models/").removesuffix(constants.OBJ_MODEL_EXTENSION)
+
+    # print(f"Model path: {model_path}")
     meta_file = input_path / constants.RELATIVE_SODIUM_MODELS_PATH \
                 / Path(model_path + constants.OBJMETA_EXTENSION)
 
@@ -40,12 +56,16 @@ def convert_model(input_path, output_path, model_path, axis, angle, objmc_path, 
 
     if not texture_path:
         # read texture path from .mtl file
-        with open(input_path / constants.RELATIVE_SODIUM_MODELS_PATH
-                  / Path(model_path + constants.MTL_EXTENSION), 'r') as f:
-            for mtl_line in f:
-                if mtl_line.startswith('map_Kd'):
-                    texture_path = mtl_line.split()[1].strip()
-                    break
+        mtl_file = input_path / constants.RELATIVE_SODIUM_MODELS_PATH / Path(model_path + constants.MTL_EXTENSION)
+        if mtl_file.exists():
+            with open(mtl_file, 'r') as f:
+                for mtl_line in f:
+                    if mtl_line.startswith('map_Kd'):
+                        texture_path = mtl_line.split()[1].strip()
+                        break
+        else:
+            print(f"Missing .mtl file {mtl_file}.")
+            return
 
     if texture_path:
         relative_texture_path = constants.RELATIVE_SODIUM_TEXTURES_PATH
@@ -115,8 +135,8 @@ def convert_model(input_path, output_path, model_path, axis, angle, objmc_path, 
             result = subprocess.run(runList, check=True,
                                     stdout=subprocess.PIPE,
                                     stderr=subprocess.PIPE)
-            if debug:
-                print("objmc Script result: " + str(result.returncode))
+            # if debug:
+            #    print("objmc Script result: " + str(result.returncode))
             with open(output_model_file, 'r') as output_model_json:
                 data = json.load(output_model_json)
                 data['textures']['0'] \
@@ -142,19 +162,27 @@ def convert_model(input_path, output_path, model_path, axis, angle, objmc_path, 
 def copy_textures(model_path, texture_path, output_path, model_file_relative):
     with open(model_path / model_file_relative, 'r') as f:
         data = json.load(f)
-        for texture_name, texture_filename in data["textures"].items():
-            if ":" in texture_filename:
-                texture_split = texture_filename.split(":")
-                if texture_split[0] == constants.VANILLA_NAMESPACE:
-                    texture_filename = texture_split[1]
-                else:
-                    print(f'WARNING!!! Unexpected texture namespace {texture_split[0]} for {texture_filename}')
+        # print(f"copy_textures: {model_path} {texture_path} {model_file_relative}")
+        if "textures" in data:
+            for texture_name, texture_filename in data["textures"].items():
+                relative_path = constants.RELATIVE_VANILLA_TEXTURES_PATH
+                if ":" in texture_filename:
+                    texture_split = texture_filename.split(":")
+                    if texture_split[0] == constants.VANILLA_NAMESPACE:
+                        texture_filename = texture_split[1]
+                    elif texture_split[0] == constants.MCME_NAMESPACE:
+                        texture_filename = texture_split[1]
+                        relative_path = constants.RELATIVE_SODIUM_TEXTURES_PATH
+                    else:
+                        print(f'WARNING!!! Unexpected texture namespace {texture_split[0]} for {texture_filename}')
+                        return
 
-            texture_file_relative = constants.RELATIVE_VANILLA_TEXTURES_PATH \
-                                    / Path(texture_filename + constants.TEXTURE_EXTENSION)
-            os.makedirs((output_path / texture_file_relative).parent, exist_ok=True)
-            shutil.copy(texture_path / texture_file_relative,
-                        output_path / texture_file_relative)
+                texture_file_relative = relative_path \
+                                        / Path(texture_filename + constants.TEXTURE_EXTENSION)
+                os.makedirs((output_path / texture_file_relative).parent, exist_ok=True)
+                texture_file = texture_path / texture_file_relative
+                if texture_file.exists():
+                    shutil.copy(texture_file, output_path / texture_file_relative)
 
 
 # convert model entry
