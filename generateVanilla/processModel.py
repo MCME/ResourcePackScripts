@@ -8,9 +8,11 @@ import yaml
 
 import constants
 import rotate_obj
+import util
 
 
 def convert_model(input_path, output_path, model_path, axis, angle, objmc_path, compress, debug):
+    util.printDebug(f"    Converting model: {model_path} axis: {axis} angle: {angle}", debug)
     with open(input_path / constants.RELATIVE_SODIUM_MODELS_PATH
               / Path(model_path + constants.VANILLA_MODEL_EXTENSION), 'r') as f:
         data = json.load(f)
@@ -159,7 +161,7 @@ def convert_model(input_path, output_path, model_path, axis, angle, objmc_path, 
         print(f"Missing texture for {model_path}")
 
 
-def copy_textures(model_path, texture_path, output_path, model_file_relative):
+def copy_textures(model_path, texture_path, output_path, model_file_relative, debug):
     with open(model_path / model_file_relative, 'r') as f:
         data = json.load(f)
         # print(f"copy_textures: {model_path} {texture_path} {model_file_relative}")
@@ -182,6 +184,7 @@ def copy_textures(model_path, texture_path, output_path, model_file_relative):
                 os.makedirs((output_path / texture_file_relative).parent, exist_ok=True)
                 texture_file = texture_path / texture_file_relative
                 if texture_file.exists():
+                    util.printDebug(f"        Copying texture: {texture_file_relative}", debug)
                     shutil.copy(texture_file, output_path / texture_file_relative)
 
 
@@ -220,14 +223,16 @@ def process(input_path, output_path, vanilla_path, model_data, objmc_path, compr
         model_file_relative = constants.RELATIVE_VANILLA_MODELS_PATH \
                               / Path(model_path + constants.VANILLA_MODEL_EXTENSION)
         if (input_path / model_file_relative).exists():
-            copy_textures(input_path, input_path, output_path, model_file_relative)
+            util.printDebug(f"    Copying model {model_file_relative}", debug)
             os.makedirs((output_path / model_file_relative).parent, exist_ok=True)
             # print(f'Model relative path: {model_file_relative}')
             shutil.copy(input_path / model_file_relative,
                         output_path / model_file_relative)
+            copy_textures(input_path, input_path, output_path, model_file_relative, debug)
         else:
             # read textures to copy from vanilla pack file.
             if (vanilla_path / model_file_relative).exists():
-                copy_textures(vanilla_path, input_path, output_path, model_file_relative)
+                util.printDebug(f"    Reading textures from vanilla model {model_file_relative}", debug)
+                copy_textures(vanilla_path, input_path, output_path, model_file_relative, debug)
             else:
                 print(f'WARNING!!! Missing model file: {model_file_relative}')
