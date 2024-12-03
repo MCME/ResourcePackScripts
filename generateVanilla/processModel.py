@@ -3,6 +3,7 @@ import subprocess
 from pathlib import Path
 import json
 import shutil
+import sys
 
 import yaml
 
@@ -131,12 +132,17 @@ def convert_model(input_path, output_path, model_path, axis, angle, objmc_path, 
         if 'flipuv' in options:
             runList.append('--flipuv')
 
-        # printDebug("Running process script with " + str(runList))
+        # util.printDebug("Running process script with texture output file:"
+        # + str(output_texture_file).replace('\\', '/'), debug)
+        # util.printDebug("Running process script with model output file:"
+        # + str(output_model_file).replace('\\', '/'), debug)
 
         try:
             result = subprocess.run(runList, check=True,
                                     stdout=subprocess.PIPE,
                                     stderr=subprocess.PIPE)
+            # sys.exit()
+
             # if debug:
             #    print("objmc Script result: " + str(result.returncode))
             with open(output_model_file, 'r') as output_model_json:
@@ -188,6 +194,37 @@ def copy_textures(model_path, texture_path, output_path, model_file_relative, de
                     shutil.copy(texture_file, output_path / texture_file_relative)
 
 
+def copy_parent(input_path, output_path, model_file_relative, debug):
+    # print("copy_parent")
+    with open(input_path / model_file_relative, 'r') as f:
+        data = json.load(f)
+        # print(f"copy_textures: {model_path} {texture_path} {model_file_relative}")
+        if "parent" in data:
+            # print("parent found")
+            parent_filename = data["parent"]
+            relative_path = constants.RELATIVE_VANILLA_MODELS_PATH
+            if ":" in parent_filename:
+                parent_split = parent_filename.split(":")
+                if parent_split[0] == constants.VANILLA_NAMESPACE:
+                    parent_filename = parent_split[1]
+                elif parent_split[0] == constants.MCME_NAMESPACE:
+                    parent_filename = parent_split[1]
+                    relative_path = constants.RELATIVE_SODIUM_MODELS_PATH
+                else:
+                    print(f'WARNING!!! Unexpected texture namespace {parent_split[0]} for {parent_filename}')
+                    return
+
+            parent_file_relative = relative_path \
+                                    / Path(parent_filename + constants.VANILLA_MODEL_EXTENSION)
+            os.makedirs((output_path / parent_file_relative).parent, exist_ok=True)
+            parent_file = input_path / parent_file_relative
+            # print("Parent file: "+str(parent_file))
+            if parent_file.exists():
+                util.printDebug(f"        Copying parent model: {parent_file_relative}", debug)
+                shutil.copy(parent_file, output_path / parent_file_relative)
+                copy_parent(input_path, output_path, parent_file_relative, debug)
+
+
 # convert model entry
 def process(input_path, output_path, vanilla_path, model_data, objmc_path, compress, debug):
     namespace_and_path = model_data.get("model", "").split(":")
@@ -221,7 +258,7 @@ def process(input_path, output_path, vanilla_path, model_data, objmc_path, compr
         # copy vanilla model and textures to output folder
         model_path = namespace_and_path[-1]
         model_file_relative = constants.RELATIVE_VANILLA_MODELS_PATH \
-                              / Path(model_path + constants.VANILLA_MODEL_EXTENSION)
+                             / Path(model_path + constants.VANILLA_MODEL_EXTENSION)
         if (input_path / model_file_relative).exists():
             util.printDebug(f"    Copying model {model_file_relative}", debug)
             os.makedirs((output_path / model_file_relative).parent, exist_ok=True)
@@ -229,6 +266,7 @@ def process(input_path, output_path, vanilla_path, model_data, objmc_path, compr
             shutil.copy(input_path / model_file_relative,
                         output_path / model_file_relative)
             copy_textures(input_path, input_path, output_path, model_file_relative, debug)
+            copy_parent(input_path, output_path, model_file_relative, debug)
         else:
             # read textures to copy from vanilla pack file.
             if (vanilla_path / model_file_relative).exists():

@@ -39,8 +39,10 @@ def process_multipart(input_path, output_path, vanilla_path, multipart, limit, o
 
 def process(input_path, output_path, vanilla_path, file, limit, compress, objmc_path, debug):
     # load sodium blockstate file
-    util.printDebug(f"Working on blockstate file: {file}", debug)
+    # if "grass" not in str(file):
+    #     return
 
+    util.printDebug(f"Working on blockstate file: {file}", debug)
     input_file = input_path / constants.RELATIVE_BLOCKSTATE_PATH / file
     if not input_file.exists():
         input_file = vanilla_path / constants.RELATIVE_BLOCKSTATE_PATH / file
