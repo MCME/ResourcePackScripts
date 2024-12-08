@@ -148,7 +148,7 @@ def convert_model(input_path, output_path, model_path, axis, angle, objmc_path, 
             with open(output_model_file, 'r') as output_model_json:
                 data = json.load(output_model_json)
                 data['textures']['0'] \
-                    = "mcme:" + output_texture_path + model_suffix + constants.TEXTURE_EXTENSION  # .replace("\\", "/")
+                    = "mcme:" + output_texture_path + model_suffix  # .replace("\\", "/")
             with open(output_model_file, 'w') as output_model_json:
                 if compress:
                     json.dump(data, output_model_json, separators=(',', ':'))
