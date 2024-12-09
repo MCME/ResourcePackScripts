@@ -241,13 +241,13 @@ def process(input_path, output_path, vanilla_path, model_data, objmc_path, compr
         # create vanilla model name
         if x is not None:
             convert_model(input_path, output_path, model_path, "x", x, objmc_path, compress, debug)
-            namespace_and_path += f"_x_{x}"
+            model_path += f"_x_{x}"
         elif y is not None:
             convert_model(input_path, output_path, model_path, "y", y, objmc_path, compress, debug)
-            namespace_and_path += f"_y_{y}"
+            model_path += f"_y_{y}"
         elif z is not None:
             convert_model(input_path, output_path, model_path, "z", z, objmc_path, compress, debug)
-            namespace_and_path += f"_z_{z}"
+            model_path += f"_z_{z}"
         else:
             convert_model(input_path, output_path, model_path, "o", 0, objmc_path, compress, debug)
 
