@@ -3,7 +3,6 @@ import subprocess
 from pathlib import Path
 import json
 import shutil
-import sys
 
 import yaml
 
@@ -36,7 +35,7 @@ def convert_model(input_path, output_path, model_path, axis, angle, objmc_path, 
     # default values
     options = []
     visibility = 7
-    offset = ['0.5', '0.0', '0.5']
+    offset = ['-0.5', '0.0', '-0.5']
     texture_path = None
     output_texture_path = None
 
@@ -48,7 +47,7 @@ def convert_model(input_path, output_path, model_path, axis, angle, objmc_path, 
 
             texture_path = meta_data.get('texture', None)
             output_texture_path = meta_data.get('output_texture', None)
-            offset = meta_data.get('offset', '0.5 0.0 0.5').split()
+            offset = meta_data.get('offset', '-0.5 0.0 -0.5').split()
             options = meta_data.get('options', [])
             visibility = meta_data.get('visibility', 7)
 
