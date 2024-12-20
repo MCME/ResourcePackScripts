@@ -83,7 +83,9 @@ def convert_model(input_path, output_path, model_path, axis, angle, objmc_path, 
             texture_path = texture_name
 
         if not output_texture_path:
-            output_texture_path = texture_path
+            output_texture_path = model_path
+            # output texture will contain voxel data, needs to use model name
+            # instead of texture name as several models might use same sodium texture
             # print("texture_path: "+texture_path)
             # printDebug("Use default output texture_path: " + output_texture_path)
 
@@ -106,7 +108,7 @@ def convert_model(input_path, output_path, model_path, axis, angle, objmc_path, 
 
             # create rotated .obj file
             rotate_obj.rotate_obj_file(input_path / constants.RELATIVE_SODIUM_MODELS_PATH /
-                                       Path(model_path + constants.OBJ_MODEL_EXTENSION), model_file, axis, angle)
+                                       Path(model_path + constants.OBJ_MODEL_EXTENSION), model_file, axis, -angle)
 
             output_model_file = output_path / constants.RELATIVE_SODIUM_MODELS_PATH \
                                 / Path(model_path + model_suffix + constants.VANILLA_MODEL_EXTENSION)
