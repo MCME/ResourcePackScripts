@@ -15,3 +15,8 @@ MTL_EXTENSION = ".mtl"
 
 MCME_NAMESPACE = "mcme"
 VANILLA_NAMESPACE = "minecraft"
+
+PACK_MCMETA = "pack.mcmeta"
+PACK_PNG = "pack.png"
+LICENCE = "license.txt"
+README = "README.md"

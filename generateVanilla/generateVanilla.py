@@ -1,3 +1,5 @@
+import shutil
+
 import yaml
 import json
 import subprocess
@@ -11,6 +13,8 @@ import processBlockstate
 import search_blockstate_files
 import generateVanillaBlockstateFiles
 import rotate_obj
+import util
+
 
 relative_blockstate_path = "assets/minecraft/blockstates"
 relative_sodium_models_path = "assets/mcme/models"
@@ -22,7 +26,7 @@ relative_vanilla_textures_path = "assets/minecraft/textures"
 def work_on_obj_file(relative_filepath):
     filename = relative_filepath.name
     # printDebug(" ")
-    printDebug(f"work_on_obj_file: {relative_filepath}")
+    util.printDebug(f"work_on_obj_file: {relative_filepath}")
     # printDebug(f"input path is: {input_path}")
     blockstate_path = input_path / Path('assets/minecraft/blockstates')
     # printDebug(f"blockstates path is: {blockstate_path}")
@@ -128,7 +132,7 @@ def work_on_obj_file(relative_filepath):
                 result = subprocess.run(runList, check=True,
                                         stdout=subprocess.PIPE,
                                         stderr=subprocess.PIPE)
-                printDebug("objmc Script result: " + str(result.returncode))
+                util.printDebug("objmc Script result: " + str(result.returncode))
                 with open(rot_output_model, 'r') as output_model_json:
                     data = json.load(output_model_json)
                     data['textures']['0'] \
@@ -202,6 +206,21 @@ if args.changes:
         generateVanillaBlockstateFiles.convert_blockstate_files(blockstate_file_list, input_path, output_path, limit)
 else:
     print(f"Processing Sodium RP in: {input_path}")
+
+    pack_mcmeta_file = input_path / constants.PACK_MCMETA
+    if pack_mcmeta_file.exists():
+        with open(pack_mcmeta_file, 'r') as f:
+            data = json.load(f)
+            data['pack']['description'] = data['pack']['description'].replace("Sodium", "Vanilla")
+        pack_mcmeta_file = output_path / constants.PACK_MCMETA
+        with open(pack_mcmeta_file, 'w') as f:
+            json.dump(data, f, indent=4)
+    if (input_path / constants.PACK_PNG).exists():
+        shutil.copy(input_path / constants.PACK_PNG, output_path / constants.PACK_PNG)
+    if (input_path / constants.LICENCE).exists():
+        shutil.copy(input_path / constants.LICENCE, output_path / constants.LICENCE)
+    if (input_path / constants.README).exists():
+        shutil.copy(input_path / constants.README, output_path / constants.README)
 
     for blockstate_file in (vanilla_path / constants.RELATIVE_BLOCKSTATE_PATH)\
                         .glob("*"+constants.BLOCKSTATE_EXTENSION):
