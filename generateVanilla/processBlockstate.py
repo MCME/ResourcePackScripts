@@ -44,8 +44,10 @@ def process(input_path, output_path, vanilla_path, file, limit, compress, objmc_
 
     util.printDebug(f"Working on blockstate file: {file}", debug)
     input_file = input_path / constants.RELATIVE_BLOCKSTATE_PATH / file
+    is_vanilla_blockstate = False
     if not input_file.exists():
         input_file = vanilla_path / constants.RELATIVE_BLOCKSTATE_PATH / file
+        is_vanilla_blockstate = True
 
     with open(input_file, 'r') as f:
         data = json.load(f)
@@ -57,10 +59,11 @@ def process(input_path, output_path, vanilla_path, file, limit, compress, objmc_
         process_multipart(input_path, output_path, vanilla_path, data["multipart"], limit, objmc_path, compress, debug)
 
     # write vanilla blockstate file
-    output_file = output_path / constants.RELATIVE_BLOCKSTATE_PATH / file
-    os.makedirs(output_file.parent, exist_ok=True)
-    with open(output_file, 'w') as file:
-        if compress:
-            json.dump(data, file, separators=(',', ':'))
-        else:
-            json.dump(data, file, indent=4)
+    if not is_vanilla_blockstate:
+        output_file = output_path / constants.RELATIVE_BLOCKSTATE_PATH / file
+        os.makedirs(output_file.parent, exist_ok=True)
+        with open(output_file, 'w') as file:
+            if compress:
+                json.dump(data, file, separators=(',', ':'))
+            else:
+                json.dump(data, file, indent=4)

@@ -14,7 +14,7 @@ import search_blockstate_files
 import generateVanillaBlockstateFiles
 import rotate_obj
 import util
-
+import processItem
 
 relative_blockstate_path = "assets/minecraft/blockstates"
 relative_sodium_models_path = "assets/mcme/models"
@@ -222,7 +222,30 @@ else:
     if (input_path / constants.README).exists():
         shutil.copy(input_path / constants.README, output_path / constants.README)
 
-    for blockstate_file in (vanilla_path / constants.RELATIVE_BLOCKSTATE_PATH)\
-                        .glob("*"+constants.BLOCKSTATE_EXTENSION):
-        if blockstate_file.is_file():
-            processBlockstate.process(input_path, output_path, vanilla_path, blockstate_file.name, limit, compress, objmc_path, debug)
+    util.copy_folder(input_path / constants.RELATIVE_SHADER_PATH, output_path / constants.RELATIVE_SHADER_PATH)
+    util.copy_folder(input_path / constants.RELATIVE_OPTIFINE_PATH, output_path / constants.RELATIVE_OPTIFINE_PATH)
+    util.copy_folder(input_path / constants.RELATIVE_TEXTS_PATH, output_path / constants.RELATIVE_TEXTS_PATH)
+    util.copy_folder(input_path / constants.RELATIVE_TEXTURES_ENV_PATH,
+                     output_path / constants.RELATIVE_TEXTURES_ENV_PATH)
+    util.copy_folder(input_path / constants.RELATIVE_TEXTURES_GUI_PATH,
+                     output_path / constants.RELATIVE_TEXTURES_GUI_PATH)
+    util.copy_folder(input_path / constants.RELATIVE_TEXTURES_ENTITY_PATH,
+                     output_path / constants.RELATIVE_TEXTURES_ENTITY_PATH)
+    util.copy_folder(input_path / constants.RELATIVE_TEXTURES_COLORMAP_PATH,
+                     output_path / constants.RELATIVE_TEXTURES_COLORMAP_PATH)
+    util.copy_folder(input_path / constants.RELATIVE_TEXTURES_PARTICLE_PATH,
+                     output_path / constants.RELATIVE_TEXTURES_PARTICLE_PATH)
+    util.copy_folder(input_path / constants.RELATIVE_TEXTURES_PAINTING_PATH,
+                     output_path / constants.RELATIVE_TEXTURES_PAINTING_PATH)
+    util.copy_folder(input_path / constants.RELATIVE_TEXTURES_ARMOR_PATH,
+                     output_path / constants.RELATIVE_TEXTURES_ARMOR_PATH)
+
+#    for blockstate_file in (vanilla_path / constants.RELATIVE_BLOCKSTATE_PATH)\
+#                        .glob("*"+constants.BLOCKSTATE_EXTENSION):
+#        if blockstate_file.is_file():
+#            processBlockstate.process(input_path, output_path, vanilla_path, blockstate_file.name,
+#                                      limit, compress, objmc_path, debug)
+    for item_file in (vanilla_path / constants.RELATIVE_ITEM_PATH)\
+                        .glob("*"+constants.VANILLA_MODEL_EXTENSION):
+        if item_file.is_file():
+            processItem.process(input_path, output_path, vanilla_path, item_file.name, compress, debug)
