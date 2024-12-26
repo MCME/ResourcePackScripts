@@ -42,12 +42,13 @@ def process(input_path, output_path, vanilla_path, file, limit, compress, objmc_
     # if "grass" not in str(file):
     #     return
 
-    util.printDebug(f"Working on blockstate file: {file}", debug)
     input_file = input_path / constants.RELATIVE_BLOCKSTATE_PATH / file
     is_vanilla_blockstate = False
     if not input_file.exists():
+        return
         input_file = vanilla_path / constants.RELATIVE_BLOCKSTATE_PATH / file
         is_vanilla_blockstate = True
+    util.printDebug(f"Working on blockstate file: {file}", debug)
 
     with open(input_file, 'r') as f:
         data = json.load(f)

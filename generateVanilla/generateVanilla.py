@@ -222,7 +222,8 @@ else:
     if (input_path / constants.README).exists():
         shutil.copy(input_path / constants.README, output_path / constants.README)
 
-    util.copy_folder(input_path / constants.RELATIVE_SHADER_PATH, output_path / constants.RELATIVE_SHADER_PATH)
+    util.copy_folder(input_path / constants.RELATIVE_VANILLA_OVERRIDES_PATH / constants.RELATIVE_SHADER_PATH,
+                     output_path / constants.RELATIVE_SHADER_PATH)
     util.copy_folder(input_path / constants.RELATIVE_OPTIFINE_PATH, output_path / constants.RELATIVE_OPTIFINE_PATH)
     util.copy_folder(input_path / constants.RELATIVE_TEXTS_PATH, output_path / constants.RELATIVE_TEXTS_PATH)
     util.copy_folder(input_path / constants.RELATIVE_TEXTURES_ENV_PATH,
@@ -240,12 +241,12 @@ else:
     util.copy_folder(input_path / constants.RELATIVE_TEXTURES_ARMOR_PATH,
                      output_path / constants.RELATIVE_TEXTURES_ARMOR_PATH)
 
-#    for blockstate_file in (vanilla_path / constants.RELATIVE_BLOCKSTATE_PATH)\
-#                        .glob("*"+constants.BLOCKSTATE_EXTENSION):
-#        if blockstate_file.is_file():
-#            processBlockstate.process(input_path, output_path, vanilla_path, blockstate_file.name,
-#                                      limit, compress, objmc_path, debug)
-    for item_file in (vanilla_path / constants.RELATIVE_ITEM_PATH)\
-                        .glob("*"+constants.VANILLA_MODEL_EXTENSION):
-        if item_file.is_file():
-            processItem.process(input_path, output_path, vanilla_path, item_file.name, compress, debug)
+    for blockstate_file in (vanilla_path / constants.RELATIVE_BLOCKSTATE_PATH)\
+                        .glob("*"+constants.BLOCKSTATE_EXTENSION):
+        if blockstate_file.is_file():
+            processBlockstate.process(input_path, output_path, vanilla_path, blockstate_file.name,
+                                      limit, compress, objmc_path, debug)
+#    for item_file in (vanilla_path / constants.RELATIVE_ITEM_PATH)\
+#                        .glob("*"+constants.VANILLA_MODEL_EXTENSION):
+#        if item_file.is_file():
+#            processItem.process(input_path, output_path, vanilla_path, item_file.name, compress, debug)

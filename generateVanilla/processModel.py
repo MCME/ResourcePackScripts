@@ -10,11 +10,16 @@ import constants
 import rotate_obj
 import util
 
+converted_models = dict()
 
 def convert_model(input_path, output_path, model_path, axis, angle, objmc_path, compress, debug):
     util.printDebug(f"    Converting model: {model_path} axis: {axis} angle: {angle}", debug)
-    with open(input_path / constants.RELATIVE_SODIUM_MODELS_PATH
-              / Path(model_path + constants.VANILLA_MODEL_EXTENSION), 'r') as f:
+    vanilla_model_input_file = input_path / constants.RELATIVE_SODIUM_MODELS_PATH \
+                                          / Path(model_path + constants.VANILLA_MODEL_EXTENSION)
+    if not vanilla_model_input_file.exists():
+        print("        WARNING! Expected model file not found: "+str(vanilla_model_input_file))
+        return
+    with open(vanilla_model_input_file, 'r') as f:
         data = json.load(f)
         if "model" in data:
             model_data = data["model"].split(":")
@@ -146,10 +151,40 @@ def convert_model(input_path, output_path, model_path, axis, angle, objmc_path, 
 
             # if debug:
             #    print("objmc Script result: " + str(result.returncode))
+
             with open(output_model_file, 'r') as output_model_json:
                 data = json.load(output_model_json)
                 data['textures']['0'] \
                     = "mcme:" + output_texture_path + model_suffix  # .replace("\\", "/")
+            # Check for already converted model file
+            if model_path in converted_models:
+                del data['elements']
+                del data['display']
+                data['parent'] = model_path + constants.PARENT_SUFFIX
+                if converted_models[model_path] != constants.PARENT_DONE_VALUE:
+                    # link previously converted model to new parent
+                    with open(converted_models[model_path], 'r') as first_model_json:
+                        first_model_data = json.load(first_model_json)
+                        parent_model_data = first_model_data.copy()
+                        del parent_model_data['textures']
+                        del first_model_data['elements']
+                        del first_model_data['display']
+                        first_model_data['parent'] = model_path + constants.PARENT_SUFFIX
+                    with open(converted_models[model_path], 'w') as first_model_json:
+                        if compress:
+                            json.dump(first_model_data, first_model_json, separators=(',', ':'))
+                        else:
+                            json.dump(first_model_data, first_model_json, indent=4)
+                    parent_model_file = output_path / constants.RELATIVE_SODIUM_MODELS_PATH \
+                                        / Path(model_path + constants.PARENT_SUFFIX + constants.VANILLA_MODEL_EXTENSION)
+                    with open(parent_model_file, 'w') as parent_model_json:
+                        if compress:
+                            json.dump(parent_model_data, parent_model_json, separators=(',', ':'))
+                        else:
+                            json.dump(parent_model_data, parent_model_json, indent=4)
+                converted_models[model_path] = constants.PARENT_DONE_VALUE
+            else:
+                converted_models[model_path] = output_model_file
             with open(output_model_file, 'w') as output_model_json:
                 if compress:
                     json.dump(data, output_model_json, separators=(',', ':'))

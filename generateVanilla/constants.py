@@ -1,5 +1,7 @@
 from pathlib import Path
 
+RELATIVE_VANILLA_OVERRIDES_PATH = Path("vanilla")
+
 RELATIVE_BLOCKSTATE_PATH = Path("assets/minecraft/blockstates")
 RELATIVE_SODIUM_MODELS_PATH = Path("assets/mcme/models")
 RELATIVE_SODIUM_TEXTURES_PATH = Path("assets/mcme/textures")
@@ -32,3 +34,5 @@ PACK_PNG = "pack.png"
 LICENCE = "license.txt"
 README = "README.md"
 
+PARENT_DONE_VALUE = "PARENT DONE"
+PARENT_SUFFIX = "_parent"
