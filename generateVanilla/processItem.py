@@ -15,7 +15,8 @@ def process_parent(input_path, output_path, parent, debug):
         parent_file = (input_path / constants.RELATIVE_VANILLA_MODELS_PATH /
                                     (parent + constants.VANILLA_MODEL_EXTENSION))
         if parent_file.exists():
-            output_file = output_path / constants.RELATIVE_VANILLA_MODELS_PATH / (parent + constants.VANILLA_MODEL_EXTENSION)
+            output_file = (output_path / constants.RELATIVE_VANILLA_MODELS_PATH
+                                       / (parent + constants.VANILLA_MODEL_EXTENSION))
             util.printDebug(f"        Copying model: {parent}", debug)
             # print("Input: "+str(parent_file))
             # print("Output: "+str(output_file))
@@ -72,6 +73,6 @@ def process(input_path, output_path, vanilla_path, file, compress, debug):
         os.makedirs(output_file.parent, exist_ok=True)
         with open(output_file, 'w') as file:
             if compress:
-                json.dump(data, file, separators=(',', ':'))
+                json.dump(data, file, separators=(',', ':'))  # type: ignore
             else:
-                json.dump(data, file, indent=4)
+                json.dump(data, file, indent=4)  # type: ignore

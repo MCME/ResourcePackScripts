@@ -26,7 +26,7 @@ relative_vanilla_textures_path = "assets/minecraft/textures"
 def work_on_obj_file(relative_filepath):
     filename = relative_filepath.name
     # printDebug(" ")
-    util.printDebug(f"work_on_obj_file: {relative_filepath}")
+    util.printDebug(f"work_on_obj_file: {relative_filepath}", True)
     # printDebug(f"input path is: {input_path}")
     blockstate_path = input_path / Path('assets/minecraft/blockstates')
     # printDebug(f"blockstates path is: {blockstate_path}")
@@ -132,15 +132,15 @@ def work_on_obj_file(relative_filepath):
                 result = subprocess.run(runList, check=True,
                                         stdout=subprocess.PIPE,
                                         stderr=subprocess.PIPE)
-                util.printDebug("objmc Script result: " + str(result.returncode))
+                util.printDebug("objmc Script result: " + str(result.returncode), debug)
                 with open(rot_output_model, 'r') as output_model_json:
-                    data = json.load(output_model_json)
-                    data['textures']['0'] \
+                    output_data = json.load(output_model_json)
+                    output_data['textures']['0'] \
                         = "mcme:" + str(Path(rot_output_texture)
                                         .relative_to(output_path / Path("assets/mcme/textures"))) \
                         .replace("\\", "/")
                 with open(rot_output_model, 'w') as output_model_json:
-                    json.dump(data, output_model_json, indent=4)
+                    json.dump(output_data, output_model_json, indent=4)  # type: ignore
                     # json.dump(data, output_model_json, separators=(',', ':'))
             except subprocess.CalledProcessError as e:
                 print(f"Error running process script: {e}")
@@ -214,7 +214,7 @@ else:
             data['pack']['description'] = data['pack']['description'].replace("Sodium", "Vanilla")
         pack_mcmeta_file = output_path / constants.PACK_MCMETA
         with open(pack_mcmeta_file, 'w') as f:
-            json.dump(data, f, indent=4)
+            json.dump(data, f, indent=4)  # type: ignore
     if (input_path / constants.PACK_PNG).exists():
         shutil.copy(input_path / constants.PACK_PNG, output_path / constants.PACK_PNG)
     if (input_path / constants.LICENCE).exists():
@@ -240,13 +240,18 @@ else:
                      output_path / constants.RELATIVE_TEXTURES_PAINTING_PATH)
     util.copy_folder(input_path / constants.RELATIVE_TEXTURES_ARMOR_PATH,
                      output_path / constants.RELATIVE_TEXTURES_ARMOR_PATH)
+    util.copy_folder(input_path / constants.RELATIVE_SOUNDS_PATH / Path("sounds"),
+                     output_path / constants.RELATIVE_SOUNDS_PATH / Path("sounds"))
+    sound_json = constants.RELATIVE_SOUNDS_PATH / Path("sounds.json")
+    if (input_path / sound_json).exists():
+        shutil.copy(input_path / sound_json, output_path / sound_json)
 
     for blockstate_file in (vanilla_path / constants.RELATIVE_BLOCKSTATE_PATH)\
                         .glob("*"+constants.BLOCKSTATE_EXTENSION):
         if blockstate_file.is_file():
             processBlockstate.process(input_path, output_path, vanilla_path, blockstate_file.name,
                                       limit, compress, objmc_path, debug)
-#    for item_file in (vanilla_path / constants.RELATIVE_ITEM_PATH)\
-#                        .glob("*"+constants.VANILLA_MODEL_EXTENSION):
-#        if item_file.is_file():
-#            processItem.process(input_path, output_path, vanilla_path, item_file.name, compress, debug)
+    for item_file in (vanilla_path / constants.RELATIVE_ITEM_PATH)\
+                        .glob("*"+constants.VANILLA_MODEL_EXTENSION):
+        if item_file.is_file():
+            processItem.process(input_path, output_path, vanilla_path, item_file.name, compress, debug)

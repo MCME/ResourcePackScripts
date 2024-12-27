@@ -18,6 +18,7 @@ RELATIVE_TEXTURES_COLORMAP_PATH = Path("assets/minecraft/textures/colormap")
 RELATIVE_TEXTURES_PAINTING_PATH = Path("assets/minecraft/textures/painting")
 RELATIVE_TEXTURES_PARTICLE_PATH = Path("assets/minecraft/textures/particle")
 RELATIVE_TEXTURES_ARMOR_PATH = Path("assets/minecraft/textures/models")
+RELATIVE_SOUNDS_PATH = Path("assets/mcme")
 
 OBJ_MODEL_EXTENSION = ".obj"
 VANILLA_MODEL_EXTENSION = ".json"

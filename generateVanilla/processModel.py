@@ -12,6 +12,7 @@ import util
 
 converted_models = dict()
 
+
 def convert_model(input_path, output_path, model_path, axis, angle, objmc_path, compress, debug):
     util.printDebug(f"    Converting model: {model_path} axis: {axis} angle: {angle}", debug)
     vanilla_model_input_file = input_path / constants.RELATIVE_SODIUM_MODELS_PATH \
@@ -43,6 +44,7 @@ def convert_model(input_path, output_path, model_path, axis, angle, objmc_path, 
     offset = ['-0.5', '0.0', '-0.5']
     texture_path = None
     output_texture_path = None
+    manual_parent_model = None
 
     # read values from objmeta file
     if os.path.exists(meta_file):
@@ -55,6 +57,7 @@ def convert_model(input_path, output_path, model_path, axis, angle, objmc_path, 
             offset = meta_data.get('offset', '-0.5 0.0 -0.5').split()
             options = meta_data.get('options', [])
             visibility = meta_data.get('visibility', 7)
+            manual_parent_model = meta_data.get('parent', None)
 
         except FileNotFoundError:
             print(f"Meta file not found for {model_path})")
@@ -149,15 +152,25 @@ def convert_model(input_path, output_path, model_path, axis, angle, objmc_path, 
                                     stderr=subprocess.PIPE)
             # sys.exit()
 
-            # if debug:
-            #    print("objmc Script result: " + str(result.returncode))
+            util.printDebug("objmc Script result: " + str(result.returncode), False)
 
             with open(output_model_file, 'r') as output_model_json:
                 data = json.load(output_model_json)
                 data['textures']['0'] \
                     = "mcme:" + output_texture_path + model_suffix  # .replace("\\", "/")
+                data['textures']['particle'] = "mcme:" + output_texture_path + model_suffix
             # Check for already converted model file
-            if model_path in converted_models:
+            if manual_parent_model:
+                del data['elements']
+                del data['display']
+                data['parent'] = manual_parent_model
+                if not converted_models[manual_parent_model]:
+                    override_model_file = (input_path / constants.RELATIVE_VANILLA_OVERRIDES_PATH
+                                                      / constants.RELATIVE_SODIUM_MODELS_PATH / manual_parent_model)
+                    shutil.copy(override_model_file, output_path / constants.RELATIVE_SODIUM_MODELS_PATH
+                                                                 / manual_parent_model)
+                    converted_models[manual_parent_model] = constants.PARENT_DONE_VALUE
+            elif model_path in converted_models:
                 del data['elements']
                 del data['display']
                 data['parent'] = model_path + constants.PARENT_SUFFIX
@@ -172,24 +185,24 @@ def convert_model(input_path, output_path, model_path, axis, angle, objmc_path, 
                         first_model_data['parent'] = model_path + constants.PARENT_SUFFIX
                     with open(converted_models[model_path], 'w') as first_model_json:
                         if compress:
-                            json.dump(first_model_data, first_model_json, separators=(',', ':'))
+                            json.dump(first_model_data, first_model_json, separators=(',', ':'))  # type: ignore
                         else:
-                            json.dump(first_model_data, first_model_json, indent=4)
+                            json.dump(first_model_data, first_model_json, indent=4)  # type: ignore
                     parent_model_file = output_path / constants.RELATIVE_SODIUM_MODELS_PATH \
                                         / Path(model_path + constants.PARENT_SUFFIX + constants.VANILLA_MODEL_EXTENSION)
-                    with open(parent_model_file, 'w') as parent_model_json:
+                    with parent_model_file.open('w') as parent_model_json:
                         if compress:
-                            json.dump(parent_model_data, parent_model_json, separators=(',', ':'))
+                            json.dump(parent_model_data, parent_model_json, separators=(',', ':'))  # type: ignore
                         else:
-                            json.dump(parent_model_data, parent_model_json, indent=4)
+                            json.dump(parent_model_data, parent_model_json, indent=4)  # type: ignore
                 converted_models[model_path] = constants.PARENT_DONE_VALUE
             else:
                 converted_models[model_path] = output_model_file
             with open(output_model_file, 'w') as output_model_json:
                 if compress:
-                    json.dump(data, output_model_json, separators=(',', ':'))
+                    json.dump(data, output_model_json, separators=(',', ':'))  # type: ignore
                 else:
-                    json.dump(data, output_model_json, indent=4)
+                    json.dump(data, output_model_json, indent=4)  # type: ignore
         except subprocess.CalledProcessError as e:
             print(f"Error running process script: {e}")
             print("Script output (stdout):", e.stdout.decode('utf-8') if e.stdout else "No stdout")

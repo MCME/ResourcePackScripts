@@ -45,7 +45,7 @@ def process(input_path, output_path, vanilla_path, file, limit, compress, objmc_
     input_file = input_path / constants.RELATIVE_BLOCKSTATE_PATH / file
     is_vanilla_blockstate = False
     if not input_file.exists():
-        return
+        # return
         input_file = vanilla_path / constants.RELATIVE_BLOCKSTATE_PATH / file
         is_vanilla_blockstate = True
     util.printDebug(f"Working on blockstate file: {file}", debug)
@@ -65,6 +65,6 @@ def process(input_path, output_path, vanilla_path, file, limit, compress, objmc_
         os.makedirs(output_file.parent, exist_ok=True)
         with open(output_file, 'w') as file:
             if compress:
-                json.dump(data, file, separators=(',', ':'))
+                json.dump(data, file, separators=(',', ':'))  # type: ignore
             else:
-                json.dump(data, file, indent=4)
+                json.dump(data, file, indent=4)  # type: ignore
