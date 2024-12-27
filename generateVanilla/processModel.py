@@ -57,7 +57,7 @@ def convert_model(input_path, output_path, model_path, axis, angle, objmc_path, 
             offset = meta_data.get('offset', '-0.5 0.0 -0.5').split()
             options = meta_data.get('options', [])
             visibility = meta_data.get('visibility', 7)
-            manual_parent_model = meta_data.get('parent', None)
+            manual_parent_model = meta_data.get('parent', None).split(':')[-1].strip()
 
         except FileNotFoundError:
             print(f"Meta file not found for {model_path})")
