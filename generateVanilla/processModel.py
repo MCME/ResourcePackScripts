@@ -166,9 +166,10 @@ def convert_model(input_path, output_path, model_path, axis, angle, objmc_path, 
                 data['parent'] = constants.MCME_NAMESPACE + ":" + manual_parent_model
                 if not converted_models[manual_parent_model]:
                     override_model_file = (input_path / constants.RELATIVE_VANILLA_OVERRIDES_PATH
-                                                      / constants.RELATIVE_SODIUM_MODELS_PATH / manual_parent_model)
+                                                      / constants.RELATIVE_SODIUM_MODELS_PATH
+                                                      / Path(manual_parent_model+constants.VANILLA_MODEL_EXTENSION))
                     shutil.copy(override_model_file, output_path / constants.RELATIVE_SODIUM_MODELS_PATH
-                                                                 / manual_parent_model)
+                                                      / Path(manual_parent_model+constants.VANILLA_MODEL_EXTENSION))
                     converted_models[manual_parent_model] = constants.PARENT_DONE_VALUE
             elif model_path in converted_models:
                 del data['elements']
