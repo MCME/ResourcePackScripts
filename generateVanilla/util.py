@@ -1,5 +1,6 @@
 import os
 import shutil
+import constants
 
 
 def printDebug(message, debug):
@@ -20,3 +21,19 @@ def copy_folder(source, destination):
                 shutil.copy2(source_path, destination_path)  # Kopiert Dateien
     else:
         print("copy_folder: Expected source not found: "+str(source))
+
+
+def get_relative_model_path(namespaced_key):
+    namespace = namespaced_key.split(":")[0]
+    if namespace == constants.MCME_NAMESPACE:
+        return constants.RELATIVE_SODIUM_MODELS_PATH
+    else:
+        return constants.RELATIVE_VANILLA_MODELS_PATH
+
+
+def get_relative_texture_path(namespaced_key):
+    namespace = namespaced_key.split(":")[0]
+    if namespace == constants.MCME_NAMESPACE:
+        return constants.RELATIVE_SODIUM_TEXTURES_PATH
+    else:
+        return constants.RELATIVE_VANILLA_MODELS_PATH

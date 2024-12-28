@@ -175,6 +175,8 @@ parser.add_argument('--objmc',
                     default='objmc.py')
 parser.add_argument('--debug', action='store_true', help='Create debug output.')
 parser.add_argument('--compress', action='store_true', help='Compress generated .json files.')
+parser.add_argument('--noblocks', action='store_true', help='Do not process blockstate files.')
+parser.add_argument('--noitems', action='store_true', help='Do not process item models files.')
 
 # parse arguments
 args = parser.parse_args()
@@ -190,6 +192,8 @@ objmc_path = Path(args.objmc)
 debug = args.debug
 limit = int(args.limit)
 compress = args.compress
+no_blocks = args.noblocks
+no_items = args.noitems
 
 print("Generating vanilla resource pack!")
 
@@ -246,12 +250,15 @@ else:
     if (input_path / sound_json).exists():
         shutil.copy(input_path / sound_json, output_path / sound_json)
 
-    for blockstate_file in (vanilla_path / constants.RELATIVE_BLOCKSTATE_PATH)\
-                        .glob("*"+constants.BLOCKSTATE_EXTENSION):
-        if blockstate_file.is_file():
-            processBlockstate.process(input_path, output_path, vanilla_path, blockstate_file.name,
-                                      limit, compress, objmc_path, debug)
-    for item_file in (vanilla_path / constants.RELATIVE_VANILLA_MODELS_PATH)\
-                        .glob("item/*"+constants.VANILLA_MODEL_EXTENSION):
-        if item_file.is_file():
-            processItem.process(input_path, output_path, vanilla_path, "item/"+item_file.name, compress, debug)
+    if not no_blocks:
+        for blockstate_file in (vanilla_path / constants.RELATIVE_BLOCKSTATE_PATH)\
+                            .glob("*"+constants.BLOCKSTATE_EXTENSION):
+            if blockstate_file.is_file():
+                processBlockstate.process(input_path, output_path, vanilla_path, blockstate_file.name,
+                                          limit, compress, objmc_path, debug)
+    if not no_items:
+        for item_file in (vanilla_path / constants.RELATIVE_VANILLA_MODELS_PATH)\
+                            .glob("item/*"+constants.VANILLA_MODEL_EXTENSION):
+            if item_file.is_file():
+                processItem.process(input_path, output_path, vanilla_path, constants.RELATIVE_VANILLA_MODELS_PATH,
+                                    "item/"+item_file.name, compress, debug)
