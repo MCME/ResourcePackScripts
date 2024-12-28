@@ -157,13 +157,13 @@ def convert_model(input_path, output_path, model_path, axis, angle, objmc_path, 
             with open(output_model_file, 'r') as output_model_json:
                 data = json.load(output_model_json)
                 data['textures']['0'] \
-                    = "mcme:" + output_texture_path + model_suffix  # .replace("\\", "/")
-                data['textures']['particle'] = "mcme:" + output_texture_path + model_suffix
+                    = constants.MCME_NAMESPACE + ":" + output_texture_path + model_suffix  # .replace("\\", "/")
+                data['textures']['particle'] = constants.MCME_NAMESPACE + ":" + output_texture_path + model_suffix
             # Check for already converted model file
             if manual_parent_model:
                 del data['elements']
                 del data['display']
-                data['parent'] = manual_parent_model
+                data['parent'] = constants.MCME_NAMESPACE + ":" + manual_parent_model
                 if not converted_models[manual_parent_model]:
                     override_model_file = (input_path / constants.RELATIVE_VANILLA_OVERRIDES_PATH
                                                       / constants.RELATIVE_SODIUM_MODELS_PATH / manual_parent_model)
@@ -173,16 +173,17 @@ def convert_model(input_path, output_path, model_path, axis, angle, objmc_path, 
             elif model_path in converted_models:
                 del data['elements']
                 del data['display']
-                data['parent'] = model_path + constants.PARENT_SUFFIX
+                data['parent'] = constants.MCME_NAMESPACE + ":" + model_path + constants.PARENT_SUFFIX
                 if converted_models[model_path] != constants.PARENT_DONE_VALUE:
                     # link previously converted model to new parent
-                    with open(converted_models[model_path], 'r') as first_model_json:
+                    with (open(converted_models[model_path], 'r') as first_model_json):
                         first_model_data = json.load(first_model_json)
                         parent_model_data = first_model_data.copy()
                         del parent_model_data['textures']
                         del first_model_data['elements']
                         del first_model_data['display']
-                        first_model_data['parent'] = model_path + constants.PARENT_SUFFIX
+                        first_model_data['parent'] = constants.MCME_NAMESPACE + ":" \
+                                                    + model_path + constants.PARENT_SUFFIX
                     with open(converted_models[model_path], 'w') as first_model_json:
                         if compress:
                             json.dump(first_model_data, first_model_json, separators=(',', ':'))  # type: ignore

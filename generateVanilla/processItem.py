@@ -9,7 +9,7 @@ import os
 
 
 def process_parent(input_path, output_path, parent, debug):
-    util.printDebug("Process item parent: "+parent, debug)
+    util.printDebug("    Process item parent: "+parent, debug)
     if not parent.startswith("builtin"):
         parent = parent.split(":")[-1]
         parent_file = (input_path / constants.RELATIVE_VANILLA_MODELS_PATH /
@@ -26,7 +26,7 @@ def process_parent(input_path, output_path, parent, debug):
 
 def process_textures(input_path, output_path, textures, debug):
     for texture_name, texture_filename in textures.items():
-        util.printDebug("Process item texture: "+texture_filename, debug)
+        util.printDebug("    Process item texture: "+texture_filename, debug)
         texture_file_relative = (constants.RELATIVE_VANILLA_TEXTURES_PATH
                                  / Path(texture_filename.split(":")[-1] + constants.TEXTURE_EXTENSION))
         texture_file = input_path / texture_file_relative
@@ -40,21 +40,26 @@ def process_textures(input_path, output_path, textures, debug):
             shutil.copy(texture_file, output_file)
 
 
-def process_overrides(input_path, output_path, vanilla_path, overrides, compress, debug):
+def process_overrides(input_path, output_path, vanilla_path, item_model, overrides, compress, debug):
     for part in overrides:
-        util.printDebug("Process override: " + str(part), debug)
-        process(input_path, output_path, vanilla_path,
-                part["model"].split(":")[-1] + constants.VANILLA_MODEL_EXTENSION, compress, debug)
+        util.printDebug("    Process override: " + str(part), debug)
+        override_model = part["model"].split(":")[-1] + constants.VANILLA_MODEL_EXTENSION
+        if not item_model == override_model:
+            process(input_path, output_path, vanilla_path, override_model, compress, debug)
 
 
-def process(input_path, output_path, vanilla_path, file, compress, debug):
-    input_file = input_path / constants.RELATIVE_ITEM_PATH / file
+def process(input_path, output_path, vanilla_path, item_model, compress, debug):
+    input_file = input_path / constants.RELATIVE_VANILLA_MODELS_PATH / item_model
+    # print(input_file)
     is_vanilla_model = False
     if not input_file.exists():
-        input_file = vanilla_path / constants.RELATIVE_ITEM_PATH / file
+        input_file = vanilla_path / constants.RELATIVE_VANILLA_MODELS_PATH / item_model
         is_vanilla_model = True
-    util.printDebug(f"Working on item model file: {file} Vanilla: {is_vanilla_model}", debug)
-
+    util.printDebug(f"Working on item model file: {item_model} Vanilla: {is_vanilla_model}", debug)
+    if not input_file.exists():
+        util.printDebug("  WARNING! Expected item model file not found: "
+                        + str(input_path / constants.RELATIVE_VANILLA_MODELS_PATH / item_model), debug)
+        return
     with open(input_file, 'r') as f:
         data = json.load(f)
 
@@ -64,12 +69,12 @@ def process(input_path, output_path, vanilla_path, file, compress, debug):
     if "textures" in data:
         process_textures(input_path, output_path, data["textures"], debug)
     if "overrides" in data:
-        process_overrides(input_path, output_path, vanilla_path, data["overrides"], compress, debug)
+        process_overrides(input_path, output_path, vanilla_path, item_model, data["overrides"], compress, debug)
 
     # write vanilla item model file
     if not is_vanilla_model:
-        output_file = output_path / constants.RELATIVE_ITEM_PATH / file
-        util.printDebug(f"Copying item model: {output_file}", debug)
+        output_file = output_path / constants.RELATIVE_VANILLA_MODELS_PATH / item_model
+        util.printDebug(f"    Copying item model: {output_file}", debug)
         os.makedirs(output_file.parent, exist_ok=True)
         with open(output_file, 'w') as file:
             if compress:
