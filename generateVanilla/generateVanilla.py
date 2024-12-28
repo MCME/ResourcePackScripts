@@ -246,11 +246,11 @@ else:
     if (input_path / sound_json).exists():
         shutil.copy(input_path / sound_json, output_path / sound_json)
 
-#    for blockstate_file in (vanilla_path / constants.RELATIVE_BLOCKSTATE_PATH)\
-#                        .glob("*"+constants.BLOCKSTATE_EXTENSION):
-#        if blockstate_file.is_file():
-#            processBlockstate.process(input_path, output_path, vanilla_path, blockstate_file.name,
-#                                      limit, compress, objmc_path, debug)
+    for blockstate_file in (vanilla_path / constants.RELATIVE_BLOCKSTATE_PATH)\
+                        .glob("*"+constants.BLOCKSTATE_EXTENSION):
+        if blockstate_file.is_file():
+            processBlockstate.process(input_path, output_path, vanilla_path, blockstate_file.name,
+                                      limit, compress, objmc_path, debug)
     for item_file in (vanilla_path / constants.RELATIVE_VANILLA_MODELS_PATH)\
                         .glob("item/*"+constants.VANILLA_MODEL_EXTENSION):
         if item_file.is_file():
