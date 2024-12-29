@@ -37,9 +37,15 @@ def process_textures(input_path, output_path, textures, debug):
         util.printDebug("    Process item texture: "+texture_filename, debug)
         relative_path = util.get_relative_texture_path(texture_filename)
         texture_file_relative = (relative_path / Path(texture_filename.split(":")[-1] + constants.TEXTURE_EXTENSION))
+        texture_mcmeta_file_relative = (relative_path / Path(texture_filename.split(":")[-1]
+                                        + constants.TEXTURE_EXTENSION + constants.MCMETA_EXTENSION))
         texture_override_file = input_path / constants.RELATIVE_VANILLA_OVERRIDES_PATH / texture_file_relative
         texture_file = input_path / texture_file_relative
+        texture_mcmeta_override_file = (input_path / constants.RELATIVE_VANILLA_OVERRIDES_PATH
+                                        / texture_mcmeta_file_relative)
+        texture_mcmeta_file = input_path / texture_mcmeta_file_relative
         output_file = (output_path / texture_file_relative)
+        meta_output_file = (output_path / texture_mcmeta_file_relative)
         os.makedirs(output_file.parent, exist_ok=True)
         if texture_override_file.exists():
             util.printDebug(f"        Copying manual texture: {texture_file_relative}", debug)
@@ -52,6 +58,13 @@ def process_textures(input_path, output_path, textures, debug):
             if not output_file.exists():
                 os.makedirs(output_file.parent, exist_ok=True)
                 shutil.copy(texture_file, output_file)
+        if texture_mcmeta_override_file.exists():
+            util.printDebug(f"        Copying manual texture mcmeta: {texture_file_relative}", debug)
+            shutil.copy(texture_mcmeta_override_file, meta_output_file)
+        elif texture_mcmeta_file.exists():
+            util.printDebug(f"        Copying texture mcmeta: {texture_file_relative}", debug)
+            if not meta_output_file.exists():
+                shutil.copy(texture_mcmeta_file, meta_output_file)
 
 
 def process_overrides(input_path, output_path, vanilla_path, item_model, overrides, compress, debug):
@@ -79,6 +92,7 @@ def process(input_path, output_path, vanilla_path, relative_path, item_model, co
         util.printDebug("    WARNING! Expected item model file not found: "
                         + str(input_path / relative_path / item_model), debug)
         return
+    print(input_file)
     with open(input_file, 'r') as f:
         data = json.load(f)
 

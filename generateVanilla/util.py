@@ -37,3 +37,11 @@ def get_relative_texture_path(namespaced_key):
         return constants.RELATIVE_SODIUM_TEXTURES_PATH
     else:
         return constants.RELATIVE_VANILLA_MODELS_PATH
+
+
+def remove_tintindex(data):
+    if "elements" in data:
+        for element in data["elements"]:
+            if "faces" in element:
+                for face in element["faces"].values():
+                    face.pop("tintindex", None)

@@ -159,10 +159,13 @@ def convert_model(input_path, output_path, model_path, axis, angle, objmc_path, 
                 data['textures']['0'] \
                     = constants.MCME_NAMESPACE + ":" + output_texture_path + model_suffix  # .replace("\\", "/")
                 data['textures']['particle'] = constants.MCME_NAMESPACE + ":" + output_texture_path + model_suffix
+                del data['display']
+                del data['gui_light']
+                util.remove_tintindex(data)
             # Check for already converted model file
             if manual_parent_model:
                 del data['elements']
-                del data['display']
+                # del data['display']
                 data['parent'] = constants.MCME_NAMESPACE + ":" + manual_parent_model
                 if manual_parent_model not in converted_models:
                     override_model_file = (input_path / constants.RELATIVE_VANILLA_OVERRIDES_PATH
@@ -173,7 +176,7 @@ def convert_model(input_path, output_path, model_path, axis, angle, objmc_path, 
                     converted_models[manual_parent_model] = constants.PARENT_DONE_VALUE
             elif model_path in converted_models:
                 del data['elements']
-                del data['display']
+                # del data['display']
                 data['parent'] = constants.MCME_NAMESPACE + ":" + model_path + constants.PARENT_SUFFIX
                 if converted_models[model_path] != constants.PARENT_DONE_VALUE:
                     # link previously converted model to new parent
@@ -182,7 +185,7 @@ def convert_model(input_path, output_path, model_path, axis, angle, objmc_path, 
                         parent_model_data = first_model_data.copy()
                         del parent_model_data['textures']
                         del first_model_data['elements']
-                        del first_model_data['display']
+                        # del first_model_data['display']
                         first_model_data['parent'] = constants.MCME_NAMESPACE + ":" \
                                                     + model_path + constants.PARENT_SUFFIX
                     with open(converted_models[model_path], 'w') as first_model_json:
@@ -238,11 +241,18 @@ def copy_textures(model_path, texture_path, output_path, model_file_relative, de
 
                 texture_file_relative = relative_path \
                                         / Path(texture_filename + constants.TEXTURE_EXTENSION)
+                texture_mcmeta_file_relative = relative_path \
+                                / Path(texture_filename + constants.TEXTURE_EXTENSION + constants.MCMETA_EXTENSION)
                 os.makedirs((output_path / texture_file_relative).parent, exist_ok=True)
                 texture_file = texture_path / texture_file_relative
                 if texture_file.exists():
                     util.printDebug(f"        Copying texture: {texture_file_relative}", debug)
                     shutil.copy(texture_file, output_path / texture_file_relative)
+                if texture_mcmeta_file_relative.exists():
+                    util.printDebug(f"        Copying texture mcmeta: {texture_mcmeta_file_relative}", debug)
+                    shutil.copy(texture_path / texture_mcmeta_file_relative,
+                                output_path / texture_mcmeta_file_relative)
+
 
 
 def copy_parent(input_path, output_path, model_file_relative, debug):
