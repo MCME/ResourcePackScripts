@@ -92,7 +92,7 @@ def process(input_path, output_path, vanilla_path, relative_path, item_model, co
         util.printDebug("    WARNING! Expected item model file not found: "
                         + str(input_path / relative_path / item_model), debug)
         return
-    print(input_file)
+    # print(input_file)
     with open(input_file, 'r') as f:
         data = json.load(f)
 

@@ -160,7 +160,8 @@ def convert_model(input_path, output_path, model_path, axis, angle, objmc_path, 
                     = constants.MCME_NAMESPACE + ":" + output_texture_path + model_suffix  # .replace("\\", "/")
                 data['textures']['particle'] = constants.MCME_NAMESPACE + ":" + output_texture_path + model_suffix
                 del data['display']
-                del data['gui_light']
+                if 'gui_light' in data:
+                    del data['gui_light']
                 util.remove_tintindex(data)
             # Check for already converted model file
             if manual_parent_model:
@@ -248,11 +249,10 @@ def copy_textures(model_path, texture_path, output_path, model_file_relative, de
                 if texture_file.exists():
                     util.printDebug(f"        Copying texture: {texture_file_relative}", debug)
                     shutil.copy(texture_file, output_path / texture_file_relative)
-                if texture_mcmeta_file_relative.exists():
+                if (texture_path / texture_mcmeta_file_relative).exists():
                     util.printDebug(f"        Copying texture mcmeta: {texture_mcmeta_file_relative}", debug)
                     shutil.copy(texture_path / texture_mcmeta_file_relative,
                                 output_path / texture_mcmeta_file_relative)
-
 
 
 def copy_parent(input_path, output_path, model_file_relative, debug):
