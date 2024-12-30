@@ -32,39 +32,36 @@ def process_parent(input_path, output_path, parent, debug):
                 shutil.copy(parent_file, output_file)
 
 
-def process_textures(input_path, output_path, textures, debug):
-    for texture_name, texture_filename in textures.items():
-        util.printDebug("    Process item texture: "+texture_filename, debug)
-        relative_path = util.get_relative_texture_path(texture_filename)
-        texture_file_relative = (relative_path / Path(texture_filename.split(":")[-1] + constants.TEXTURE_EXTENSION))
-        texture_mcmeta_file_relative = (relative_path / Path(texture_filename.split(":")[-1]
-                                        + constants.TEXTURE_EXTENSION + constants.MCMETA_EXTENSION))
-        texture_override_file = input_path / constants.RELATIVE_VANILLA_OVERRIDES_PATH / texture_file_relative
-        texture_file = input_path / texture_file_relative
-        texture_mcmeta_override_file = (input_path / constants.RELATIVE_VANILLA_OVERRIDES_PATH
-                                        / texture_mcmeta_file_relative)
-        texture_mcmeta_file = input_path / texture_mcmeta_file_relative
-        output_file = (output_path / texture_file_relative)
-        meta_output_file = (output_path / texture_mcmeta_file_relative)
+def copy_file(input_path, output_path, relative_file_path, required, debug):
+    texture_override_file = input_path / constants.RELATIVE_VANILLA_OVERRIDES_PATH / relative_file_path
+    texture_file = input_path / relative_file_path
+    output_file = (output_path / relative_file_path)
+    print("copy_file Input: "+str(texture_file))
+    print("copy_file Output: "+str(output_file))
+    os.makedirs(output_file.parent, exist_ok=True)
+    if texture_override_file.exists():
+        util.printDebug(f"        Copying manual texture: {relative_file_path}", debug)
         os.makedirs(output_file.parent, exist_ok=True)
-        if texture_override_file.exists():
-            util.printDebug(f"        Copying manual texture: {texture_file_relative}", debug)
-            os.makedirs(output_file.parent, exist_ok=True)
-            shutil.copy(texture_override_file, output_file)
-        elif texture_file.exists():
-            util.printDebug(f"        Copying texture: {texture_file_relative}", debug)
-            # print("Input: "+str(texture_file))
-            # print("Output: "+str(output_file))
-            if not output_file.exists():
-                os.makedirs(output_file.parent, exist_ok=True)
-                shutil.copy(texture_file, output_file)
-        if texture_mcmeta_override_file.exists():
-            util.printDebug(f"        Copying manual texture mcmeta: {texture_file_relative}", debug)
-            shutil.copy(texture_mcmeta_override_file, meta_output_file)
-        elif texture_mcmeta_file.exists():
-            util.printDebug(f"        Copying texture mcmeta: {texture_file_relative}", debug)
-            if not meta_output_file.exists():
-                shutil.copy(texture_mcmeta_file, meta_output_file)
+        shutil.copy(texture_override_file, output_file)
+    elif texture_file.exists():
+        util.printDebug(f"        Copying texture: {relative_file_path}", debug)
+        os.makedirs(output_file.parent, exist_ok=True)
+        if not output_file.exists():
+            shutil.copy(texture_file, output_file)
+    elif required:
+        print(f"        WARNING! Texture file not found: {texture_file}")
+
+
+def process_textures(input_path, output_path, textures, debug):
+    for texture_name, texture_namespace_and_filename in textures.items():
+        util.printDebug("    Process item texture: "+texture_namespace_and_filename, debug)
+        relative_path = util.get_relative_texture_path(texture_namespace_and_filename)
+        texture_filename = texture_namespace_and_filename.split(":")[-1]
+        texture_file_relative = (relative_path / Path(texture_filename + constants.TEXTURE_EXTENSION))
+        texture_mcmeta_file_relative = (relative_path / Path(texture_filename
+                                        + constants.TEXTURE_EXTENSION + constants.MCMETA_EXTENSION))
+        copy_file(input_path, output_path, texture_file_relative, True, debug)
+        copy_file(input_path, output_path, texture_mcmeta_file_relative, False, debug)
 
 
 def process_overrides(input_path, output_path, vanilla_path, item_model, overrides, compress, debug):

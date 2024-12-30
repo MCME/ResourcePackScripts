@@ -36,7 +36,7 @@ def get_relative_texture_path(namespaced_key):
     if namespace == constants.MCME_NAMESPACE:
         return constants.RELATIVE_SODIUM_TEXTURES_PATH
     else:
-        return constants.RELATIVE_VANILLA_MODELS_PATH
+        return constants.RELATIVE_VANILLA_TEXTURES_PATH
 
 
 def remove_tintindex(data):
