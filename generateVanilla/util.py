@@ -1,11 +1,21 @@
 import os
 import shutil
 import constants
+import logging
+
+
+logging.basicConfig(
+    level=logging.DEBUG,  # Mindestlevel der Nachrichten
+    format='%(asctime)s - %(levelname)s - %(message)s',  # Format der Nachrichten
+    filename='debug.log',  # Log-File, in das geschrieben wird
+    filemode='w'  # 'w' überschreibt das File, 'a' hängt an das File an
+)
 
 
 def printDebug(message, debug):
     if debug:
         print(message, flush=True)
+        logging.info(message)
 
 
 def copy_folder(source, destination):
