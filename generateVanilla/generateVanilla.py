@@ -197,6 +197,8 @@ no_items = args.noitems
 
 print("Generating vanilla resource pack!")
 
+if not output_path.exists():
+    os.makedirs(output_path)
 if args.changes:
     changed_files_path = args.changes
 
@@ -217,6 +219,8 @@ else:
             data = json.load(f)
             data['pack']['description'] = data['pack']['description'].replace("Sodium", "Vanilla")
         pack_mcmeta_file = output_path / constants.PACK_MCMETA
+        if not pack_mcmeta_file.exists():
+            pack_mcmeta_file.touch(exist_ok=True)
         with open(pack_mcmeta_file, 'w') as f:
             json.dump(data, f, indent=4)  # type: ignore
     if (input_path / constants.PACK_PNG).exists():
@@ -250,6 +254,9 @@ else:
     if (input_path / sound_json).exists():
         shutil.copy(input_path / sound_json, output_path / sound_json)
 
+    for folder in input_path.iterdir():
+        if folder.is_dir() and folder.name.startswith("1_"):
+            util.copy_folder(folder, output_path / Path(folder.name))
     if not no_blocks:
         for blockstate_file in (vanilla_path / constants.RELATIVE_BLOCKSTATE_PATH)\
                             .glob("*"+constants.BLOCKSTATE_EXTENSION):
