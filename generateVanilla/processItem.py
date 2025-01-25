@@ -36,8 +36,6 @@ def copy_file(input_path, output_path, relative_file_path, required, debug):
     texture_override_file = input_path / constants.RELATIVE_VANILLA_OVERRIDES_PATH / relative_file_path
     texture_file = input_path / relative_file_path
     output_file = (output_path / relative_file_path)
-    print("copy_file Input: "+str(texture_file))
-    print("copy_file Output: "+str(output_file))
     os.makedirs(output_file.parent, exist_ok=True)
     if texture_override_file.exists():
         util.printDebug(f"        Copying manual texture: {relative_file_path}", debug)
