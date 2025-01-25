@@ -257,6 +257,9 @@ else:
     for folder in input_path.iterdir():
         if folder.is_dir() and folder.name.startswith("1_"):
             util.copy_folder(folder, output_path / Path(folder.name))
+    for folder in (input_path / constants.RELATIVE_VANILLA_OVERRIDES_PATH).iterdir():
+        if folder.is_dir() and folder.name.startswith("1_"):
+            util.copy_folder(folder, output_path / Path(folder.name))
     if not no_blocks:
         for blockstate_file in (vanilla_path / constants.RELATIVE_BLOCKSTATE_PATH)\
                             .glob("*"+constants.BLOCKSTATE_EXTENSION):
@@ -264,8 +267,6 @@ else:
                 processBlockstate.process(input_path, output_path, vanilla_path, blockstate_file.name,
                                           limit, compress, objmc_path, debug)
     if not no_items:
-        for item_file in (vanilla_path / constants.RELATIVE_VANILLA_MODELS_PATH)\
-                            .glob("item/*"+constants.VANILLA_MODEL_EXTENSION):
+        for item_file in (vanilla_path / constants.RELATIVE_ITEMS_PATH).glob("*"+constants.ITEM_EXTENSION):
             if item_file.is_file():
-                processItem.process(input_path, output_path, vanilla_path, constants.RELATIVE_VANILLA_MODELS_PATH,
-                                    "item/"+item_file.name, compress, debug)
+                processItem.process(input_path, output_path, vanilla_path, item_file.name, compress, debug)

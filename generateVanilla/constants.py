@@ -3,6 +3,7 @@ from pathlib import Path
 RELATIVE_VANILLA_OVERRIDES_PATH = Path("vanilla")
 
 RELATIVE_BLOCKSTATE_PATH = Path("assets/minecraft/blockstates")
+RELATIVE_ITEMS_PATH = Path("assets/minecraft/items")
 RELATIVE_SODIUM_MODELS_PATH = Path("assets/mcme/models")
 RELATIVE_SODIUM_TEXTURES_PATH = Path("assets/mcme/textures")
 RELATIVE_VANILLA_MODELS_PATH = Path("assets/minecraft/models")
@@ -22,6 +23,7 @@ RELATIVE_SOUNDS_PATH = Path("assets/mcme")
 OBJ_MODEL_EXTENSION = ".obj"
 VANILLA_MODEL_EXTENSION = ".json"
 BLOCKSTATE_EXTENSION = ".json"
+ITEM_EXTENSION = ".json"
 TEXTURE_EXTENSION = ".png"
 MCMETA_EXTENSION = ".mcmeta"
 OBJMETA_EXTENSION = ".objmeta"
