@@ -169,7 +169,6 @@ def convert_model(input_path, output_path, model_path, axis, angle, objmc_path, 
                 # del data['display']
                 data['parent'] = constants.MCME_NAMESPACE + ":" + manual_parent_model
                 if manual_parent_model not in converted_models:
-                    print("using manual parent: "+manual_parent_model)
                     override_model_file = (input_path / constants.RELATIVE_VANILLA_OVERRIDES_PATH
                                                       / constants.RELATIVE_SODIUM_MODELS_PATH
                                                       / Path(manual_parent_model+constants.VANILLA_MODEL_EXTENSION))
