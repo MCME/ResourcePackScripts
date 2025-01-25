@@ -15,6 +15,7 @@ import generateVanillaBlockstateFiles
 import rotate_obj
 import util
 import processItem
+import hardcodedFiles
 
 relative_blockstate_path = "assets/minecraft/blockstates"
 relative_sodium_models_path = "assets/mcme/models"
@@ -270,3 +271,22 @@ else:
         for item_file in (vanilla_path / constants.RELATIVE_ITEMS_PATH).glob("*"+constants.ITEM_EXTENSION):
             if item_file.is_file():
                 processItem.process(input_path, output_path, vanilla_path, item_file.name, compress, debug)
+    for model in hardcodedFiles.MODELS:
+        file = input_path / constants.RELATIVE_VANILLA_MODELS_PATH / Path(model + constants.VANILLA_MODEL_EXTENSION)
+        if file.exists():
+            shutil.copy(file,
+                        output_path / constants.RELATIVE_VANILLA_MODELS_PATH / Path(model + constants.VANILLA_MODEL_EXTENSION))
+    for model in hardcodedFiles.TEXTURES:
+        file = input_path / constants.RELATIVE_VANILLA_TEXTURES_PATH / Path(model + constants.TEXTURE_EXTENSION)
+        meta_file = (input_path / constants.RELATIVE_VANILLA_TEXTURES_PATH
+                                / Path(model + constants.TEXTURE_EXTENSION + constants.MCMETA_EXTENSION))
+        print(meta_file)
+        if file.exists():
+            shutil.copy(file,
+                        output_path / constants.RELATIVE_VANILLA_TEXTURES_PATH
+                                    / Path(model + constants.TEXTURE_EXTENSION))
+        if meta_file.exists():
+            shutil.copy(meta_file,
+                        output_path / constants.RELATIVE_VANILLA_TEXTURES_PATH
+                                    / Path(model + constants.TEXTURE_EXTENSION + constants.MCMETA_EXTENSION))
+
