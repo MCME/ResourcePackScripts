@@ -3,6 +3,7 @@ import subprocess
 from pathlib import Path
 import json
 import shutil
+import re
 
 import yaml
 
@@ -18,7 +19,7 @@ def convert_model(input_path, output_path, model_path, axis, angle, objmc_path, 
     vanilla_model_input_file = input_path / constants.RELATIVE_SODIUM_MODELS_PATH \
                                           / Path(model_path + constants.VANILLA_MODEL_EXTENSION)
     if not vanilla_model_input_file.exists():
-        print("        WARNING! Expected model file not found: "+str(vanilla_model_input_file))
+        print("        WARNING! Expected model file not found: "+str(vanilla_model_input_file), flush = True)
         return
     with open(vanilla_model_input_file, 'r') as f:
         data = json.load(f)
@@ -29,7 +30,7 @@ def convert_model(input_path, output_path, model_path, axis, angle, objmc_path, 
             elif len(model_data) == 1:
                 model_path = model_data[0]
             else:
-                print("Unexpected namespace: {model_data[0]} in mcme model file.")
+                print("Unexpected namespace: {model_data[0]} in mcme model file.", flush = True)
         else:
             return
         model_path = model_path.removeprefix("models/").removesuffix(constants.OBJ_MODEL_EXTENSION)
@@ -86,7 +87,7 @@ def convert_model(input_path, output_path, model_path, axis, angle, objmc_path, 
             if namespace == constants.VANILLA_NAMESPACE:
                 relative_texture_path = constants.RELATIVE_VANILLA_TEXTURES_PATH
             elif namespace != constants.MCME_NAMESPACE:
-                print("WARNING!!! Unexpected texture namespace: "+namespace+"for "+texture_name)
+                print("WARNING!!! Unexpected texture namespace: "+namespace+"for "+texture_name, flush = True)
             texture_path = texture_name
 
         if not output_texture_path:
@@ -167,13 +168,23 @@ def convert_model(input_path, output_path, model_path, axis, angle, objmc_path, 
             if manual_parent_model:
                 del data['elements']
                 # del data['display']
+                util.printDebug("        Manual parent: "+manual_parent_model, debug)
+                if axis == 'y':
+                    if angle > 0:
+                        if not bool(re.search(r"_[0-9]+$", manual_parent_model)):
+                            manual_parent_model = manual_parent_model + "_1"
+                        manual_parent_model = manual_parent_model + "_" + str(angle // 90 +1)
+                        util.printDebug("        Rotated parent: "+manual_parent_model, debug)
                 data['parent'] = constants.MCME_NAMESPACE + ":" + manual_parent_model
                 if manual_parent_model not in converted_models:
                     override_model_file = (input_path / constants.RELATIVE_VANILLA_OVERRIDES_PATH
                                                       / constants.RELATIVE_SODIUM_MODELS_PATH
                                                       / Path(manual_parent_model+constants.VANILLA_MODEL_EXTENSION))
-                    shutil.copy(override_model_file, output_path / constants.RELATIVE_SODIUM_MODELS_PATH
-                                                      / Path(manual_parent_model+constants.VANILLA_MODEL_EXTENSION))
+                    if override_model_file.exists():
+                        shutil.copy(override_model_file, output_path / constants.RELATIVE_SODIUM_MODELS_PATH
+                                                          / Path(manual_parent_model+constants.VANILLA_MODEL_EXTENSION))
+                    else:
+                        print(f'        WARNING!!! Expected parent file {manual_parent_model} not found!', flush = True)
                     converted_models[manual_parent_model] = constants.PARENT_DONE_VALUE
             elif model_path in converted_models:
                 del data['elements']
@@ -219,7 +230,7 @@ def convert_model(input_path, output_path, model_path, axis, angle, objmc_path, 
             Path(model_file).unlink()
 
     else:
-        print(f"Missing texture for {model_path}")
+        print(f"        Missing texture for {model_path}", flush = True)
 
 
 def copy_textures(model_path, texture_path, output_path, model_file_relative, debug):
@@ -237,7 +248,7 @@ def copy_textures(model_path, texture_path, output_path, model_file_relative, de
                         texture_filename = texture_split[1]
                         relative_path = constants.RELATIVE_SODIUM_TEXTURES_PATH
                     else:
-                        print(f'WARNING!!! Unexpected texture namespace {texture_split[0]} for {texture_filename}')
+                        print(f'WARNING!!! Unexpected texture namespace {texture_split[0]} for {texture_filename}', flush = True)
                         return
 
                 texture_file_relative = relative_path \
@@ -272,7 +283,7 @@ def copy_parent(input_path, output_path, model_file_relative, debug):
                     parent_filename = parent_split[1]
                     relative_path = constants.RELATIVE_SODIUM_MODELS_PATH
                 else:
-                    print(f'WARNING!!! Unexpected texture namespace {parent_split[0]} for {parent_filename}')
+                    print(f'WARNING!!! Unexpected texture namespace {parent_split[0]} for {parent_filename}', flush = True)
                     return
 
             parent_file_relative = relative_path \
@@ -334,4 +345,4 @@ def process(input_path, output_path, vanilla_path, model_data, objmc_path, compr
                 util.printDebug(f"    Reading textures from vanilla model {model_file_relative}", debug)
                 copy_textures(vanilla_path, input_path, output_path, model_file_relative, debug)
             else:
-                print(f'WARNING!!! Missing model file: {model_file_relative}')
+                print(f'WARNING!!! Missing model file: {model_file_relative}', flush = True)
