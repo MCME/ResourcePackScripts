@@ -169,6 +169,7 @@ def convert_model(input_path, output_path, model_path, axis, angle, objmc_path, 
                 del data['elements']
                 # del data['display']
                 util.printDebug("        Manual parent: "+manual_parent_model, debug)
+                original_manual_parent = manual_parent_model
                 if axis == 'y':
                     if angle > 0:
                         if not bool(re.search(r"_[0-9]+$", manual_parent_model)):
@@ -184,7 +185,17 @@ def convert_model(input_path, output_path, model_path, axis, angle, objmc_path, 
                         shutil.copy(override_model_file, output_path / constants.RELATIVE_SODIUM_MODELS_PATH
                                                           / Path(manual_parent_model+constants.VANILLA_MODEL_EXTENSION))
                     else:
-                        print(f'        WARNING!!! Expected parent file {manual_parent_model} not found!', flush = True)
+                        print(f'        WARNING!!! Expected parent file {manual_parent_model} not found! Using: '+original_manual_parent, flush = True)
+                        data['parent'] = constants.MCME_NAMESPACE + ":" + original_manual_parent
+                        if original_manual_parent not in converted_models:
+                            override_model_file = (input_path / constants.RELATIVE_VANILLA_OVERRIDES_PATH
+                                                   / constants.RELATIVE_SODIUM_MODELS_PATH
+                                                   / Path(original_manual_parent+constants.VANILLA_MODEL_EXTENSION))
+                            if override_model_file.exists():
+                                shutil.copy(override_model_file, output_path / constants.RELATIVE_SODIUM_MODELS_PATH
+                                            / Path(original_manual_parent+constants.VANILLA_MODEL_EXTENSION))
+                            else:
+                                print(f'        WARNING!!! Expected parent file {original_manual_parent} not found!', flush = True)
                     converted_models[manual_parent_model] = constants.PARENT_DONE_VALUE
             elif model_path in converted_models:
                 del data['elements']
