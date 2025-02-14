@@ -21,19 +21,31 @@ def convert_model(input_path, output_path, model_path, axis, angle, objmc_path, 
     if not vanilla_model_input_file.exists():
         print("        WARNING! Expected model file not found: "+str(vanilla_model_input_file), flush = True)
         return
+
+    mtl_path = model_path
+
     with open(vanilla_model_input_file, 'r') as f:
         data = json.load(f)
         if "model" in data:
             model_data = data["model"].split(":")
             if model_data[0] == constants.MCME_NAMESPACE:
-                model_path = model_data[1]
+                obj_model_path = model_data[1]
             elif len(model_data) == 1:
-                model_path = model_data[0]
+                obj_model_path = model_data[0]
             else:
                 print("Unexpected namespace: {model_data[0]} in mcme model file.", flush = True)
         else:
             return
-        model_path = model_path.removeprefix("models/").removesuffix(constants.OBJ_MODEL_EXTENSION)
+        obj_model_path = obj_model_path.removeprefix("models/").removesuffix(constants.OBJ_MODEL_EXTENSION)
+        if "mtl_override" in data:
+            mtl_data = data["mtl_override"].split(":")
+            if mtl_data[0] == constants.MCME_NAMESPACE:
+                mtl_path = mtl_data[1]
+            elif len(model_data) == 1:
+                mtl_path = mtl_data[0]
+            else:
+                print("Unexpected namespace: {model_data[0]} in mcme mtl file.", flush = True)
+        mtl_path = mtl_path.removeprefix("models/").removesuffix(constants.MTL_EXTENSION)
 
     # print(f"Model path: {model_path}")
     meta_file = input_path / constants.RELATIVE_SODIUM_MODELS_PATH \
@@ -67,7 +79,7 @@ def convert_model(input_path, output_path, model_path, axis, angle, objmc_path, 
 
     if not texture_path:
         # read texture path from .mtl file
-        mtl_file = input_path / constants.RELATIVE_SODIUM_MODELS_PATH / Path(model_path + constants.MTL_EXTENSION)
+        mtl_file = input_path / constants.RELATIVE_SODIUM_MODELS_PATH / Path(mtl_path + constants.MTL_EXTENSION)
         if mtl_file.exists():
             with open(mtl_file, 'r') as f:
                 for mtl_line in f:
@@ -103,7 +115,7 @@ def convert_model(input_path, output_path, model_path, axis, angle, objmc_path, 
         if axis == 'o':
             model_suffix = ""
             model_file = input_path / constants.RELATIVE_SODIUM_MODELS_PATH \
-                         / Path(model_path + constants.OBJ_MODEL_EXTENSION)
+                         / Path(obj_model_path + constants.OBJ_MODEL_EXTENSION)
             output_model_file = output_path / constants.RELATIVE_SODIUM_MODELS_PATH \
                                 / Path(model_path + constants.VANILLA_MODEL_EXTENSION)
             output_texture_file = output_path / constants.RELATIVE_SODIUM_TEXTURES_PATH \
@@ -112,7 +124,7 @@ def convert_model(input_path, output_path, model_path, axis, angle, objmc_path, 
         else:
             model_suffix = '_' + axis + '_' + str(angle)
             model_file = input_path / constants.RELATIVE_SODIUM_MODELS_PATH \
-                         / Path(model_path + model_suffix + constants.OBJ_MODEL_EXTENSION)
+                         / Path(obj_model_path + model_suffix + constants.OBJ_MODEL_EXTENSION)
 
             # create rotated .obj file
             rotate_obj.rotate_obj_file(input_path / constants.RELATIVE_SODIUM_MODELS_PATH /
