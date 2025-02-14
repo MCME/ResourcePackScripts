@@ -23,6 +23,7 @@ def convert_model(input_path, output_path, model_path, axis, angle, objmc_path, 
         return
 
     mtl_path = model_path
+    obj_model_path = model_path
 
     with open(vanilla_model_input_file, 'r') as f:
         data = json.load(f)
@@ -47,7 +48,12 @@ def convert_model(input_path, output_path, model_path, axis, angle, objmc_path, 
                 print("Unexpected namespace: {model_data[0]} in mcme mtl file.", flush = True)
         mtl_path = mtl_path.removeprefix("models/").removesuffix(constants.MTL_EXTENSION)
 
-    # print(f"Model path: {model_path}")
+    # Check if obj model exists
+    if not os.path.exists(input_path / constants.RELATIVE_SODIUM_MODELS_PATH \
+                          / Path(obj_model_path + constants.OBJ_MODEL_EXTENSION)):
+        return
+
+# print(f"Model path: {model_path}")
     meta_file = input_path / constants.RELATIVE_SODIUM_MODELS_PATH \
                 / Path(model_path + constants.OBJMETA_EXTENSION)
 
@@ -128,7 +134,7 @@ def convert_model(input_path, output_path, model_path, axis, angle, objmc_path, 
 
             # create rotated .obj file
             rotate_obj.rotate_obj_file(input_path / constants.RELATIVE_SODIUM_MODELS_PATH /
-                                       Path(model_path + constants.OBJ_MODEL_EXTENSION), model_file, axis, -angle)
+                                       Path(obj_model_path + constants.OBJ_MODEL_EXTENSION), model_file, axis, -angle)
 
             output_model_file = output_path / constants.RELATIVE_SODIUM_MODELS_PATH \
                                 / Path(model_path + model_suffix + constants.VANILLA_MODEL_EXTENSION)
