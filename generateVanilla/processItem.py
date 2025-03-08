@@ -73,6 +73,7 @@ def process_overrides(input_path, output_path, vanilla_path, item_model, overrid
 
 def process_model(input_path, output_path, vanilla_path, relative_path, item_model, compress, debug):
     item_model = item_model.replace("minecraft:", "")
+    item_model = item_model.replace("mcme:", "")
     is_vanilla_model = False
     is_manual_model = True
     input_file = input_path / constants.RELATIVE_VANILLA_OVERRIDES_PATH / relative_path / item_model
@@ -118,8 +119,18 @@ def is_model(data):
     return data["type"] == "minecraft:model" or data["type"] == "model"
 
 
+def get_relative_model_path(namespaced_key):
+    if "mcme:" in namespaced_key:
+        return constants.RELATIVE_SODIUM_MODELS_PATH
+    else:
+        return constants.RELATIVE_VANILLA_MODELS_PATH
+
+
 def process(input_path, output_path, vanilla_path, item_file_name, compress, debug):
-    input_file = input_path / constants.RELATIVE_ITEMS_PATH / Path(item_file_name)
+    input_file = (input_path / constants.RELATIVE_VANILLA_OVERRIDES_PATH
+                             / constants.RELATIVE_ITEMS_PATH / Path(item_file_name))
+    if not input_file.exists():
+        input_file = input_path / constants.RELATIVE_ITEMS_PATH / Path(item_file_name)
     is_vanilla_file = False
     if not input_file.exists():
         input_file = vanilla_path / constants.RELATIVE_ITEMS_PATH / Path(item_file_name)
@@ -133,14 +144,15 @@ def process(input_path, output_path, vanilla_path, item_file_name, compress, deb
         if "model" in data["model"]:
             if is_model(data["model"]):
                 item_model = data["model"]["model"]+constants.VANILLA_MODEL_EXTENSION
-                process_model(input_path, output_path, vanilla_path, constants.RELATIVE_VANILLA_MODELS_PATH,
+
+                process_model(input_path, output_path, vanilla_path, get_relative_model_path(item_model),
                               item_model, compress, debug)
 
         if "fallback" in data["model"]:
             if is_model(data["model"]["fallback"]):
                 item_model = data["model"]["fallback"]["model"]+constants.VANILLA_MODEL_EXTENSION
                 print("fallback")
-                process_model(input_path, output_path, vanilla_path, constants.RELATIVE_VANILLA_MODELS_PATH,
+                process_model(input_path, output_path, vanilla_path,  get_relative_model_path(item_model),
                               item_model, compress, debug)
 
         if "entries" in data["model"]:
@@ -148,7 +160,7 @@ def process(input_path, output_path, vanilla_path, item_file_name, compress, deb
                 if is_model(entry["model"]):
                     print("entry")
                     item_model = entry["model"]["model"]+constants.VANILLA_MODEL_EXTENSION
-                    process_model(input_path, output_path, vanilla_path, constants.RELATIVE_VANILLA_MODELS_PATH,
+                    process_model(input_path, output_path, vanilla_path,  get_relative_model_path(item_model),
                                   item_model, compress, debug)
 
     # write vanilla blockstate file
