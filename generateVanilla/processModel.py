@@ -64,6 +64,7 @@ def convert_model(input_path, output_path, model_path, axis, angle, objmc_path, 
     texture_path = None
     output_texture_path = None
     manual_parent_model = None
+    omnidirectional_parent = False
 
     # read values from objmeta file
     if os.path.exists(meta_file):
@@ -77,6 +78,7 @@ def convert_model(input_path, output_path, model_path, axis, angle, objmc_path, 
             options = meta_data.get('options', [])
             visibility = meta_data.get('visibility', 7)
             manual_parent_model = meta_data.get('parent', None).split(':')[-1].strip()
+            omnidirectional_parent = meta_data.get('omnidirectional_parent', False)
 
         except FileNotFoundError:
             print(f"Meta file not found for {model_path})")
@@ -188,7 +190,7 @@ def convert_model(input_path, output_path, model_path, axis, angle, objmc_path, 
                 # del data['display']
                 util.printDebug("        Manual parent: "+manual_parent_model, debug)
                 original_manual_parent = manual_parent_model
-                if axis == 'y':
+                if axis == 'y' and not omnidirectional_parent:
                     if angle > 0:
                         if not bool(re.search(r"_[0-9]+$", manual_parent_model)):
                             manual_parent_model = manual_parent_model + "_1"
@@ -203,7 +205,8 @@ def convert_model(input_path, output_path, model_path, axis, angle, objmc_path, 
                         shutil.copy(override_model_file, output_path / constants.RELATIVE_SODIUM_MODELS_PATH
                                                           / Path(manual_parent_model+constants.VANILLA_MODEL_EXTENSION))
                     else:
-                        print(f'        WARNING!!! Expected parent file {manual_parent_model} not found! Using: '+original_manual_parent, flush = True)
+                        print(f'        WARNING!!! Expected parent file {manual_parent_model} not found! Using: '
+                              + original_manual_parent, flush = True)
                         data['parent'] = constants.MCME_NAMESPACE + ":" + original_manual_parent
                         if original_manual_parent not in converted_models:
                             override_model_file = (input_path / constants.RELATIVE_VANILLA_OVERRIDES_PATH
@@ -213,7 +216,8 @@ def convert_model(input_path, output_path, model_path, axis, angle, objmc_path, 
                                 shutil.copy(override_model_file, output_path / constants.RELATIVE_SODIUM_MODELS_PATH
                                             / Path(original_manual_parent+constants.VANILLA_MODEL_EXTENSION))
                             else:
-                                print(f'        WARNING!!! Expected parent file {original_manual_parent} not found!', flush = True)
+                                print(f'        ERROR!!! Expected parent file {original_manual_parent} not found!',
+                                      flush=True)
                     converted_models[manual_parent_model] = constants.PARENT_DONE_VALUE
             elif model_path in converted_models:
                 del data['elements']

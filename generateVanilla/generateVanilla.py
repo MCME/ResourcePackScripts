@@ -10,164 +10,16 @@ from PIL import Image
 
 import constants
 import processBlockstate
-import search_blockstate_files
-import generateVanillaBlockstateFiles
-import rotate_obj
 import util
 import processItem
 import hardcodedFiles
 
-relative_blockstate_path = "assets/minecraft/blockstates"
-relative_sodium_models_path = "assets/mcme/models"
-relative_sodium_textures_path = "assets/mcme/textures"
-relative_vanilla_models_path = "assets/minecraft/models"
-relative_vanilla_textures_path = "assets/minecraft/textures"
-
-
-def work_on_obj_file(relative_filepath):
-    filename = relative_filepath.name
-    # printDebug(" ")
-    util.printDebug(f"work_on_obj_file: {relative_filepath}", True)
-    # printDebug(f"input path is: {input_path}")
-    blockstate_path = input_path / Path('assets/minecraft/blockstates')
-    # printDebug(f"blockstates path is: {blockstate_path}")
-    blockstate_files_and_rotations = search_blockstate_files.process_directory(blockstate_path,
-                                                                               'mcme:block/' + filename.replace('.obj',
-                                                                                                                ''))
-    rotations = blockstate_files_and_rotations[0]
-    blockstate_files = blockstate_files_and_rotations[1]
-
-    # if rotations list is empty no blockstate file is linking this model, no vanilla model created in this case
-    if not blockstate_files:
-        print("Model not linked by any blockstate file. Skipped!")
-        return []
-
-    meta_filename = str(input_path / relative_filepath).replace('.obj', '.objmeta')
-
-    # default values
-    options = []
-    visibility = 7
-    offset = ['0.0', '0.0', '0.0']
-    texture = None
-    output_model = None
-    output_texture = None
-
-    # read values from objmeta file
-    if os.path.exists(meta_filename):
-        try:
-            with open(meta_filename, 'r') as meta_file:
-                meta_data = yaml.safe_load(meta_file)
-
-            texture = meta_data.get('texture', None)
-            output_model = meta_data.get('output_model', None)
-            output_texture = meta_data.get('output_texture', None)
-            offset = meta_data.get('offset', '0.0 0.0 0.0').split()
-            options = meta_data.get('options', [])
-            visibility = meta_data.get('visibility', 7)
-
-        except FileNotFoundError:
-            print(f"Meta file not found for {filename} ({meta_filename})")
-        except yaml.YAMLError as exc:
-            print(f"Error parsing YAML file {meta_filename}: {exc}")
-
-    if not texture:
-        # printDebug("Get texture from .mtl file: " + filename.replace('.obj', '.mtl'))
-        with open(str(input_path / relative_filepath).replace('.obj', '.mtl'), 'r') as mtl_file:
-            for mtl_line in mtl_file:
-                if mtl_line.startswith('map_Kd'):
-                    texture = mtl_line.split()[1].strip()
-                    break
-    if texture:
-        texture = str(input_path) + "/assets/" + texture.replace(":", "/textures/") + ".png"
-
-    if not output_model:
-        output_model = str(output_path / relative_filepath).replace('.obj', '.json')
-        # printDebug("Use default output model: " + output_model)
-    else:
-        output_model = str(output_path) + "/assets/" + output_model.replace(":", "/models/") + ".json"
-
-    if not output_texture:
-        output_texture = texture.replace(str(input_path) + '/', str(output_path) + '/')
-        # printDebug("Use default output texture: " + output_texture)
-    else:
-        output_texture = str(output_path) + "/assets/" + output_texture.replace(":", "/textures/") + ".png"
-
-    if texture and output_model and output_texture:
-
-        output_model_dir = os.path.dirname(output_model)
-        output_texture_dir = os.path.dirname(output_texture)
-
-        if output_model_dir:
-            os.makedirs(output_model_dir, exist_ok=True)
-        if output_texture_dir:
-            os.makedirs(output_texture_dir, exist_ok=True)
-
-        # print(str(rotations))
-        for axis, angle in rotations:
-            if axis == 'o':
-                rot_filename = str(input_path / relative_filepath)
-                rot_output_model = output_model
-                rot_output_texture = output_texture
-                is_rotated_obj = False
-            else:
-                rot_filename = str(input_path / relative_filepath)\
-                    .replace('.obj', '_' + axis + '_' + str(angle) + '.obj')
-                rot_output_model = output_model.replace('.json', '_' + axis + '_' + str(angle) + '.json')
-                rot_output_texture = output_texture.replace('.png', '_' + axis + '_' + str(angle) + '.png')
-                rotate_obj.rotate_obj_file(input_path / relative_filepath, Path(rot_filename), axis, angle)
-                is_rotated_obj = True
-
-            runList = ['python3', str(objmc_path), '--objs', rot_filename.replace('\\', '/'),
-                       '--texs', texture.replace('\\', '/'),
-                       '--offset', offset[0], offset[1], offset[2],
-                       '--out', rot_output_model.replace('\\', '/'), rot_output_texture.replace('\\', '/'),
-                       '--visibility', str(visibility)]
-            if 'noshadow' in options:
-                runList.append('--noshadow')
-            if 'flipuv' in options:
-                runList.append('--flipuv')
-
-            # printDebug("Running process script with " + str(runList))
-
-            try:
-                result = subprocess.run(runList, check=True,
-                                        stdout=subprocess.PIPE,
-                                        stderr=subprocess.PIPE)
-                util.printDebug("objmc Script result: " + str(result.returncode), debug)
-                with open(rot_output_model, 'r') as output_model_json:
-                    output_data = json.load(output_model_json)
-                    output_data['textures']['0'] \
-                        = "mcme:" + str(Path(rot_output_texture)
-                                        .relative_to(output_path / Path("assets/mcme/textures"))) \
-                        .replace("\\", "/")
-                with open(rot_output_model, 'w') as output_model_json:
-                    json.dump(output_data, output_model_json, indent=4)  # type: ignore
-                    # json.dump(data, output_model_json, separators=(',', ':'))
-            except subprocess.CalledProcessError as e:
-                print(f"Error running process script: {e}")
-                print("Script output (stdout):", e.stdout.decode('utf-8') if e.stdout else "No stdout")
-                print("Script error output (stderr):",
-                      e.stderr.decode('utf-8') if e.stderr else "No stderr", flush=True)
-
-            if is_rotated_obj:
-                Path(rot_filename).unlink()
-
-    else:
-        print(f"Missing one of the required parameters for {filename}")
-    return blockstate_files
-
-
-Image.MAX_IMAGE_PIXELS = 1000000000
 parser = argparse.ArgumentParser(description='Convert OBJ models to vanilla shader models.')
 
 # add command line arguments
 parser.add_argument('input_path', help='Path to read OBJ models from')
 parser.add_argument('output_path', help='Path to write vanilla shader models in.')
 parser.add_argument('vanilla_path', help='Path to read vanilla RP from.')
-parser.add_argument('--changes',
-                    help='Filename read changed files from. Only these files will be considered. Without this '
-                         'argument all files are considered.',
-                    default=None)
 parser.add_argument('--limit',
                     help='Limit for number of alternate models for one blockstate. Defaults to no limit.',
                     default="-1")
@@ -200,93 +52,82 @@ print("Generating vanilla resource pack!")
 
 if not output_path.exists():
     os.makedirs(output_path)
-if args.changes:
-    changed_files_path = args.changes
 
-    print(f"Processing changed .obj files read from: {changed_files_path}")
+print(f"Processing Sodium RP in: {input_path}")
 
-    with open(changed_files_path, 'r') as file:
-        lines = file.readlines()
+pack_mcmeta_file = input_path / constants.PACK_MCMETA
+if pack_mcmeta_file.exists():
+    with open(pack_mcmeta_file, 'r') as f:
+        data = json.load(f)
+        data['pack']['description'] = data['pack']['description'].replace("Sodium", "Vanilla")
+    pack_mcmeta_file = output_path / constants.PACK_MCMETA
+    if not pack_mcmeta_file.exists():
+        pack_mcmeta_file.touch(exist_ok=True)
+    with open(pack_mcmeta_file, 'w') as f:
+        json.dump(data, f, indent=4)  # type: ignore
+if (input_path / constants.PACK_PNG).exists():
+    shutil.copy(input_path / constants.PACK_PNG, output_path / constants.PACK_PNG)
+if (input_path / constants.LICENCE).exists():
+    shutil.copy(input_path / constants.LICENCE, output_path / constants.LICENCE)
+if (input_path / constants.README).exists():
+    shutil.copy(input_path / constants.README, output_path / constants.README)
 
-    for line in lines:
-        blockstate_file_list = work_on_obj_file(input_path / Path(line.split('\t')[1].strip()))
-        generateVanillaBlockstateFiles.convert_blockstate_files(blockstate_file_list, input_path, output_path, limit)
-else:
-    print(f"Processing Sodium RP in: {input_path}")
+util.copy_folder(input_path / constants.RELATIVE_VANILLA_OVERRIDES_PATH / constants.RELATIVE_SHADER_PATH,
+                 output_path / constants.RELATIVE_SHADER_PATH)
+util.copy_folder(input_path / constants.RELATIVE_OPTIFINE_PATH, output_path / constants.RELATIVE_OPTIFINE_PATH)
+util.copy_folder(input_path / constants.RELATIVE_TEXTS_PATH, output_path / constants.RELATIVE_TEXTS_PATH)
+util.copy_folder(input_path / constants.RELATIVE_TEXTURES_ENV_PATH,
+                 output_path / constants.RELATIVE_TEXTURES_ENV_PATH)
+util.copy_folder(input_path / constants.RELATIVE_TEXTURES_GUI_PATH,
+                 output_path / constants.RELATIVE_TEXTURES_GUI_PATH)
+util.copy_folder(input_path / constants.RELATIVE_TEXTURES_ENTITY_PATH,
+                 output_path / constants.RELATIVE_TEXTURES_ENTITY_PATH)
+util.copy_folder(input_path / constants.RELATIVE_TEXTURES_COLORMAP_PATH,
+                 output_path / constants.RELATIVE_TEXTURES_COLORMAP_PATH)
+util.copy_folder(input_path / constants.RELATIVE_TEXTURES_PARTICLE_PATH,
+                 output_path / constants.RELATIVE_TEXTURES_PARTICLE_PATH)
+util.copy_folder(input_path / constants.RELATIVE_TEXTURES_PAINTING_PATH,
+                 output_path / constants.RELATIVE_TEXTURES_PAINTING_PATH)
+util.copy_folder(input_path / constants.RELATIVE_TEXTURES_ARMOR_PATH,
+                 output_path / constants.RELATIVE_TEXTURES_ARMOR_PATH)
+util.copy_folder(input_path / constants.RELATIVE_SOUNDS_PATH / Path("sounds"),
+                 output_path / constants.RELATIVE_SOUNDS_PATH / Path("sounds"))
+sound_json = constants.RELATIVE_SOUNDS_PATH / Path("sounds.json")
+if (input_path / sound_json).exists():
+    shutil.copy(input_path / sound_json, output_path / sound_json)
 
-    pack_mcmeta_file = input_path / constants.PACK_MCMETA
-    if pack_mcmeta_file.exists():
-        with open(pack_mcmeta_file, 'r') as f:
-            data = json.load(f)
-            data['pack']['description'] = data['pack']['description'].replace("Sodium", "Vanilla")
-        pack_mcmeta_file = output_path / constants.PACK_MCMETA
-        if not pack_mcmeta_file.exists():
-            pack_mcmeta_file.touch(exist_ok=True)
-        with open(pack_mcmeta_file, 'w') as f:
-            json.dump(data, f, indent=4)  # type: ignore
-    if (input_path / constants.PACK_PNG).exists():
-        shutil.copy(input_path / constants.PACK_PNG, output_path / constants.PACK_PNG)
-    if (input_path / constants.LICENCE).exists():
-        shutil.copy(input_path / constants.LICENCE, output_path / constants.LICENCE)
-    if (input_path / constants.README).exists():
-        shutil.copy(input_path / constants.README, output_path / constants.README)
-
-    util.copy_folder(input_path / constants.RELATIVE_VANILLA_OVERRIDES_PATH / constants.RELATIVE_SHADER_PATH,
-                     output_path / constants.RELATIVE_SHADER_PATH)
-    util.copy_folder(input_path / constants.RELATIVE_OPTIFINE_PATH, output_path / constants.RELATIVE_OPTIFINE_PATH)
-    util.copy_folder(input_path / constants.RELATIVE_TEXTS_PATH, output_path / constants.RELATIVE_TEXTS_PATH)
-    util.copy_folder(input_path / constants.RELATIVE_TEXTURES_ENV_PATH,
-                     output_path / constants.RELATIVE_TEXTURES_ENV_PATH)
-    util.copy_folder(input_path / constants.RELATIVE_TEXTURES_GUI_PATH,
-                     output_path / constants.RELATIVE_TEXTURES_GUI_PATH)
-    util.copy_folder(input_path / constants.RELATIVE_TEXTURES_ENTITY_PATH,
-                     output_path / constants.RELATIVE_TEXTURES_ENTITY_PATH)
-    util.copy_folder(input_path / constants.RELATIVE_TEXTURES_COLORMAP_PATH,
-                     output_path / constants.RELATIVE_TEXTURES_COLORMAP_PATH)
-    util.copy_folder(input_path / constants.RELATIVE_TEXTURES_PARTICLE_PATH,
-                     output_path / constants.RELATIVE_TEXTURES_PARTICLE_PATH)
-    util.copy_folder(input_path / constants.RELATIVE_TEXTURES_PAINTING_PATH,
-                     output_path / constants.RELATIVE_TEXTURES_PAINTING_PATH)
-    util.copy_folder(input_path / constants.RELATIVE_TEXTURES_ARMOR_PATH,
-                     output_path / constants.RELATIVE_TEXTURES_ARMOR_PATH)
-    util.copy_folder(input_path / constants.RELATIVE_SOUNDS_PATH / Path("sounds"),
-                     output_path / constants.RELATIVE_SOUNDS_PATH / Path("sounds"))
-    sound_json = constants.RELATIVE_SOUNDS_PATH / Path("sounds.json")
-    if (input_path / sound_json).exists():
-        shutil.copy(input_path / sound_json, output_path / sound_json)
-
-    for folder in input_path.iterdir():
-        if folder.is_dir() and folder.name.startswith("1_"):
-            util.copy_folder(folder, output_path / Path(folder.name))
-    for folder in (input_path / constants.RELATIVE_VANILLA_OVERRIDES_PATH).iterdir():
-        if folder.is_dir() and folder.name.startswith("1_"):
-            util.copy_folder(folder, output_path / Path(folder.name))
-    if not no_blocks:
-        for blockstate_file in (vanilla_path / constants.RELATIVE_BLOCKSTATE_PATH)\
-                            .glob("*"+constants.BLOCKSTATE_EXTENSION):
-            if blockstate_file.is_file():
-                processBlockstate.process(input_path, output_path, vanilla_path, blockstate_file.name,
-                                          limit, compress, objmc_path, debug)
-    if not no_items:
-        for item_file in (vanilla_path / constants.RELATIVE_ITEMS_PATH).glob("*"+constants.ITEM_EXTENSION):
-            if item_file.is_file():
-                processItem.process(input_path, output_path, vanilla_path, item_file.name, compress, debug)
-    for model in hardcodedFiles.MODELS:
-        file = input_path / constants.RELATIVE_VANILLA_MODELS_PATH / Path(model + constants.VANILLA_MODEL_EXTENSION)
-        if file.exists():
-            shutil.copy(file,
-                        output_path / constants.RELATIVE_VANILLA_MODELS_PATH / Path(model + constants.VANILLA_MODEL_EXTENSION))
-    for model in hardcodedFiles.TEXTURES:
-        file = input_path / constants.RELATIVE_VANILLA_TEXTURES_PATH / Path(model + constants.TEXTURE_EXTENSION)
-        meta_file = (input_path / constants.RELATIVE_VANILLA_TEXTURES_PATH
+for folder in input_path.iterdir():
+    if folder.is_dir() and folder.name.startswith("1_"):
+        util.copy_folder(folder, output_path / Path(folder.name))
+for folder in (input_path / constants.RELATIVE_VANILLA_OVERRIDES_PATH).iterdir():
+    if folder.is_dir() and folder.name.startswith("1_"):
+        util.copy_folder(folder, output_path / Path(folder.name))
+if not no_blocks:
+    for blockstate_file in (vanilla_path / constants.RELATIVE_BLOCKSTATE_PATH)\
+                        .glob("*"+constants.BLOCKSTATE_EXTENSION):
+        if blockstate_file.is_file():
+            processBlockstate.process(input_path, output_path, vanilla_path, blockstate_file.name,
+                                      limit, compress, objmc_path, debug)
+if not no_items:
+    for item_file in (vanilla_path / constants.RELATIVE_ITEMS_PATH).glob("*"+constants.ITEM_EXTENSION):
+        if item_file.is_file():
+            processItem.process(input_path, output_path, vanilla_path, item_file.name, compress, debug)
+for model in hardcodedFiles.MODELS:
+    file = input_path / constants.RELATIVE_VANILLA_MODELS_PATH / Path(model + constants.VANILLA_MODEL_EXTENSION)
+    if file.exists():
+        shutil.copy(file,
+                    output_path / constants.RELATIVE_VANILLA_MODELS_PATH
+                                / Path(model + constants.VANILLA_MODEL_EXTENSION))
+for model in hardcodedFiles.TEXTURES:
+    file = input_path / constants.RELATIVE_VANILLA_TEXTURES_PATH / Path(model + constants.TEXTURE_EXTENSION)
+    meta_file = (input_path / constants.RELATIVE_VANILLA_TEXTURES_PATH
+                            / Path(model + constants.TEXTURE_EXTENSION + constants.MCMETA_EXTENSION))
+    print(meta_file)
+    if file.exists():
+        shutil.copy(file,
+                    output_path / constants.RELATIVE_VANILLA_TEXTURES_PATH
+                                / Path(model + constants.TEXTURE_EXTENSION))
+    if meta_file.exists():
+        shutil.copy(meta_file,
+                    output_path / constants.RELATIVE_VANILLA_TEXTURES_PATH
                                 / Path(model + constants.TEXTURE_EXTENSION + constants.MCMETA_EXTENSION))
-        print(meta_file)
-        if file.exists():
-            shutil.copy(file,
-                        output_path / constants.RELATIVE_VANILLA_TEXTURES_PATH
-                                    / Path(model + constants.TEXTURE_EXTENSION))
-        if meta_file.exists():
-            shutil.copy(meta_file,
-                        output_path / constants.RELATIVE_VANILLA_TEXTURES_PATH
-                                    / Path(model + constants.TEXTURE_EXTENSION + constants.MCMETA_EXTENSION))
-
