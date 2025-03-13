@@ -1,6 +1,5 @@
 import math
 import sys
-import os
 from pathlib import Path
 
 
@@ -28,17 +27,17 @@ def rotate(vertex, axis, angle):
 def process_obj_line(line, axis, angle):
     """Rotates all data of a single line."""
     parts = line.split()
-    x, y, z = float(parts[1]), float(parts[2]), float(parts[3])
+    x, y, z = float(parts[1])-0.5, float(parts[2])-0.5, float(parts[3])-0.5
     rotated = rotate((x, y, z), axis, angle)
 
-    return f"{parts[0]} {rotated[0]} {rotated[1]} {rotated[2]}\n"
+    return f"{parts[0]} {rotated[0]+0.5} {rotated[1]+0.5} {rotated[2]+0.5}\n"
 
 
-def rotate_obj_file(input_path, output_path, file_path, axis, angle):
+def rotate_obj_file(input_file, output_file, axis, angle):
     """Rotates all vertices and normals of a .obj file."""
-    input_file = str(input_path / file_path)
-    base_name, ext = os.path.splitext(input_file)
-    output_file = output_path / Path(f"{base_name}_{axis}_{angle}{ext}")
+    # input_file = str(input_path / file_path)
+    # base_name, ext = os.path.splitext(input_file)
+    # output_file = output_path / Path(f"{base_name}_{axis}_{angle}{ext}")
 
     with open(input_file, 'r') as file:
         lines = file.readlines()
@@ -74,4 +73,4 @@ if __name__ == "__main__":
         sys.exit(1)
 
     # do rotation
-    rotate_obj_file(main_input_file.parent, main_input_file.parent, Path(main_input_file.name), main_axis, main_angle)
+    rotate_obj_file(main_input_file, main_input_file, main_axis, main_angle)

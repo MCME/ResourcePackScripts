@@ -76,7 +76,7 @@ def process_json(input_file, output_file, limit):
     if output_file.parent:
         os.makedirs(output_file.parent, exist_ok=True)
     with open(output_file, 'w') as file:
-        json.dump(data, file, indent=4)
+        json.dump(data, file, indent=4)  # type: ignore
         # json.dump(data, file, separators=(',', ':'))
 
 

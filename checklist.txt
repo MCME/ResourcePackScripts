@@ -5,3 +5,5 @@ generate vanilla resource pack files from sodium files
     - shape output texture to be power of 2 (in objmc script?)
     + create vanilla blockstate file from sodium blockstate file by replacing rotations with rotated vanilla models
     + add multipart support to search_blockstate_files.py
+    - cleanup script that removes all unlinked model and texture files
+    - script that fully creates vanilla RP from sodium branch and vanilla patches branch (common branch discontinued).

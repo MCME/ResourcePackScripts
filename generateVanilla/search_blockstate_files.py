@@ -12,7 +12,7 @@ def load_json_file(filepath):
         return None
 
 
-def find_model_entries(value, search_model, filepath):
+def find_model_entries(value, search_model):  # , filepath):
     rotations = [('o', 0)]
     model_found = False
     if not isinstance(value, list):
@@ -53,13 +53,13 @@ def find_model_entries(value, search_model, filepath):
     return [rotations, model_found]
 
 
-def get_models(data, search_model, filepath):
+def get_models(data, search_model):  # , filepath):
     rotations = [('o', 0)]
     model_found = False
     if "variants" in data:
         for key, value in data.get('variants', {}).items():
             # print(str(key)," ",str(value))
-            result = find_model_entries(value, search_model, filepath)
+            result = find_model_entries(value, search_model)  # , filepath)
             if result[1]:
                 model_found = True
             for rotation in result[0]:
@@ -68,7 +68,7 @@ def get_models(data, search_model, filepath):
     elif "multipart" in data:
         # print("found  Multipart data: ", data["multipart"])
         for entry in data["multipart"]:
-            result = find_model_entries(entry["apply"], search_model, filepath)
+            result = find_model_entries(entry["apply"], search_model)  # , filepath)
             if result[1]:
                 model_found = True
             for rotation in result[0]:
@@ -86,7 +86,7 @@ def process_directory(directory, search_model):
         # print(f"Blockstate file: {filepath}")
         data = load_json_file(filepath)
         if data:
-            blockstate_files_and_rotations = get_models(data, search_model, filepath)
+            blockstate_files_and_rotations = get_models(data, search_model)  # , filepath)
             rotations = blockstate_files_and_rotations[0]
             model_found = blockstate_files_and_rotations[1]
             for key, value in rotations:
