@@ -30,6 +30,7 @@ parser.add_argument('--debug', action='store_true', help='Create debug output.')
 parser.add_argument('--compress', action='store_true', help='Compress generated .json files.')
 parser.add_argument('--noblocks', action='store_true', help='Do not process blockstate files.')
 parser.add_argument('--noitems', action='store_true', help='Do not process item models files.')
+parser.add_argument('--modelengine', action='store_true', help='Only copy modelengine directory, skip all other processing.')
 
 # parse arguments
 args = parser.parse_args()
@@ -47,6 +48,28 @@ limit = int(args.limit)
 compress = args.compress
 no_blocks = args.noblocks
 no_items = args.noitems
+modelengine = args.modelengine
+
+if modelengine:
+    print("Copying modelengine and atlases directories...")
+    if not output_path.exists():
+        os.makedirs(output_path)
+    
+    modelengine_path = input_path / Path("assets/modelengine")
+    if modelengine_path.exists():
+        util.copy_folder(modelengine_path, output_path / Path("assets/modelengine"))
+        print("Modelengine directory copied successfully!")
+    else:
+        print(f"Warning: modelengine directory not found at {modelengine_path}")
+    
+    atlases_path = input_path / Path("assets/minecraft/atlases")
+    if atlases_path.exists():
+        util.copy_folder(atlases_path, output_path / Path("assets/minecraft/atlases"))
+        print("Atlases directory copied successfully!")
+    else:
+        print(f"Warning: atlases directory not found at {atlases_path}")
+    
+    exit(0)
 
 print("Generating vanilla resource pack!")
 
