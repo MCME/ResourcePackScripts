@@ -92,18 +92,18 @@ for filename in root_files:
 # ----------------------------------------
 # Copy assets
 # ----------------------------------------
-def _ignore_denied(directory, contents):
+def ignore_sodium_dirs(directory, contents):
     # Directory is the directory currently being copied
     # We strip input_path from it to just get "assets/..."
     rel = Path(directory).relative_to(input_path)
-    # Return the entries of contents that are in DENIED_DIRS
-    return [name for name in contents if (rel / name) in constants.DENIED_DIRS]
+    # Return the entries of contents that are in SODIUM_DIRS
+    return [name for name in contents if (rel / name) in constants.SODIUM_DIRS]
 
 
 shutil.copytree(
     input_path / "assets",
     output_path / "assets",
-    ignore=_ignore_denied,  # skipping directories handled by the processing pipeline
+    ignore=ignore_sodium_dirs,  # skip sodium-specific dirs that need conversion
     dirs_exist_ok=True,
 )
 
@@ -136,6 +136,7 @@ if not no_blocks:
                 objmc_path,
                 debug,
             )
+
 if not no_items:
     for item_file in (vanilla_path / constants.RELATIVE_ITEMS_PATH).glob(
         "*" + constants.ITEM_EXTENSION
@@ -144,6 +145,7 @@ if not no_items:
             processItem.process(
                 input_path, output_path, vanilla_path, item_file.name, compress, debug
             )
+
 for model in hardcodedFiles.MODELS:
     file = (
         input_path

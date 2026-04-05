@@ -10,7 +10,7 @@ RELATIVE_VANILLA_TEXTURES_PATH = Path("assets/minecraft/textures")
 RELATIVE_SODIUM_MODELS_PATH = Path("assets/mcme/models")
 RELATIVE_SODIUM_TEXTURES_PATH = Path("assets/mcme/textures")
 
-DENIED_DIRS = {
+SODIUM_DIRS = {
     Path("assets/minecraft/blockstates"),
     Path("assets/minecraft/items"),
     Path("assets/mcme/models/block"),
