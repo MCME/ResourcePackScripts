@@ -7,7 +7,6 @@ from pathlib import Path
 
 import constants
 import processBlockstate
-import util
 import processItem
 import hardcodedFiles
 
@@ -83,30 +82,41 @@ if input_pack_mcmeta.exists():
     with open(output_pack_mcmeta, "w") as f:
         json.dump(data, f, indent=4)  # type: ignore
 
-# copy static files
-static_files = [constants.PACK_PNG, constants.LICENCE, constants.README]
-for filename in static_files:
+root_files = [constants.PACK_PNG, constants.LICENCE, constants.README]
+for filename in root_files:
     src_path = input_path / filename
     if src_path.exists():
         shutil.copy(src_path, output_path / filename)
 
-# copy all assets, skipping directories handled by the processing pipeline
-util.copy_folder_filtered(
+
+# ----------------------------------------
+# Copy assets
+# ----------------------------------------
+def _ignore_denied(directory, contents):
+    # Directory is the directory currently being copied
+    # We strip input_path from it to just get "assets/..."
+    rel = Path(directory).relative_to(input_path)
+    # Return the entries of contents that are in DENIED_DIRS
+    return [name for name in contents if (rel / name) in constants.DENIED_DIRS]
+
+
+shutil.copytree(
     input_path / "assets",
     output_path / "assets",
-    denied_dirs=constants.DENIED_DIRS,
-    base=input_path,
+    ignore=_ignore_denied,  # skipping directories handled by the processing pipeline
+    dirs_exist_ok=True,
 )
 
 # apply vanilla overrides on top (these take priority over main assets)
 vanilla_assets = input_path / constants.RELATIVE_VANILLA_OVERRIDES_PATH / "assets"
 if vanilla_assets.exists():
-    util.copy_folder(vanilla_assets, output_path / "assets")
+    shutil.copytree(vanilla_assets, output_path / "assets", dirs_exist_ok=True)
 
 # copy version-specific folders from vanilla overrides (e.g., 1_21_1)
 for folder in (input_path / constants.RELATIVE_VANILLA_OVERRIDES_PATH).iterdir():
     if folder.is_dir() and folder.name.startswith("1_"):
-        util.copy_folder(folder, output_path / folder.name)
+        shutil.copytree(folder, output_path / folder.name, dirs_exist_ok=True)
+
 
 # ---------------------------------------------
 # Process vanilla blockstates and item models
