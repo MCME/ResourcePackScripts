@@ -1,12 +1,9 @@
 import shutil
 
-import yaml
 import json
-import subprocess
 import os
 import argparse
 from pathlib import Path
-from PIL import Image
 
 import constants
 import processBlockstate
@@ -14,6 +11,9 @@ import util
 import processItem
 import hardcodedFiles
 
+# ------------------------------------------------------------
+# command line interface
+# ------------------------------------------------------------
 parser = argparse.ArgumentParser(
     description="Convert OBJ models to vanilla shader models."
 )
@@ -50,6 +50,8 @@ print(f"Source path: {args.input_path}")
 print(f"Output path: {args.output_path}")
 print(f"Vanilla path: {args.vanilla_path}")
 
+# resolve paths and runtime flags
+
 vanilla_path = Path(args.vanilla_path)
 input_path = Path(args.input_path)
 output_path = Path(args.output_path)
@@ -67,81 +69,48 @@ if not output_path.exists():
 
 print(f"Processing Sodium RP in: {input_path}")
 
-pack_mcmeta_file = input_path / constants.PACK_MCMETA
-if pack_mcmeta_file.exists():
-    with open(pack_mcmeta_file, "r") as f:
+# ----------------------------------------
+# Bring over top level files
+# ----------------------------------------
+input_pack_mcmeta = input_path / constants.PACK_MCMETA
+if input_pack_mcmeta.exists():
+    with open(input_pack_mcmeta, "r") as f:
         data = json.load(f)
         data["pack"]["description"] = data["pack"]["description"].replace(
             "Sodium", "Vanilla"
         )
-    pack_mcmeta_file = output_path / constants.PACK_MCMETA
-    if not pack_mcmeta_file.exists():
-        pack_mcmeta_file.touch(exist_ok=True)
-    with open(pack_mcmeta_file, "w") as f:
+    output_pack_mcmeta = output_path / constants.PACK_MCMETA
+    with open(output_pack_mcmeta, "w") as f:
         json.dump(data, f, indent=4)  # type: ignore
-if (input_path / constants.PACK_PNG).exists():
-    shutil.copy(input_path / constants.PACK_PNG, output_path / constants.PACK_PNG)
-if (input_path / constants.LICENCE).exists():
-    shutil.copy(input_path / constants.LICENCE, output_path / constants.LICENCE)
-if (input_path / constants.README).exists():
-    shutil.copy(input_path / constants.README, output_path / constants.README)
 
-util.copy_folder(
-    input_path
-    / constants.RELATIVE_VANILLA_OVERRIDES_PATH
-    / constants.RELATIVE_SHADER_PATH,
-    output_path / constants.RELATIVE_SHADER_PATH,
-)
-util.copy_folder(
-    input_path / constants.RELATIVE_OPTIFINE_PATH,
-    output_path / constants.RELATIVE_OPTIFINE_PATH,
-)
-util.copy_folder(
-    input_path / constants.RELATIVE_TEXTS_PATH,
-    output_path / constants.RELATIVE_TEXTS_PATH,
-)
-util.copy_folder(
-    input_path / constants.RELATIVE_TEXTURES_ENV_PATH,
-    output_path / constants.RELATIVE_TEXTURES_ENV_PATH,
-)
-util.copy_folder(
-    input_path / constants.RELATIVE_TEXTURES_GUI_PATH,
-    output_path / constants.RELATIVE_TEXTURES_GUI_PATH,
-)
-util.copy_folder(
-    input_path / constants.RELATIVE_TEXTURES_ENTITY_PATH,
-    output_path / constants.RELATIVE_TEXTURES_ENTITY_PATH,
-)
-util.copy_folder(
-    input_path / constants.RELATIVE_TEXTURES_COLORMAP_PATH,
-    output_path / constants.RELATIVE_TEXTURES_COLORMAP_PATH,
-)
-util.copy_folder(
-    input_path / constants.RELATIVE_TEXTURES_PARTICLE_PATH,
-    output_path / constants.RELATIVE_TEXTURES_PARTICLE_PATH,
-)
-util.copy_folder(
-    input_path / constants.RELATIVE_TEXTURES_PAINTING_PATH,
-    output_path / constants.RELATIVE_TEXTURES_PAINTING_PATH,
-)
-util.copy_folder(
-    input_path / constants.RELATIVE_TEXTURES_ARMOR_PATH,
-    output_path / constants.RELATIVE_TEXTURES_ARMOR_PATH,
-)
-util.copy_folder(
-    input_path / constants.RELATIVE_SOUNDS_PATH / Path("sounds"),
-    output_path / constants.RELATIVE_SOUNDS_PATH / Path("sounds"),
-)
-sound_json = constants.RELATIVE_SOUNDS_PATH / Path("sounds.json")
-if (input_path / sound_json).exists():
-    shutil.copy(input_path / sound_json, output_path / sound_json)
+# copy static files
+static_files = [constants.PACK_PNG, constants.LICENCE, constants.README]
+for filename in static_files:
+    src_path = input_path / filename
+    if src_path.exists():
+        shutil.copy(src_path, output_path / filename)
 
-for folder in input_path.iterdir():
-    if folder.is_dir() and folder.name.startswith("1_"):
-        util.copy_folder(folder, output_path / Path(folder.name))
+# copy all assets, skipping directories handled by the processing pipeline
+util.copy_folder_filtered(
+    input_path / "assets",
+    output_path / "assets",
+    denied_dirs=constants.DENIED_DIRS,
+    base=input_path,
+)
+
+# apply vanilla overrides on top (these take priority over main assets)
+vanilla_assets = input_path / constants.RELATIVE_VANILLA_OVERRIDES_PATH / "assets"
+if vanilla_assets.exists():
+    util.copy_folder(vanilla_assets, output_path / "assets")
+
+# copy version-specific folders from vanilla overrides (e.g., 1_21_1)
 for folder in (input_path / constants.RELATIVE_VANILLA_OVERRIDES_PATH).iterdir():
     if folder.is_dir() and folder.name.startswith("1_"):
-        util.copy_folder(folder, output_path / Path(folder.name))
+        util.copy_folder(folder, output_path / folder.name)
+
+# ---------------------------------------------
+# Process vanilla blockstates and item models
+# ---------------------------------------------
 if not no_blocks:
     for blockstate_file in (vanilla_path / constants.RELATIVE_BLOCKSTATE_PATH).glob(
         "*" + constants.BLOCKSTATE_EXTENSION

@@ -1,5 +1,6 @@
 import os
 import shutil
+from pathlib import Path
 import constants
 import logging
 
@@ -31,6 +32,28 @@ def copy_folder(source, destination):
                 shutil.copy2(source_path, destination_path)  # Kopiert Dateien
     else:
         print("copy_folder: Expected source not found: "+str(source))
+
+
+def copy_folder_filtered(source, destination, denied_dirs=None, base=None):
+    if denied_dirs is None:
+        denied_dirs = set()
+    if base is None:
+        base = source
+    if not os.path.exists(source):
+        print("copy_folder_filtered: Expected source not found: " + str(source))
+        return
+    relative = Path(os.path.relpath(source, base))
+    if relative in denied_dirs:
+        return
+    if not os.path.exists(destination):
+        os.makedirs(destination)
+    for item in os.listdir(source):
+        source_path = os.path.join(source, item)
+        destination_path = os.path.join(destination, item)
+        if os.path.isdir(source_path):
+            copy_folder_filtered(source_path, destination_path, denied_dirs, base)
+        else:
+            shutil.copy2(source_path, destination_path)
 
 
 def get_relative_model_path(namespaced_key):
