@@ -13,6 +13,8 @@ RELATIVE_SODIUM_TEXTURES_PATH = Path("assets/mcme/textures")
 SODIUM_DIRS = {
     Path("assets/minecraft/blockstates"),
     Path("assets/minecraft/items"),
+    Path("assets/minecraft/models/block"),
+    Path("assets/minecraft/models/items"),
     Path("assets/mcme/models/block"),
     Path("assets/mcme/textures/block"),
     Path("assets/mcme/sml_load_scopes"),
