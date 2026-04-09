@@ -113,10 +113,12 @@ if vanilla_assets.exists():
     shutil.copytree(vanilla_assets, output_path / "assets", dirs_exist_ok=True)
 
 # copy version-specific folders from vanilla overrides (e.g., 1_21_1)
+for folder in input_path.iterdir():
+    if folder.is_dir() and folder.name.startswith("1_"):
+        shutil.copytree(folder, output_path / folder.name, dirs_exist_ok=True)
 for folder in (input_path / constants.RELATIVE_VANILLA_OVERRIDES_PATH).iterdir():
     if folder.is_dir() and folder.name.startswith("1_"):
         shutil.copytree(folder, output_path / folder.name, dirs_exist_ok=True)
-
 
 # ---------------------------------------------
 # Process vanilla blockstates and item models
