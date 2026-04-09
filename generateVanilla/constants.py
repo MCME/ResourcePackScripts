@@ -10,13 +10,26 @@ RELATIVE_VANILLA_TEXTURES_PATH = Path("assets/minecraft/textures")
 RELATIVE_SODIUM_MODELS_PATH = Path("assets/mcme/models")
 RELATIVE_SODIUM_TEXTURES_PATH = Path("assets/mcme/textures")
 
-SODIUM_DIRS = {
-    Path("assets/minecraft/blockstates"),
-    Path("assets/minecraft/items"),
-    Path("assets/minecraft/models/block"),
-    Path("assets/minecraft/models/items"),
-    Path("assets/mcme/models/block"),
-    Path("assets/mcme/textures/block"),
+# * blockstates
+# * items
+# * models
+#   * block and item
+# * textures
+#  * block and item
+
+# Relative suffixes (after assets/<namespace>/) to skip during copytree.
+# These are processed separately by the blockstate/item/model pipeline.
+IGNORED_ASSET_SUFFIXES = {
+    Path("blockstates"),
+    Path("items"),
+    Path("models/block"),
+    Path("models/item"),
+    Path("textures/block"),
+    Path("textures/item"),
+}
+
+# Full paths (assets/<namespace>/...) to skip — for namespace-specific dirs
+IGNORED_ASSET_PATHS = {
     Path("assets/mcme/sml_load_scopes"),
 }
 

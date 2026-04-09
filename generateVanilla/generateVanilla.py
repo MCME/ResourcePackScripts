@@ -92,18 +92,26 @@ for filename in root_files:
 # ----------------------------------------
 # Copy assets
 # ----------------------------------------
-def ignore_sodium_dirs(directory, contents):
-    # Directory is the directory currently being copied
-    # We strip input_path from it to just get "assets/..."
+def ignore_processed_dirs(directory, contents):
     rel = Path(directory).relative_to(input_path)
-    # Return the entries of contents that are in SODIUM_DIRS
-    return [name for name in contents if (rel / name) in constants.SODIUM_DIRS]
+    parts = rel.parts
+    # Check if we're inside assets/<namespace>/ and match the suffix
+    if len(parts) >= 2 and parts[0] == "assets":
+        suffix = Path(*parts[2:]) if len(parts) > 2 else Path()
+        return [
+            name
+            for name in contents
+            if (suffix / name) in constants.IGNORED_ASSET_SUFFIXES
+            or (rel / name) in constants.IGNORED_ASSET_PATHS
+        ]
+    return []
 
 
 shutil.copytree(
     input_path / "assets",
     output_path / "assets",
-    ignore=ignore_sodium_dirs,  # skip sodium-specific dirs that need conversion
+    # Skip sodium-specific dirs OR dirs used to render items/blocks
+    ignore=ignore_processed_dirs,
     dirs_exist_ok=True,
 )
 
