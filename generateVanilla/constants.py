@@ -18,12 +18,13 @@ RELATIVE_SODIUM_TEXTURES_PATH = Path("assets/mcme/textures")
 #  * block and item
 
 # Relative suffixes (after assets/<namespace>/) to skip during copytree.
-# These are processed separately by the blockstate/item/model pipeline.
+# These are processed separately by the blockstate/item/model pipeline
+# These blockstates/items/models/textures will only exist in the generated vanilla pack if a vanilla block or item exists in the RP
 IGNORED_ASSET_SUFFIXES = {
     Path("blockstates"),
     Path("items"),
-    Path("models/block"),
-    Path("models/item"),
+    Path("models"),
+    # Unable to ignore the entire textures folder because textures can be used for things like fonts
     Path("textures/block"),
     Path("textures/item"),
 }

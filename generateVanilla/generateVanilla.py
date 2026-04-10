@@ -92,33 +92,46 @@ for filename in root_files:
 # ----------------------------------------
 # Copy assets
 # ----------------------------------------
-def ignore_processed_dirs(directory, contents):
-    rel = Path(directory).relative_to(input_path)
-    parts = rel.parts
-    # Check if we're inside assets/<namespace>/ and match the suffix
-    if len(parts) >= 2 and parts[0] == "assets":
-        suffix = Path(*parts[2:]) if len(parts) > 2 else Path()
-        return [
-            name
-            for name in contents
-            if (suffix / name) in constants.IGNORED_ASSET_SUFFIXES
-            or (rel / name) in constants.IGNORED_ASSET_PATHS
-        ]
-    return []
+def make_ignore_processed_dirs(base_path):
+    """Create an ignore function for copytree, relative to the given base."""
+
+    def ignore_fn(directory, contents):
+        rel = Path(directory).relative_to(base_path)
+        parts = rel.parts
+        # Check if we're inside assets/<namespace>/ and match the suffix
+        if len(parts) >= 2 and parts[0] == "assets":
+            # FIXME: Understand this logic / make it more readable
+            suffix = Path(*parts[2:]) if len(parts) > 2 else Path()
+            ignored = [
+                name
+                for name in contents
+                if (suffix / name) in constants.IGNORED_ASSET_SUFFIXES
+                or (rel / name) in constants.IGNORED_ASSET_PATHS
+            ]
+            return ignored
+        return []
+
+    return ignore_fn
 
 
 shutil.copytree(
     input_path / "assets",
     output_path / "assets",
     # Skip sodium-specific dirs OR dirs used to render items/blocks
-    ignore=ignore_processed_dirs,
+    ignore=make_ignore_processed_dirs(input_path),
     dirs_exist_ok=True,
 )
 
 # apply vanilla overrides on top (these take priority over main assets)
-vanilla_assets = input_path / constants.RELATIVE_VANILLA_OVERRIDES_PATH / "assets"
+vanilla_override_path = input_path / constants.RELATIVE_VANILLA_OVERRIDES_PATH
+vanilla_assets = vanilla_override_path / "assets"
 if vanilla_assets.exists():
-    shutil.copytree(vanilla_assets, output_path / "assets", dirs_exist_ok=True)
+    shutil.copytree(
+        vanilla_assets,
+        output_path / "assets",
+        ignore=make_ignore_processed_dirs(vanilla_override_path),
+        dirs_exist_ok=True,
+    )
 
 # copy version-specific folders from vanilla overrides (e.g., 1_21_1)
 for folder in input_path.iterdir():
