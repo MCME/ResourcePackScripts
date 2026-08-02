@@ -16,6 +16,14 @@ def printDebug(message, debug):
         logging.info(message)
 
 
+def split_namespaced(value, default_namespace=constants.VANILLA_NAMESPACE):
+    """Split 'namespace:path' → (namespace, path). No ':' → (default_namespace, value)."""
+    if ":" in value:
+        namespace, path = value.split(":", 1)
+        return namespace, path
+    return default_namespace, value
+
+
 def get_relative_model_path(namespaced_key):
     namespace = namespaced_key.split(":")[0]
     if namespace == constants.MCME_NAMESPACE:

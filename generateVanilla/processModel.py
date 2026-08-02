@@ -38,14 +38,14 @@ def convert_model(
     with open(vanilla_model_input_file, "r") as f:
         data = json.load(f)
         if "model" in data:
-            model_data = data["model"].split(":")
-            if model_data[0] == constants.MCME_NAMESPACE:
-                obj_model_path = model_data[1]
-            elif len(model_data) == 1:
-                obj_model_path = model_data[0]
+            namespace, model_ref = util.split_namespaced(
+                data["model"], constants.MCME_NAMESPACE
+            )
+            if namespace == constants.MCME_NAMESPACE:
+                obj_model_path = model_ref
             else:
                 print(
-                    "Unexpected namespace: {model_data[0]} in mcme model file.",
+                    f"Unexpected namespace: {namespace} in mcme model file.",
                     flush=True,
                 )
         else:
@@ -54,14 +54,14 @@ def convert_model(
             constants.OBJ_MODEL_EXTENSION
         )
         if "mtl_override" in data:
-            mtl_data = data["mtl_override"].split(":")
-            if mtl_data[0] == constants.MCME_NAMESPACE:
-                mtl_path = mtl_data[1]
-            elif len(model_data) == 1:
-                mtl_path = mtl_data[0]
+            namespace, mtl_ref = util.split_namespaced(
+                data["mtl_override"], constants.MCME_NAMESPACE
+            )
+            if namespace == constants.MCME_NAMESPACE:
+                mtl_path = mtl_ref
             else:
                 print(
-                    "Unexpected namespace: {model_data[0]} in mcme mtl file.",
+                    f"Unexpected namespace: {namespace} in mcme mtl file.",
                     flush=True,
                 )
         mtl_path = mtl_path.removeprefix("models/").removesuffix(
@@ -130,21 +130,19 @@ def convert_model(
 
     if texture_path:
         relative_texture_path = constants.RELATIVE_SODIUM_TEXTURES_PATH
-        if ":" in texture_path:
-            texture_split = texture_path.split(":")
-            namespace = texture_split[0]
-            texture_name = texture_split[1]
-            if namespace == constants.VANILLA_NAMESPACE:
-                relative_texture_path = constants.RELATIVE_VANILLA_TEXTURES_PATH
-            elif namespace != constants.MCME_NAMESPACE:
-                print(
-                    "WARNING!!! Unexpected texture namespace: "
-                    + namespace
-                    + "for "
-                    + texture_name,
-                    flush=True,
-                )
-            texture_path = texture_name
+        namespace, texture_path = util.split_namespaced(
+            texture_path, constants.MCME_NAMESPACE
+        )
+        if namespace == constants.VANILLA_NAMESPACE:
+            relative_texture_path = constants.RELATIVE_VANILLA_TEXTURES_PATH
+        elif namespace != constants.MCME_NAMESPACE:
+            print(
+                "WARNING!!! Unexpected texture namespace: "
+                + namespace
+                + "for "
+                + texture_path,
+                flush=True,
+            )
 
         if not output_texture_path:
             output_texture_path = model_path
@@ -414,19 +412,17 @@ def copy_textures(model_path, texture_path, output_path, model_file_relative, de
         if "textures" in data:
             for texture_name, texture_filename in data["textures"].items():
                 relative_path = constants.RELATIVE_VANILLA_TEXTURES_PATH
-                if ":" in texture_filename:
-                    texture_split = texture_filename.split(":")
-                    if texture_split[0] == constants.VANILLA_NAMESPACE:
-                        texture_filename = texture_split[1]
-                    elif texture_split[0] == constants.MCME_NAMESPACE:
-                        texture_filename = texture_split[1]
-                        relative_path = constants.RELATIVE_SODIUM_TEXTURES_PATH
-                    else:
-                        print(
-                            f"WARNING!!! Unexpected texture namespace {texture_split[0]} for {texture_filename}",
-                            flush=True,
-                        )
-                        return
+                namespace, texture_filename = util.split_namespaced(
+                    texture_filename, constants.VANILLA_NAMESPACE
+                )
+                if namespace == constants.MCME_NAMESPACE:
+                    relative_path = constants.RELATIVE_SODIUM_TEXTURES_PATH
+                elif namespace != constants.VANILLA_NAMESPACE:
+                    print(
+                        f"WARNING!!! Unexpected texture namespace {namespace} for {texture_filename}",
+                        flush=True,
+                    )
+                    return
 
                 texture_file_relative = relative_path / Path(
                     texture_filename + constants.TEXTURE_EXTENSION
@@ -461,21 +457,18 @@ def copy_parent(input_path, output_path, model_file_relative, debug):
         # print(f"copy_textures: {model_path} {texture_path} {model_file_relative}")
         if "parent" in data:
             # print("parent found")
-            parent_filename = data["parent"]
             relative_path = constants.RELATIVE_VANILLA_MODELS_PATH
-            if ":" in parent_filename:
-                parent_split = parent_filename.split(":")
-                if parent_split[0] == constants.VANILLA_NAMESPACE:
-                    parent_filename = parent_split[1]
-                elif parent_split[0] == constants.MCME_NAMESPACE:
-                    parent_filename = parent_split[1]
-                    relative_path = constants.RELATIVE_SODIUM_MODELS_PATH
-                else:
-                    print(
-                        f"WARNING!!! Unexpected texture namespace {parent_split[0]} for {parent_filename}",
-                        flush=True,
-                    )
-                    return
+            namespace, parent_filename = util.split_namespaced(
+                data["parent"], constants.VANILLA_NAMESPACE
+            )
+            if namespace == constants.MCME_NAMESPACE:
+                relative_path = constants.RELATIVE_SODIUM_MODELS_PATH
+            elif namespace != constants.VANILLA_NAMESPACE:
+                print(
+                    f"WARNING!!! Unexpected parent namespace {namespace} for {parent_filename}",
+                    flush=True,
+                )
+                return
 
             parent_file_relative = relative_path / Path(
                 parent_filename + constants.VANILLA_MODEL_EXTENSION
@@ -495,11 +488,12 @@ def copy_parent(input_path, output_path, model_file_relative, debug):
 def process(
     input_path, output_path, vanilla_path, model_data, objmc_path, compress, debug
 ):
-    namespace_and_path = model_data.get("model", "").split(":")
+    namespace, model_path = util.split_namespaced(
+        model_data.get("model", ""), constants.VANILLA_NAMESPACE
+    )
 
-    if namespace_and_path[0] == constants.MCME_NAMESPACE:
+    if namespace == constants.MCME_NAMESPACE:
         # convert .obj model to Vanilla shader model
-        model_path = namespace_and_path[1]
 
         # check if one key of "x", "y", oder "z" exists
         x = model_data.pop("x", None)
@@ -532,7 +526,6 @@ def process(
 
     else:
         # copy vanilla model and textures to output folder
-        model_path = namespace_and_path[-1]
         model_file_relative = constants.RELATIVE_VANILLA_MODELS_PATH / Path(
             model_path + constants.VANILLA_MODEL_EXTENSION
         )
