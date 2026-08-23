@@ -12,6 +12,8 @@ import yaml
 
 converted_models = dict()
 
+# I kept the original semantics where an unexpected namespace leaves obj_model_path / mtl_path at their defaults rather than assigning the stripped path. Your pre-revert version assigned unconditionally. Warning-path only, but it's a real difference if you preferred the other.
+
 
 def convert_model(
     input_path, output_path, model_path, axis, angle, objmc_path, compress, debug
@@ -406,49 +408,48 @@ def convert_model(
         print(f"        Missing texture for {model_path}", flush=True)
 
 
+# Copies one texture file, if the pack being read from actually has it.
+def copy_texture_file(texture_path, output_path, texture_file_relative, debug):
+    texture_file = texture_path / texture_file_relative
+    if not texture_file.exists():
+        return
+    util.printDebug(f"        Copying texture: {texture_file_relative}", debug)
+    os.makedirs((output_path / texture_file_relative).parent, exist_ok=True)
+    shutil.copy(texture_file, output_path / texture_file_relative)
+
+
+# Copies the textures a model references, but only the ones texture_path has.
+# The model is read from model_path purely to learn which texture names to
+# look for; a texture it names that texture_path does not have is skipped.
 def copy_textures(model_path, texture_path, output_path, model_file_relative, debug):
     with open(model_path / model_file_relative, "r") as f:
         data = json.load(f)
-        # print(f"copy_textures: {model_path} {texture_path} {model_file_relative}")
-        if "textures" in data:
-            for texture_name, texture_filename in data["textures"].items():
-                relative_path = constants.RELATIVE_VANILLA_TEXTURES_PATH
-                namespace, texture_filename = util.split_namespaced(
-                    texture_filename, constants.VANILLA_NAMESPACE
-                )
-                if namespace == constants.MCME_NAMESPACE:
-                    relative_path = constants.RELATIVE_SODIUM_TEXTURES_PATH
-                elif namespace != constants.VANILLA_NAMESPACE:
-                    print(
-                        f"WARNING!!! Unexpected texture namespace {namespace} for {texture_filename}",
-                        flush=True,
-                    )
-                    return
 
-                texture_file_relative = relative_path / Path(
-                    texture_filename + constants.TEXTURE_EXTENSION
-                )
-                texture_mcmeta_file_relative = relative_path / Path(
-                    texture_filename
-                    + constants.TEXTURE_EXTENSION
-                    + constants.MCMETA_EXTENSION
-                )
-                os.makedirs((output_path / texture_file_relative).parent, exist_ok=True)
-                texture_file = texture_path / texture_file_relative
-                if texture_file.exists():
-                    util.printDebug(
-                        f"        Copying texture: {texture_file_relative}", debug
-                    )
-                    shutil.copy(texture_file, output_path / texture_file_relative)
-                if (texture_path / texture_mcmeta_file_relative).exists():
-                    util.printDebug(
-                        f"        Copying texture mcmeta: {texture_mcmeta_file_relative}",
-                        debug,
-                    )
-                    shutil.copy(
-                        texture_path / texture_mcmeta_file_relative,
-                        output_path / texture_mcmeta_file_relative,
-                    )
+    for texture_filename in data.get("textures", {}).values():
+        namespace, texture_filename = util.split_namespaced(
+            texture_filename, constants.VANILLA_NAMESPACE
+        )
+        if namespace == constants.MCME_NAMESPACE:
+            relative_path = constants.RELATIVE_SODIUM_TEXTURES_PATH
+        elif namespace == constants.VANILLA_NAMESPACE:
+            relative_path = constants.RELATIVE_VANILLA_TEXTURES_PATH
+        else:
+            print(
+                f"WARNING!!! Unexpected texture namespace {namespace} for {texture_filename}",
+                flush=True,
+            )
+            continue
+
+        texture_file_relative = relative_path / Path(
+            texture_filename + constants.TEXTURE_EXTENSION
+        )
+        texture_mcmeta_file_relative = relative_path / Path(
+            texture_filename + constants.TEXTURE_EXTENSION + constants.MCMETA_EXTENSION
+        )
+        copy_texture_file(texture_path, output_path, texture_file_relative, debug)
+        copy_texture_file(
+            texture_path, output_path, texture_mcmeta_file_relative, debug
+        )
 
 
 def copy_parent(input_path, output_path, model_file_relative, debug):
