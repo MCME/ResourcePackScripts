@@ -50,6 +50,7 @@ def convert_model(
                 )
         else:
             return
+
         obj_model_path = obj_model_path.removeprefix("models/").removesuffix(
             constants.OBJ_MODEL_EXTENSION
         )
@@ -484,7 +485,73 @@ def copy_parent(input_path, output_path, model_file_relative, debug):
                 copy_parent(input_path, output_path, parent_file_relative, debug)
 
 
-# convert model entry
+# Converts the .obj model to a Vanilla shader model, baking any rotation into
+# it, and points the model entry at the converted model.
+def convert_sodium_model(
+    input_path, output_path, model_path, model_data, objmc_path, compress, debug
+):
+    # check if one key of "x", "y", oder "z" exists
+    # FIXME: All three axes are popped but only the first is applied, so an entry
+    # with e.g. both x and y silently loses the y rotation twice over: it is not
+    # baked into the converted model, and it is stripped from the blockstate so
+    # the client cannot apply it either. convert_model only supports one axis,
+    # so warn on the dropped axes rather than discarding them silently.
+    x = model_data.pop("x", None)
+    y = model_data.pop("y", None)
+    z = model_data.pop("z", None)
+
+    # create vanilla model name
+    if x is not None:
+        convert_model(
+            input_path, output_path, model_path, "x", x, objmc_path, compress, debug
+        )
+        model_path += f"_x_{x}"
+    elif y is not None:
+        convert_model(
+            input_path, output_path, model_path, "y", y, objmc_path, compress, debug
+        )
+        model_path += f"_y_{y}"
+    elif z is not None:
+        convert_model(
+            input_path, output_path, model_path, "z", z, objmc_path, compress, debug
+        )
+        model_path += f"_z_{z}"
+    else:
+        # TODO: "o" is a sentinel meaning "no rotation", paired with a dummy
+        # angle. Passing None for the axis would say that without the lookup.
+        convert_model(
+            input_path, output_path, model_path, "o", 0, objmc_path, compress, debug
+        )
+
+    # update model entry
+    model_data["model"] = constants.MCME_NAMESPACE + ":" + model_path
+
+
+# Copies whatever the resource pack overrides for a vanilla model
+def copy_minecraft_model(input_path, output_path, vanilla_path, model_path, debug):
+    model_file_relative = constants.RELATIVE_VANILLA_MODELS_PATH / Path(
+        model_path + constants.VANILLA_MODEL_EXTENSION
+    )
+
+    if (input_path / model_file_relative).exists():
+        # The RP overrides the model
+        util.printDebug(f"    Copying model {model_file_relative}", debug)
+        os.makedirs((output_path / model_file_relative).parent, exist_ok=True)
+        shutil.copy(input_path / model_file_relative, output_path / model_file_relative)
+        copy_textures(input_path, input_path, output_path, model_file_relative, debug)
+        copy_parent(input_path, output_path, model_file_relative, debug)
+    elif (vanilla_path / model_file_relative).exists():
+        # The RP doesn't override the model, so we only need to copy any overriden textures
+        # FIXME: copy_parent should be used - in case the parent model is overridden - or its textures
+        util.printDebug(
+            f"    Reading textures from vanilla model {model_file_relative}",
+            debug,
+        )
+        copy_textures(vanilla_path, input_path, output_path, model_file_relative, debug)
+    else:
+        print(f"WARNING!!! Missing model file: {model_file_relative}", flush=True)
+
+
 def process(
     input_path, output_path, vanilla_path, model_data, objmc_path, compress, debug
 ):
@@ -493,64 +560,8 @@ def process(
     )
 
     if namespace == constants.MCME_NAMESPACE:
-        # convert .obj model to Vanilla shader model
-
-        # check if one key of "x", "y", oder "z" exists
-        x = model_data.pop("x", None)
-        y = model_data.pop("y", None)
-        z = model_data.pop("z", None)
-
-        # create vanilla model name
-        if x is not None:
-            convert_model(
-                input_path, output_path, model_path, "x", x, objmc_path, compress, debug
-            )
-            model_path += f"_x_{x}"
-        elif y is not None:
-            convert_model(
-                input_path, output_path, model_path, "y", y, objmc_path, compress, debug
-            )
-            model_path += f"_y_{y}"
-        elif z is not None:
-            convert_model(
-                input_path, output_path, model_path, "z", z, objmc_path, compress, debug
-            )
-            model_path += f"_z_{z}"
-        else:
-            convert_model(
-                input_path, output_path, model_path, "o", 0, objmc_path, compress, debug
-            )
-
-        # update model entry
-        model_data["model"] = constants.MCME_NAMESPACE + ":" + model_path
-
-    else:
-        # copy vanilla model and textures to output folder
-        model_file_relative = constants.RELATIVE_VANILLA_MODELS_PATH / Path(
-            model_path + constants.VANILLA_MODEL_EXTENSION
+        convert_sodium_model(
+            input_path, output_path, model_path, model_data, objmc_path, compress, debug
         )
-        if (input_path / model_file_relative).exists():
-            util.printDebug(f"    Copying model {model_file_relative}", debug)
-            os.makedirs((output_path / model_file_relative).parent, exist_ok=True)
-            # print(f'Model relative path: {model_file_relative}')
-            shutil.copy(
-                input_path / model_file_relative, output_path / model_file_relative
-            )
-            copy_textures(
-                input_path, input_path, output_path, model_file_relative, debug
-            )
-            copy_parent(input_path, output_path, model_file_relative, debug)
-        else:
-            # read textures to copy from vanilla pack file.
-            if (vanilla_path / model_file_relative).exists():
-                util.printDebug(
-                    f"    Reading textures from vanilla model {model_file_relative}",
-                    debug,
-                )
-                copy_textures(
-                    vanilla_path, input_path, output_path, model_file_relative, debug
-                )
-            else:
-                print(
-                    f"WARNING!!! Missing model file: {model_file_relative}", flush=True
-                )
+    else:
+        copy_minecraft_model(input_path, output_path, vanilla_path, model_path, debug)
