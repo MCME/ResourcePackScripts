@@ -418,9 +418,7 @@ def copy_texture_file(texture_path, output_path, texture_file_relative, debug):
     shutil.copy(texture_file, output_path / texture_file_relative)
 
 
-# Copies the textures a model references, but only the ones texture_path has.
-# The model is read from model_path purely to learn which texture names to
-# look for; a texture it names that texture_path does not have is skipped.
+# Reads the model to find its textures, and copies them - but only if they exist in texture_path
 def copy_textures(model_path, texture_path, output_path, model_file_relative, debug):
     with open(model_path / model_file_relative, "r") as f:
         data = json.load(f)
@@ -434,6 +432,7 @@ def copy_textures(model_path, texture_path, output_path, model_file_relative, de
         elif namespace == constants.VANILLA_NAMESPACE:
             relative_path = constants.RELATIVE_VANILLA_TEXTURES_PATH
         else:
+            # FIXME: Does this fire for textxure variables? So skip early if filename starts with '#'
             print(
                 f"WARNING!!! Unexpected texture namespace {namespace} for {texture_filename}",
                 flush=True,
@@ -453,37 +452,40 @@ def copy_textures(model_path, texture_path, output_path, model_file_relative, de
 
 
 def copy_parent(input_path, output_path, model_file_relative, debug):
-    # print("copy_parent")
     with open(input_path / model_file_relative, "r") as f:
         data = json.load(f)
-        # print(f"copy_textures: {model_path} {texture_path} {model_file_relative}")
-        if "parent" in data:
-            # print("parent found")
-            relative_path = constants.RELATIVE_VANILLA_MODELS_PATH
-            namespace, parent_filename = util.split_namespaced(
-                data["parent"], constants.VANILLA_NAMESPACE
-            )
-            if namespace == constants.MCME_NAMESPACE:
-                relative_path = constants.RELATIVE_SODIUM_MODELS_PATH
-            elif namespace != constants.VANILLA_NAMESPACE:
-                print(
-                    f"WARNING!!! Unexpected parent namespace {namespace} for {parent_filename}",
-                    flush=True,
-                )
-                return
 
-            parent_file_relative = relative_path / Path(
-                parent_filename + constants.VANILLA_MODEL_EXTENSION
-            )
-            os.makedirs((output_path / parent_file_relative).parent, exist_ok=True)
-            parent_file = input_path / parent_file_relative
-            # print("Parent file: "+str(parent_file))
-            if parent_file.exists():
-                util.printDebug(
-                    f"        Copying parent model: {parent_file_relative}", debug
-                )
-                shutil.copy(parent_file, output_path / parent_file_relative)
-                copy_parent(input_path, output_path, parent_file_relative, debug)
+    if "parent" not in data:
+        return
+
+    namespace, parent_filename = util.split_namespaced(
+        data["parent"], constants.VANILLA_NAMESPACE
+    )
+    if namespace == constants.MCME_NAMESPACE:
+        relative_path = constants.RELATIVE_SODIUM_MODELS_PATH
+    elif namespace == constants.VANILLA_NAMESPACE:
+        relative_path = constants.RELATIVE_VANILLA_MODELS_PATH
+    else:
+        print(
+            f"WARNING!!! Unexpected parent namespace {namespace} for {parent_filename}",
+            flush=True,
+        )
+        return
+
+    parent_file_relative = relative_path / Path(
+        parent_filename + constants.VANILLA_MODEL_EXTENSION
+    )
+    parent_file = input_path / parent_file_relative
+    if not parent_file.exists():
+        # The RP doesn't override the parent model
+        # FIXME: Do we need to copy the textures from the parent???
+        return
+
+    util.printDebug(f"        Copying parent model: {parent_file_relative}", debug)
+    os.makedirs((output_path / parent_file_relative).parent, exist_ok=True)
+    shutil.copy(parent_file, output_path / parent_file_relative)
+    # Recursive call - parents can have parents
+    copy_parent(input_path, output_path, parent_file_relative, debug)
 
 
 # Converts the .obj model to a Vanilla shader model, baking any rotation into
