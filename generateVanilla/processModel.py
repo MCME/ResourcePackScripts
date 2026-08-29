@@ -12,15 +12,29 @@ import yaml
 
 converted_models = dict()
 
+# FIXME:
 # I kept the original semantics where an unexpected namespace leaves obj_model_path / mtl_path at their defaults rather than assigning the stripped path. Your pre-revert version assigned unconditionally. Warning-path only, but it's a real difference if you preferred the other.
 
 
+# The suffix identifying a rotated variant of a model. Shared by the rotated
+# .obj, the converted model and its texture, so they all have to agree.
+def rotation_suffix(rotation: tuple[str, float] | None):
+    if rotation is None:
+        return ""
+    axis, angle = rotation
+    return f"_{axis}_{angle}"
+
+
 def convert_model(
-    input_path, output_path, model_path, axis, angle, objmc_path, compress, debug
+    input_path,
+    output_path,
+    model_path,
+    rotation: tuple[str, float] | None,
+    objmc_path,
+    compress,
+    debug,
 ):
-    util.printDebug(
-        f"    Converting model: {model_path} axis: {axis} angle: {angle}", debug
-    )
+    util.printDebug(f"    Converting model: {model_path} rotation: {rotation}", debug)
     vanilla_model_input_file = (
         input_path
         / constants.RELATIVE_SODIUM_MODELS_PATH
@@ -160,33 +174,28 @@ def convert_model(
             / Path(texture_path + constants.TEXTURE_EXTENSION)
         )
         # print("output_texture_path: "+output_texture_path)
-        if axis == "o":
-            model_suffix = ""
-            model_file = (
-                input_path
-                / constants.RELATIVE_SODIUM_MODELS_PATH
-                / Path(obj_model_path + constants.OBJ_MODEL_EXTENSION)
-            )
-            output_model_file = (
-                output_path
-                / constants.RELATIVE_SODIUM_MODELS_PATH
-                / Path(model_path + constants.VANILLA_MODEL_EXTENSION)
-            )
-            output_texture_file = (
-                output_path
-                / constants.RELATIVE_SODIUM_TEXTURES_PATH
-                / Path(output_texture_path + constants.TEXTURE_EXTENSION)
-            )
-            is_rotated_obj = False
-        else:
-            model_suffix = "_" + axis + "_" + str(angle)
-            model_file = (
-                input_path
-                / constants.RELATIVE_SODIUM_MODELS_PATH
-                / Path(obj_model_path + model_suffix + constants.OBJ_MODEL_EXTENSION)
-            )
+        # An unrotated model has an empty suffix, so these paths are the same
+        # either way - only the .obj objmc reads from differs.
+        model_suffix = rotation_suffix(rotation)
+        model_file = (
+            input_path
+            / constants.RELATIVE_SODIUM_MODELS_PATH
+            / Path(obj_model_path + model_suffix + constants.OBJ_MODEL_EXTENSION)
+        )
+        output_model_file = (
+            output_path
+            / constants.RELATIVE_SODIUM_MODELS_PATH
+            / Path(model_path + model_suffix + constants.VANILLA_MODEL_EXTENSION)
+        )
+        output_texture_file = (
+            output_path
+            / constants.RELATIVE_SODIUM_TEXTURES_PATH
+            / Path(output_texture_path + model_suffix + constants.TEXTURE_EXTENSION)
+        )
 
-            # create rotated .obj file
+        if rotation is not None:
+            axis, angle = rotation
+            # create rotated .obj file for objmc to read, deleted further down
             rotate_obj.rotate_obj_file(
                 input_path
                 / constants.RELATIVE_SODIUM_MODELS_PATH
@@ -195,18 +204,6 @@ def convert_model(
                 axis,
                 -angle,
             )
-
-            output_model_file = (
-                output_path
-                / constants.RELATIVE_SODIUM_MODELS_PATH
-                / Path(model_path + model_suffix + constants.VANILLA_MODEL_EXTENSION)
-            )
-            output_texture_file = (
-                output_path
-                / constants.RELATIVE_SODIUM_TEXTURES_PATH
-                / Path(output_texture_path + model_suffix + constants.TEXTURE_EXTENSION)
-            )
-            is_rotated_obj = True
 
         # creating output folders if missing
         output_model_dir = os.path.dirname(output_model_file)
@@ -269,8 +266,9 @@ def convert_model(
                 # del data['display']
                 util.printDebug("        Manual parent: " + manual_parent_model, debug)
                 original_manual_parent = manual_parent_model
-                if axis == "y" and not omnidirectional_parent:
-                    if angle > 0:
+                if rotation is not None and not omnidirectional_parent:
+                    axis, angle = rotation
+                    if axis == "y" and angle > 0:
                         if not bool(re.search(r"_[0-9]+$", manual_parent_model)):
                             manual_parent_model = manual_parent_model + "_1"
                         manual_parent_model = (
@@ -401,7 +399,8 @@ def convert_model(
                 flush=True,
             )
 
-        if is_rotated_obj:
+        if rotation is not None:
+            # remove the temporary rotated .obj created above
             Path(model_file).unlink()
 
     else:
@@ -424,6 +423,10 @@ def copy_textures(model_path, texture_path, output_path, model_file_relative, de
         data = json.load(f)
 
     for texture_filename in data.get("textures", {}).values():
+        if texture_filename.startswith("#"):
+            # The texture is a variable reference, not a file to copy
+            continue
+
         namespace, texture_filename = util.split_namespaced(
             texture_filename, constants.VANILLA_NAMESPACE
         )
@@ -432,7 +435,6 @@ def copy_textures(model_path, texture_path, output_path, model_file_relative, de
         elif namespace == constants.VANILLA_NAMESPACE:
             relative_path = constants.RELATIVE_VANILLA_TEXTURES_PATH
         else:
-            # FIXME: Does this fire for textxure variables? So skip early if filename starts with '#'
             print(
                 f"WARNING!!! Unexpected texture namespace {namespace} for {texture_filename}",
                 flush=True,
@@ -478,12 +480,17 @@ def copy_parent(input_path, output_path, model_file_relative, debug):
     parent_file = input_path / parent_file_relative
     if not parent_file.exists():
         # The RP doesn't override the parent model
-        # FIXME: Do we need to copy the textures from the parent???
+
+        # FIXME: Whilst this parent model is not overriden
+        # 1. its textures might be overriden
+        # 2. its own parent might be overriden
         return
 
     util.printDebug(f"        Copying parent model: {parent_file_relative}", debug)
     os.makedirs((output_path / parent_file_relative).parent, exist_ok=True)
     shutil.copy(parent_file, output_path / parent_file_relative)
+    # FIXME: The textures used by the parent model might be overriden, so we need to copy them too
+
     # Recursive call - parents can have parents
     copy_parent(input_path, output_path, parent_file_relative, debug)
 
@@ -493,38 +500,34 @@ def copy_parent(input_path, output_path, model_file_relative, debug):
 def convert_sodium_model(
     input_path, output_path, model_path, model_data, objmc_path, compress, debug
 ):
-    # check if one key of "x", "y", oder "z" exists
-    # FIXME: All three axes are popped but only the first is applied, so an entry
-    # with e.g. both x and y silently loses the y rotation twice over: it is not
-    # baked into the converted model, and it is stripped from the blockstate so
-    # the client cannot apply it either. convert_model only supports one axis,
-    # so warn on the dropped axes rather than discarding them silently.
-    x = model_data.pop("x", None)
-    y = model_data.pop("y", None)
-    z = model_data.pop("z", None)
+    # Every rotation is removed from the model entry, whether or not it gets
+    # applied. The applied one is baked into the converted model, so the client
+    # must not rotate it a second time.
+    rotations = []
+    for axis in ("x", "y", "z"):
+        angle = model_data.pop(axis, None)
+        if angle is not None:
+            rotations.append((axis, angle))
 
-    # create vanilla model name
-    if x is not None:
-        convert_model(
-            input_path, output_path, model_path, "x", x, objmc_path, compress, debug
+    # Only one axis can be baked in, so the rest are lost entirely
+    if len(rotations) > 1:
+        applied_axis, applied_angle = rotations[0]
+        dropped = ", ".join(f"{axis}={angle}" for axis, angle in rotations[1:])
+        print(
+            f"WARNING!!! Multiple rotations for {model_path}: baking "
+            f"{applied_axis}={applied_angle} and dropping {dropped}",
+            flush=True,
         )
-        model_path += f"_x_{x}"
-    elif y is not None:
-        convert_model(
-            input_path, output_path, model_path, "y", y, objmc_path, compress, debug
-        )
-        model_path += f"_y_{y}"
-    elif z is not None:
-        convert_model(
-            input_path, output_path, model_path, "z", z, objmc_path, compress, debug
-        )
-        model_path += f"_z_{z}"
-    else:
-        # TODO: "o" is a sentinel meaning "no rotation", paired with a dummy
-        # angle. Passing None for the axis would say that without the lookup.
-        convert_model(
-            input_path, output_path, model_path, "o", 0, objmc_path, compress, debug
-        )
+
+    rotation = rotations[0] if rotations else None
+
+    convert_model(
+        input_path, output_path, model_path, rotation, objmc_path, compress, debug
+    )
+
+    # create vanilla model name - convert_model gives the files it writes the
+    # same suffix
+    model_path += rotation_suffix(rotation)
 
     # update model entry
     model_data["model"] = constants.MCME_NAMESPACE + ":" + model_path
@@ -545,9 +548,12 @@ def copy_minecraft_model(input_path, output_path, vanilla_path, model_path, debu
         copy_parent(input_path, output_path, model_file_relative, debug)
     elif (vanilla_path / model_file_relative).exists():
         # The RP doesn't override the model, so we only need to copy any overriden textures
-        # FIXME: copy_parent should be used - in case the parent model is overridden - or its textures
+
+        # FIXME: The parent of this vanilla model might be overridden in the RP, so copy_parent should be used to copy it and its textures
+        # However, copy_parent needs to be updated as it needs to retrieve the parent model from the vanilla RP
+
         util.printDebug(
-            f"    Reading textures from vanilla model {model_file_relative}",
+            f"    Copying overriden textures from vanilla model {model_file_relative}",
             debug,
         )
         copy_textures(vanilla_path, input_path, output_path, model_file_relative, debug)
