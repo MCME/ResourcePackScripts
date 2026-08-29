@@ -453,12 +453,11 @@ def copy_textures(model_path, texture_path, output_path, model_file_relative, de
         )
 
 
-def copy_parent(input_path, output_path, model_file_relative, debug):
-    with open(input_path / model_file_relative, "r") as f:
-        data = json.load(f)
-
+# Resolves a model's "parent" reference to a path relative to a pack root,
+# or None when the model has no usable parent.
+def parent_file_relative(data):
     if "parent" not in data:
-        return
+        return None
 
     namespace, parent_filename = util.split_namespaced(
         data["parent"], constants.VANILLA_NAMESPACE
@@ -472,27 +471,52 @@ def copy_parent(input_path, output_path, model_file_relative, debug):
             f"WARNING!!! Unexpected parent namespace {namespace} for {parent_filename}",
             flush=True,
         )
+        return None
+
+    return relative_path / Path(parent_filename + constants.VANILLA_MODEL_EXTENSION)
+
+
+# Walks a model and its parent chain, copying out whatever the resource pack
+# overrides: the model file itself if the pack has its own version, plus any
+# textures it names that the pack provides. A model the pack does not override
+# is read from the vanilla pack instead, so the walk still reaches the parents
+# and textures further up the chain that the pack does override.
+def copy_model_chain(
+    input_path, output_path, vanilla_path, model_file_relative, debug, visited=None
+):
+    # This protects against a circular reference in a model's chain
+    # It doesn't help prevent copying the same parent model multiple times (harmless but slightly inefficient)
+    if visited is None:
+        visited = set()
+    if model_file_relative in visited:
+        return
+    visited.add(model_file_relative)
+
+    if (input_path / model_file_relative).exists():
+        # The RP overrides this model, so we need to include it in the generated RP
+        model_pack_path = input_path
+        util.printDebug(f"    Copying model {model_file_relative}", debug)
+        os.makedirs((output_path / model_file_relative).parent, exist_ok=True)
+        shutil.copy(input_path / model_file_relative, output_path / model_file_relative)
+    elif (vanilla_path / model_file_relative).exists():
+        # The client already has this model, it is only read to find the
+        # textures and the parent that the input RP might override
+        model_pack_path = vanilla_path
+        util.printDebug(f"    Reading vanilla model {model_file_relative}", debug)
+    else:
+        print(f"WARNING!!! Missing model file: {model_file_relative}", flush=True)
         return
 
-    parent_file_relative = relative_path / Path(
-        parent_filename + constants.VANILLA_MODEL_EXTENSION
-    )
-    parent_file = input_path / parent_file_relative
-    if not parent_file.exists():
-        # The RP doesn't override the parent model
+    copy_textures(model_pack_path, input_path, output_path, model_file_relative, debug)
 
-        # FIXME: Whilst this parent model is not overriden
-        # 1. its textures might be overriden
-        # 2. its own parent might be overriden
-        return
+    with open(model_pack_path / model_file_relative, "r") as f:
+        data = json.load(f)
 
-    util.printDebug(f"        Copying parent model: {parent_file_relative}", debug)
-    os.makedirs((output_path / parent_file_relative).parent, exist_ok=True)
-    shutil.copy(parent_file, output_path / parent_file_relative)
-    # FIXME: The textures used by the parent model might be overriden, so we need to copy them too
-
-    # Recursive call - parents can have parents
-    copy_parent(input_path, output_path, parent_file_relative, debug)
+    parent_relative = parent_file_relative(data)
+    if parent_relative is not None:
+        copy_model_chain(
+            input_path, output_path, vanilla_path, parent_relative, debug, visited
+        )
 
 
 # Converts the .obj model to a Vanilla shader model, baking any rotation into
@@ -533,34 +557,6 @@ def convert_sodium_model(
     model_data["model"] = constants.MCME_NAMESPACE + ":" + model_path
 
 
-# Copies whatever the resource pack overrides for a vanilla model
-def copy_minecraft_model(input_path, output_path, vanilla_path, model_path, debug):
-    model_file_relative = constants.RELATIVE_VANILLA_MODELS_PATH / Path(
-        model_path + constants.VANILLA_MODEL_EXTENSION
-    )
-
-    if (input_path / model_file_relative).exists():
-        # The RP overrides the model
-        util.printDebug(f"    Copying model {model_file_relative}", debug)
-        os.makedirs((output_path / model_file_relative).parent, exist_ok=True)
-        shutil.copy(input_path / model_file_relative, output_path / model_file_relative)
-        copy_textures(input_path, input_path, output_path, model_file_relative, debug)
-        copy_parent(input_path, output_path, model_file_relative, debug)
-    elif (vanilla_path / model_file_relative).exists():
-        # The RP doesn't override the model, so we only need to copy any overriden textures
-
-        # FIXME: The parent of this vanilla model might be overridden in the RP, so copy_parent should be used to copy it and its textures
-        # However, copy_parent needs to be updated as it needs to retrieve the parent model from the vanilla RP
-
-        util.printDebug(
-            f"    Copying overriden textures from vanilla model {model_file_relative}",
-            debug,
-        )
-        copy_textures(vanilla_path, input_path, output_path, model_file_relative, debug)
-    else:
-        print(f"WARNING!!! Missing model file: {model_file_relative}", flush=True)
-
-
 def process(
     input_path, output_path, vanilla_path, model_data, objmc_path, compress, debug
 ):
@@ -573,4 +569,11 @@ def process(
             input_path, output_path, model_path, model_data, objmc_path, compress, debug
         )
     else:
-        copy_minecraft_model(input_path, output_path, vanilla_path, model_path, debug)
+        copy_model_chain(
+            input_path,
+            output_path,
+            vanilla_path,
+            constants.RELATIVE_VANILLA_MODELS_PATH
+            / Path(model_path + constants.VANILLA_MODEL_EXTENSION),
+            debug,
+        )
