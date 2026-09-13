@@ -6,25 +6,28 @@ import processModel
 import util
 
 
-# Processes a single model entry, which may be a singular model or a weighted list of models
-# Uses the limit to cap the numbers of models for a singular entry
+# A model entry can be a singular model or a weighted list of models
 def process_model_entry(
     input_path, output_path, vanilla_path, entry, limit, objmc_path, compress, debug
 ):
-    if not isinstance(entry, list):
-        # Entry is a singular model
-        processModel.process(
-            input_path, output_path, vanilla_path, entry, objmc_path, compress, debug
-        )
-        return
+    entries = entry if isinstance(entry, list) else [entry]
 
-    if limit >= 0:
-        # **Mutating** the models list in place
-        del entry[limit:]
+    # A limit below 1 means no limit - capping a blockstate at zero model
+    # entries would leave it with nothing to render
+    if limit >= 1:
+        # **Mutating** the model entries list in place, so the blockstate
+        # written out names only the entries that were processed
+        del entries[limit:]
 
-    for model in entry:
+    for model_entry in entries:
         processModel.process(
-            input_path, output_path, vanilla_path, model, objmc_path, compress, debug
+            input_path,
+            output_path,
+            vanilla_path,
+            model_entry,
+            objmc_path,
+            compress,
+            debug,
         )
 
 
