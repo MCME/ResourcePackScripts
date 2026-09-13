@@ -1,6 +1,6 @@
-import constants
 import logging
 
+import constants
 
 logging.basicConfig(
     level=logging.DEBUG,  # Mindestlevel der Nachrichten

@@ -1,14 +1,13 @@
-import shutil
-
+import argparse
 import json
 import os
-import argparse
+import shutil
 from pathlib import Path
 
 import constants
+import hardcodedFiles
 import processBlockstate
 import processItem
-import hardcodedFiles
 
 # ------------------------------------------------------------
 # command line interface
@@ -148,26 +147,24 @@ if not no_blocks:
     for blockstate_file in (vanilla_path / constants.RELATIVE_BLOCKSTATE_PATH).glob(
         "*" + constants.BLOCKSTATE_EXTENSION
     ):
-        if blockstate_file.is_file():
-            processBlockstate.process(
-                input_path,
-                output_path,
-                vanilla_path,
-                blockstate_file.name,
-                limit,
-                compress,
-                objmc_path,
-                debug,
-            )
+        processBlockstate.process(
+            input_path,
+            output_path,
+            vanilla_path,
+            blockstate_file.name,
+            limit,
+            compress,
+            objmc_path,
+            debug,
+        )
 
 if not no_items:
     for item_file in (vanilla_path / constants.RELATIVE_ITEMS_PATH).glob(
         "*" + constants.ITEM_EXTENSION
     ):
-        if item_file.is_file():
-            processItem.process(
-                input_path, output_path, vanilla_path, item_file.name, compress, debug
-            )
+        processItem.process(
+            input_path, output_path, vanilla_path, item_file.name, compress, debug
+        )
 
 for model in hardcodedFiles.MODELS:
     file = (
