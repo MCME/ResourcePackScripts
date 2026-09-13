@@ -76,27 +76,6 @@ def process_textures(input_path, output_path, textures, debug):
         copy_file(input_path, output_path, texture_mcmeta_file_relative, False, debug)
 
 
-def process_overrides(
-    input_path, output_path, vanilla_path, item_model, overrides, compress, debug
-):
-    for part in overrides:
-        util.printDebug("    Process override: " + str(part), debug)
-        relative_path = util.get_relative_model_path(part["model"])
-        override_model = (
-            part["model"].split(":")[-1] + constants.VANILLA_MODEL_EXTENSION
-        )
-        if not item_model == override_model:
-            process_model(
-                input_path,
-                output_path,
-                vanilla_path,
-                relative_path,
-                override_model,
-                compress,
-                debug,
-            )
-
-
 def process_model(
     input_path, output_path, vanilla_path, relative_path, item_model, compress, debug
 ):
@@ -137,16 +116,6 @@ def process_model(
         process_parent(input_path, output_path, data["parent"], debug)
     if "textures" in data:
         process_textures(input_path, output_path, data["textures"], debug)
-    if "overrides" in data:
-        process_overrides(
-            input_path,
-            output_path,
-            vanilla_path,
-            item_model,
-            data["overrides"],
-            compress,
-            debug,
-        )
 
     # write vanilla item model file
     if not is_vanilla_model:
