@@ -10,10 +10,7 @@ import rotate_obj
 import util
 import yaml
 
-converted_models = dict()
-
-# FIXME:
-# I kept the original semantics where an unexpected namespace leaves obj_model_path / mtl_path at their defaults rather than assigning the stripped path. Your pre-revert version assigned unconditionally. Warning-path only, but it's a real difference if you preferred the other.
+converted_models = {}
 
 
 # The suffix identifying a rotated variant of a model. Shared by the rotated
@@ -66,10 +63,10 @@ def convert_model(
                 )
         else:
             return
-
         obj_model_path = obj_model_path.removeprefix("models/").removesuffix(
             constants.OBJ_MODEL_EXTENSION
         )
+
         if "mtl_override" in data:
             namespace, mtl_ref = util.split_namespaced(
                 data["mtl_override"], constants.MCME_NAMESPACE
@@ -422,30 +419,19 @@ def copy_textures(model_path, texture_path, output_path, model_file_relative, de
     with open(model_path / model_file_relative, "r") as f:
         data = json.load(f)
 
-    for texture_filename in data.get("textures", {}).values():
-        if texture_filename.startswith("#"):
+    for texture_identifier in data.get("textures", {}).values():
+        if texture_identifier.startswith("#"):
             # The texture is a variable reference, not a file to copy
             continue
 
-        namespace, texture_filename = util.split_namespaced(
-            texture_filename, constants.VANILLA_NAMESPACE
+        namespace, texture_name = util.split_namespaced(
+            texture_identifier, constants.VANILLA_NAMESPACE
         )
-        if namespace == constants.MCME_NAMESPACE:
-            relative_path = constants.RELATIVE_SODIUM_TEXTURES_PATH
-        elif namespace == constants.VANILLA_NAMESPACE:
-            relative_path = constants.RELATIVE_VANILLA_TEXTURES_PATH
-        else:
-            print(
-                f"WARNING!!! Unexpected texture namespace {namespace} for {texture_filename}",
-                flush=True,
-            )
-            continue
-
-        texture_file_relative = relative_path / Path(
-            texture_filename + constants.TEXTURE_EXTENSION
+        texture_file_relative = (
+            f"assets/{namespace}/textures/{texture_name}{constants.TEXTURE_EXTENSION}"
         )
-        texture_mcmeta_file_relative = relative_path / Path(
-            texture_filename + constants.TEXTURE_EXTENSION + constants.MCMETA_EXTENSION
+        texture_mcmeta_file_relative = (
+            texture_file_relative + constants.MCMETA_EXTENSION
         )
         copy_texture_file(texture_path, output_path, texture_file_relative, debug)
         copy_texture_file(
@@ -453,37 +439,17 @@ def copy_textures(model_path, texture_path, output_path, model_file_relative, de
         )
 
 
-# Resolves a model's "parent" reference to a path relative to a pack root,
-# or None when the model has no usable parent.
-def parent_file_relative(data):
-    if "parent" not in data:
-        return None
-
-    namespace, parent_filename = util.split_namespaced(
-        data["parent"], constants.VANILLA_NAMESPACE
-    )
-    if namespace == constants.MCME_NAMESPACE:
-        relative_path = constants.RELATIVE_SODIUM_MODELS_PATH
-    elif namespace == constants.VANILLA_NAMESPACE:
-        relative_path = constants.RELATIVE_VANILLA_MODELS_PATH
-    else:
-        print(
-            f"WARNING!!! Unexpected parent namespace {namespace} for {parent_filename}",
-            flush=True,
-        )
-        return None
-
-    return relative_path / Path(parent_filename + constants.VANILLA_MODEL_EXTENSION)
-
-
-# Walks a model and its parent chain, copying out whatever the resource pack
-# overrides: the model file itself if the pack has its own version, plus any
-# textures it names that the pack provides. A model the pack does not override
-# is read from the vanilla pack instead, so the walk still reaches the parents
-# and textures further up the chain that the pack does override.
+# Recursively walks a model chain, copying any models and textures that the input RP overrides
 def copy_model_chain(
-    input_path, output_path, vanilla_path, model_file_relative, debug, visited=None
+    input_path, output_path, vanilla_path, model_identifier: str, debug, visited=None
 ):
+    namespace, model_path = util.split_namespaced(
+        model_identifier, constants.VANILLA_NAMESPACE
+    )
+    model_file_relative = (
+        f"assets/{namespace}/models/{model_path}{constants.VANILLA_MODEL_EXTENSION}"
+    )
+
     # This protects against a circular reference in a model's chain
     # It doesn't help prevent copying the same parent model multiple times (harmless but slightly inefficient)
     if visited is None:
@@ -512,10 +478,9 @@ def copy_model_chain(
     with open(model_pack_path / model_file_relative, "r") as f:
         data = json.load(f)
 
-    parent_relative = parent_file_relative(data)
-    if parent_relative is not None:
+    if "parent" in data:
         copy_model_chain(
-            input_path, output_path, vanilla_path, parent_relative, debug, visited
+            input_path, output_path, vanilla_path, data["parent"], debug, visited
         )
 
 
@@ -560,8 +525,10 @@ def convert_sodium_model(
 def process(
     input_path, output_path, vanilla_path, model_data, objmc_path, compress, debug
 ):
+    model_identifier = model_data.get("model", "")
+
     namespace, model_path = util.split_namespaced(
-        model_data.get("model", ""), constants.VANILLA_NAMESPACE
+        model_identifier, constants.VANILLA_NAMESPACE
     )
 
     if namespace == constants.MCME_NAMESPACE:
@@ -573,7 +540,6 @@ def process(
             input_path,
             output_path,
             vanilla_path,
-            constants.RELATIVE_VANILLA_MODELS_PATH
-            / Path(model_path + constants.VANILLA_MODEL_EXTENSION),
+            model_identifier,
             debug,
         )
