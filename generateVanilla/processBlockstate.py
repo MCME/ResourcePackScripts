@@ -8,16 +8,21 @@ import util
 
 # A model entry can be a singular model or a weighted list of models
 def process_model_entry(
-    input_path, output_path, vanilla_path, entry, limit, objmc_path, compress, debug
+    input_path,
+    output_path,
+    vanilla_path,
+    entry,
+    max_model_entries,
+    objmc_path,
+    compress,
+    debug,
 ):
     entries = entry if isinstance(entry, list) else [entry]
 
-    # A limit below 1 means no limit - capping a blockstate at zero model
-    # entries would leave it with nothing to render
-    if limit >= 1:
+    if max_model_entries is not None:
         # **Mutating** the model entries list in place, so the blockstate
         # written out names only the entries that were processed
-        del entries[limit:]
+        del entries[max_model_entries:]
 
     for model_entry in entries:
         processModel.process(
@@ -68,7 +73,14 @@ def write_blockstate_file(output_path, file, data, compress):
 
 
 def process(
-    input_path, output_path, vanilla_path, file, limit, compress, objmc_path, debug
+    input_path,
+    output_path,
+    vanilla_path,
+    file,
+    max_model_entries,
+    compress,
+    objmc_path,
+    debug,
 ):
     input_file, from_vanilla = resolve_blockstate_file(input_path, vanilla_path, file)
     util.printDebug(f"Working on blockstate file: {file}", debug)
@@ -82,7 +94,7 @@ def process(
             output_path,
             vanilla_path,
             entry,
-            limit,
+            max_model_entries,
             objmc_path,
             compress,
             debug,

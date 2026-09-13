@@ -12,6 +12,14 @@ import processItem
 # ------------------------------------------------------------
 # command line interface
 # ------------------------------------------------------------
+def model_entry_limit(value):
+    """A cap of zero would leave a blockstate with nothing to render."""
+    number = int(value)
+    if number < 1:
+        raise argparse.ArgumentTypeError("must be 1 or greater")
+    return number
+
+
 parser = argparse.ArgumentParser(
     description="Convert OBJ models to vanilla shader models."
 )
@@ -21,9 +29,10 @@ parser.add_argument("input_path", help="Path to read OBJ models from")
 parser.add_argument("output_path", help="Path to write vanilla shader models in.")
 parser.add_argument("vanilla_path", help="Path to read vanilla RP from.")
 parser.add_argument(
-    "--limit",
-    help="Limit for number of alternate models for one blockstate. Defaults to no limit.",
-    default="-1",
+    "--max-model-entries",
+    type=model_entry_limit,
+    default=None,
+    help="Cap the number of model entries used for one blockstate variant. Defaults to no limit.",
 )
 parser.add_argument(
     "--objmc",
@@ -55,7 +64,7 @@ input_path = Path(args.input_path)
 output_path = Path(args.output_path)
 objmc_path = Path(args.objmc)
 debug = args.debug
-limit = int(args.limit)
+max_model_entries = args.max_model_entries
 compress = args.compress
 no_blocks = args.noblocks
 no_items = args.noitems
@@ -152,7 +161,7 @@ if not no_blocks:
             output_path,
             vanilla_path,
             blockstate_file.name,
-            limit,
+            max_model_entries,
             compress,
             objmc_path,
             debug,
@@ -163,7 +172,13 @@ if not no_items:
         "*" + constants.ITEM_EXTENSION
     ):
         processItem.process(
-            input_path, output_path, vanilla_path, item_file.name, compress, debug
+            input_path,
+            output_path,
+            vanilla_path,
+            item_file.name,
+            compress,
+            objmc_path,
+            debug,
         )
 
 for model in hardcodedFiles.MODELS:
