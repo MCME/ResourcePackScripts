@@ -424,12 +424,7 @@ def copy_textures(model_path, texture_path, output_path, model_file_relative, de
             # The texture is a variable reference, not a file to copy
             continue
 
-        namespace, texture_name = util.split_namespaced(
-            texture_identifier, constants.VANILLA_NAMESPACE
-        )
-        texture_file_relative = (
-            f"assets/{namespace}/textures/{texture_name}{constants.TEXTURE_EXTENSION}"
-        )
+        texture_file_relative = util.resolve_texture_file(texture_identifier)
         texture_mcmeta_file_relative = (
             texture_file_relative + constants.MCMETA_EXTENSION
         )
@@ -443,12 +438,11 @@ def copy_textures(model_path, texture_path, output_path, model_file_relative, de
 def copy_model_chain(
     input_path, output_path, vanilla_path, model_identifier: str, debug, visited=None
 ):
-    namespace, model_path = util.split_namespaced(
-        model_identifier, constants.VANILLA_NAMESPACE
-    )
-    model_file_relative = (
-        f"assets/{namespace}/models/{model_path}{constants.VANILLA_MODEL_EXTENSION}"
-    )
+    model_file_relative = util.resolve_model_file(model_identifier)
+    if model_file_relative is None:
+        # A built-in model, drawn by the client - there is no file to copy
+        util.printDebug(f"    Skipping built-in model {model_identifier}", debug)
+        return
 
     # This protects against a circular reference in a model's chain
     # It doesn't help prevent copying the same parent model multiple times (harmless but slightly inefficient)
@@ -527,9 +521,7 @@ def process(
 ):
     model_identifier = model_data.get("model", "")
 
-    namespace, model_path = util.split_namespaced(
-        model_identifier, constants.VANILLA_NAMESPACE
-    )
+    namespace, model_path = util.split_namespaced(model_identifier)
 
     if namespace == constants.MCME_NAMESPACE:
         convert_sodium_model(

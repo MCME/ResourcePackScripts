@@ -43,6 +43,10 @@ MCMETA_EXTENSION = ".mcmeta"
 OBJMETA_EXTENSION = ".objmeta"
 MTL_EXTENSION = ".mtl"
 
+# Identifiers under this prefix name a model hardcoded in the client
+# (builtin/generated, builtin/entity) rather than a file in the pack.
+BUILTIN_MODEL_PREFIX = "builtin/"
+
 MCME_NAMESPACE = "mcme"
 VANILLA_NAMESPACE = "minecraft"
 

@@ -16,12 +16,28 @@ def printDebug(message, debug):
         logging.info(message)
 
 
-def split_namespaced(value, default_namespace=constants.VANILLA_NAMESPACE):
-    """Split 'namespace:path' → (namespace, path). No ':' → (default_namespace, value)."""
-    if ":" in value:
-        namespace, path = value.split(":", 1)
+def split_namespaced(identifier: str, default_namespace=constants.VANILLA_NAMESPACE):
+    """Splits a resource identifier into its namespace and path components"""
+
+    if ":" in identifier:
+        namespace, path = identifier.split(":", 1)
         return namespace, path
-    return default_namespace, value
+    return default_namespace, identifier
+
+
+# Resolves a model identifier to a file path relative to a pack root, or None
+# when the identifier names a built-in model and so has no file to resolve to.
+def resolve_model_file(model_identifier):
+    namespace, model_name = split_namespaced(model_identifier)
+    if model_name.startswith(constants.BUILTIN_MODEL_PREFIX):
+        return None
+    return f"assets/{namespace}/models/{model_name}{constants.VANILLA_MODEL_EXTENSION}"
+
+
+# Resolves a texture identifier to a file path relative to a pack root.
+def resolve_texture_file(texture_identifier):
+    namespace, texture_name = split_namespaced(texture_identifier)
+    return f"assets/{namespace}/textures/{texture_name}{constants.TEXTURE_EXTENSION}"
 
 
 def get_relative_model_path(namespaced_key):
