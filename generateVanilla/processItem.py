@@ -1,6 +1,5 @@
 import json
 import os
-from pathlib import Path
 
 import constants
 import processModel
@@ -36,6 +35,34 @@ def model_identifier_fields(node):
         yield from model_identifier_fields(value)
 
 
+# Works out where an item model definition should be read from
+# override > resource pack > vanilla
+def resolve_item_definition_file(input_path, vanilla_path, file):
+    override_file = (
+        input_path
+        / constants.RELATIVE_VANILLA_OVERRIDES_PATH
+        / constants.RELATIVE_ITEMS_PATH
+        / file
+    )
+    resource_pack_file = input_path / constants.RELATIVE_ITEMS_PATH / file
+
+    for candidate in (override_file, resource_pack_file):
+        if candidate.exists():
+            return candidate, False
+
+    return vanilla_path / constants.RELATIVE_ITEMS_PATH / file, True
+
+
+def write_item_definition_file(output_path, file, data, compress):
+    output_file = output_path / constants.RELATIVE_ITEMS_PATH / file
+    os.makedirs(output_file.parent, exist_ok=True)
+    with open(output_file, "w") as f:
+        if compress:
+            json.dump(data, f, separators=(",", ":"))  # type: ignore
+        else:
+            json.dump(data, f, indent=4)  # type: ignore
+
+
 def process(
     input_path,
     output_path,
@@ -45,18 +72,9 @@ def process(
     objmc_path,
     debug,
 ):
-    input_file = (
-        input_path
-        / constants.RELATIVE_VANILLA_OVERRIDES_PATH
-        / constants.RELATIVE_ITEMS_PATH
-        / Path(item_file_name)
+    input_file, from_vanilla = resolve_item_definition_file(
+        input_path, vanilla_path, item_file_name
     )
-    if not input_file.exists():
-        input_file = input_path / constants.RELATIVE_ITEMS_PATH / Path(item_file_name)
-    is_vanilla_file = False
-    if not input_file.exists():
-        input_file = vanilla_path / constants.RELATIVE_ITEMS_PATH / Path(item_file_name)
-        is_vanilla_file = True
     util.printDebug(f"Working on item file: {item_file_name}", debug)
 
     with open(input_file, "r") as f:
@@ -75,12 +93,8 @@ def process(
         )
         node[field] = model_entry["model"]
 
-    # write the item model definition out
-    if not is_vanilla_file:
-        output_file = output_path / constants.RELATIVE_ITEMS_PATH / Path(item_file_name)
-        os.makedirs(output_file.parent, exist_ok=True)
-        with open(output_file, "w") as file:
-            if compress:
-                json.dump(data, file, separators=(",", ":"))  # type: ignore
-            else:
-                json.dump(data, file, indent=4)  # type: ignore
+    if from_vanilla:
+        # No need to write a vanilla item model definition
+        return
+
+    write_item_definition_file(output_path, item_file_name, data, compress)
