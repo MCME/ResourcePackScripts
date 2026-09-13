@@ -1,147 +1,50 @@
 import json
 import os
-import shutil
 from pathlib import Path
 
 import constants
+import processModel
 import util
 
-
-def process_parent(input_path, output_path, parent, debug):
-    util.printDebug("    Process item parent: " + parent, debug)
-    if not parent.startswith("builtin"):
-        relative_path = util.get_relative_model_path(parent)
-        parent = parent.split(":")[-1]
-        parent_file = (
-            input_path / relative_path / (parent + constants.VANILLA_MODEL_EXTENSION)
-        )
-        parent_override_file = (
-            input_path
-            / constants.RELATIVE_VANILLA_OVERRIDES_PATH
-            / relative_path
-            / (parent + constants.VANILLA_MODEL_EXTENSION)
-        )
-        output_file = (
-            output_path / relative_path / (parent + constants.VANILLA_MODEL_EXTENSION)
-        )
-        if parent_override_file.exists():
-            util.printDebug(f"        Copying manual parent model: {parent}", debug)
-            # print("Input: "+str(parent_file))
-            # print("Output: "+str(output_file))
-            os.makedirs(output_file.parent, exist_ok=True)
-            shutil.copy(parent_override_file, output_file)
-        elif parent_file.exists():
-            util.printDebug(f"        Copying parent model: {parent}", debug)
-            # print("Input: "+str(parent_file))
-            # print("Output: "+str(output_file))
-            if not output_file.exists():
-                os.makedirs(output_file.parent, exist_ok=True)
-                shutil.copy(parent_file, output_file)
+# Item model object types that contain a model identifier, and the field holding it
+# https://minecraft.wiki/w/Items_model_definition#Items_model_types
+MODEL_IDENTIFIER_FIELDS = {
+    "model": "model",
+    "special": "base",
+}
 
 
-def copy_file(input_path, output_path, relative_file_path, required, debug):
-    texture_override_file = (
-        input_path / constants.RELATIVE_VANILLA_OVERRIDES_PATH / relative_file_path
-    )
-    texture_file = input_path / relative_file_path
-    output_file = output_path / relative_file_path
-    os.makedirs(output_file.parent, exist_ok=True)
-    if texture_override_file.exists():
-        util.printDebug(f"        Copying manual texture: {relative_file_path}", debug)
-        os.makedirs(output_file.parent, exist_ok=True)
-        shutil.copy(texture_override_file, output_file)
-    elif texture_file.exists():
-        util.printDebug(f"        Copying texture: {relative_file_path}", debug)
-        os.makedirs(output_file.parent, exist_ok=True)
-        if not output_file.exists():
-            shutil.copy(texture_file, output_file)
-    elif required:
-        print(f"        WARNING! Texture file not found: {texture_file}")
-
-
-def process_textures(input_path, output_path, textures, debug):
-    for texture_name, texture_namespace_and_filename in textures.items():
-        util.printDebug(
-            "    Process item texture: " + texture_namespace_and_filename, debug
-        )
-        relative_path = util.get_relative_texture_path(texture_namespace_and_filename)
-        texture_filename = texture_namespace_and_filename.split(":")[-1]
-        texture_file_relative = relative_path / Path(
-            texture_filename + constants.TEXTURE_EXTENSION
-        )
-        texture_mcmeta_file_relative = relative_path / Path(
-            texture_filename + constants.TEXTURE_EXTENSION + constants.MCMETA_EXTENSION
-        )
-        copy_file(input_path, output_path, texture_file_relative, True, debug)
-        copy_file(input_path, output_path, texture_mcmeta_file_relative, False, debug)
-
-
-def process_model(
-    input_path, output_path, vanilla_path, relative_path, item_model, compress, debug
-):
-    item_model = item_model.replace("minecraft:", "")
-    item_model = item_model.replace("mcme:", "")
-    is_vanilla_model = False
-    is_manual_model = True
-    input_file = (
-        input_path
-        / constants.RELATIVE_VANILLA_OVERRIDES_PATH
-        / relative_path
-        / item_model
-    )
-    # print(input_file)
-    if not input_file.exists():
-        input_file = input_path / relative_path / item_model
-        is_manual_model = False
-    if not input_file.exists():
-        input_file = vanilla_path / relative_path / item_model
-        is_vanilla_model = True
-    util.printDebug(
-        f"Working on item model file: {item_model} Vanilla: {is_vanilla_model} Manual: {is_manual_model}",
-        debug,
-    )
-    if not input_file.exists():
-        util.printDebug(
-            "    WARNING! Expected item model file not found: "
-            + str(input_path / relative_path / item_model),
-            debug,
-        )
+# Yields (item model object, field) for every model file the definition names.
+# Finds leaves wherever they appear rather than walking containers by type, so an
+# unknown container cannot hide its models. Yields the field, not the identifier,
+# so a converted model can be written back.
+def model_identifier_fields(node):
+    if isinstance(node, list):
+        for item in node:
+            yield from model_identifier_fields(item)
         return
-    # print(input_file)
-    with open(input_file, "r") as f:
-        data = json.load(f)
 
-    # check blockstate structure
-    if "parent" in data:
-        process_parent(input_path, output_path, data["parent"], debug)
-    if "textures" in data:
-        process_textures(input_path, output_path, data["textures"], debug)
+    if not isinstance(node, dict):
+        return
 
-    # write vanilla item model file
-    if not is_vanilla_model:
-        output_file = output_path / relative_path / item_model
-        if not output_file.exists():
-            util.printDebug(f"    Copying item model: {output_file}", debug)
-            os.makedirs(output_file.parent, exist_ok=True)
-            with open(output_file, "w") as file:
-                if compress:
-                    json.dump(data, file, separators=(",", ":"))  # type: ignore
-                else:
-                    json.dump(data, file, indent=4)  # type: ignore
+    _, node_type = util.split_namespaced(node.get("type", ""))
+    field = MODEL_IDENTIFIER_FIELDS.get(node_type)
+    if field is not None and isinstance(node.get(field), str):
+        yield node, field
+
+    for value in node.values():
+        yield from model_identifier_fields(value)
 
 
-def is_model(data):
-    return data["type"] == "minecraft:model" or data["type"] == "model"
-
-
-def get_relative_model_path(namespaced_key):
-    if "mcme:" in namespaced_key:
-        return constants.RELATIVE_SODIUM_MODELS_PATH
-    else:
-        return constants.RELATIVE_VANILLA_MODELS_PATH
-
-
-def process(input_path, output_path, vanilla_path, item_file_name, compress, debug):
+def process(
+    input_path,
+    output_path,
+    vanilla_path,
+    item_file_name,
+    compress,
+    objmc_path,
+    debug,
+):
     input_file = (
         input_path
         / constants.RELATIVE_VANILLA_OVERRIDES_PATH
@@ -159,56 +62,20 @@ def process(input_path, output_path, vanilla_path, item_file_name, compress, deb
     with open(input_file, "r") as f:
         data = json.load(f)
 
-    if "model" in data:
-        if "model" in data["model"]:
-            if is_model(data["model"]):
-                item_model = data["model"]["model"] + constants.VANILLA_MODEL_EXTENSION
+    for node, field in model_identifier_fields(data):
+        model_entry = {"model": node[field]}
+        processModel.process(
+            input_path,
+            output_path,
+            vanilla_path,
+            model_entry,
+            objmc_path,
+            compress,
+            debug,
+        )
+        node[field] = model_entry["model"]
 
-                process_model(
-                    input_path,
-                    output_path,
-                    vanilla_path,
-                    get_relative_model_path(item_model),
-                    item_model,
-                    compress,
-                    debug,
-                )
-
-        if "fallback" in data["model"]:
-            if is_model(data["model"]["fallback"]):
-                item_model = (
-                    data["model"]["fallback"]["model"]
-                    + constants.VANILLA_MODEL_EXTENSION
-                )
-                print("fallback")
-                process_model(
-                    input_path,
-                    output_path,
-                    vanilla_path,
-                    get_relative_model_path(item_model),
-                    item_model,
-                    compress,
-                    debug,
-                )
-
-        if "entries" in data["model"]:
-            for entry in data["model"]["entries"]:
-                if is_model(entry["model"]):
-                    print("entry")
-                    item_model = (
-                        entry["model"]["model"] + constants.VANILLA_MODEL_EXTENSION
-                    )
-                    process_model(
-                        input_path,
-                        output_path,
-                        vanilla_path,
-                        get_relative_model_path(item_model),
-                        item_model,
-                        compress,
-                        debug,
-                    )
-
-    # write vanilla blockstate file
+    # write the item model definition out
     if not is_vanilla_file:
         output_file = output_path / constants.RELATIVE_ITEMS_PATH / Path(item_file_name)
         os.makedirs(output_file.parent, exist_ok=True)
