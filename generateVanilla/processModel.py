@@ -52,7 +52,8 @@ def convert_model(
         data = json.load(f)
         if "model" in data:
             namespace, model_ref = util.split_namespaced(
-                data["model"], constants.MCME_NAMESPACE
+                data["model"],
+                constants.MCME_NAMESPACE,  # Q: Why is MCME the default here?
             )
             if namespace == constants.MCME_NAMESPACE:
                 obj_model_path = model_ref
@@ -414,12 +415,9 @@ def copy_texture_file(texture_path, output_path, texture_file_relative, debug):
     shutil.copy(texture_file, output_path / texture_file_relative)
 
 
-# Reads the model to find its textures, and copies them - but only if they exist in texture_path
-def copy_textures(model_path, texture_path, output_path, model_file_relative, debug):
-    with open(model_path / model_file_relative, "r") as f:
-        data = json.load(f)
-
-    for texture_identifier in data.get("textures", {}).values():
+# Copies the textures a model names - but only if they exist in texture_path
+def copy_textures(texture_path, output_path, model_data, debug):
+    for texture_identifier in model_data.get("textures", {}).values():
         if texture_identifier.startswith("#"):
             # The texture is a variable reference, not a file to copy
             continue
@@ -467,10 +465,10 @@ def copy_model_chain(
         print(f"WARNING!!! Missing model file: {model_file_relative}", flush=True)
         return
 
-    copy_textures(model_pack_path, input_path, output_path, model_file_relative, debug)
-
     with open(model_pack_path / model_file_relative, "r") as f:
         data = json.load(f)
+
+    copy_textures(input_path, output_path, data, debug)
 
     if "parent" in data:
         copy_model_chain(
@@ -481,14 +479,14 @@ def copy_model_chain(
 # Converts the .obj model to a Vanilla shader model, baking any rotation into
 # it, and points the model entry at the converted model.
 def convert_sodium_model(
-    input_path, output_path, model_path, model_data, objmc_path, compress, debug
+    input_path, output_path, model_path, model_entry, objmc_path, compress, debug
 ):
     # Every rotation is removed from the model entry, whether or not it gets
     # applied. The applied one is baked into the converted model, so the client
     # must not rotate it a second time.
     rotations = []
     for axis in ("x", "y", "z"):
-        angle = model_data.pop(axis, None)
+        angle = model_entry.pop(axis, None)
         if angle is not None:
             rotations.append((axis, angle))
 
@@ -513,19 +511,25 @@ def convert_sodium_model(
     model_path += rotation_suffix(rotation)
 
     # update model entry
-    model_data["model"] = constants.MCME_NAMESPACE + ":" + model_path
+    model_entry["model"] = constants.MCME_NAMESPACE + ":" + model_path
 
 
 def process(
-    input_path, output_path, vanilla_path, model_data, objmc_path, compress, debug
+    input_path, output_path, vanilla_path, model_entry, objmc_path, compress, debug
 ):
-    model_identifier = model_data.get("model", "")
+    model_identifier = model_entry.get("model", "")
 
     namespace, model_path = util.split_namespaced(model_identifier)
 
     if namespace == constants.MCME_NAMESPACE:
         convert_sodium_model(
-            input_path, output_path, model_path, model_data, objmc_path, compress, debug
+            input_path,
+            output_path,
+            model_path,
+            model_entry,
+            objmc_path,
+            compress,
+            debug,
         )
     else:
         copy_model_chain(
