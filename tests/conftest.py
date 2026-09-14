@@ -7,7 +7,7 @@ sys.path.insert(0, str(REPO_ROOT / "generateVanilla"))
 
 import pytest
 
-import processModel
+import objmc_conversion
 
 
 def pytest_addoption(parser):
@@ -44,6 +44,6 @@ def objmc_paths(config) -> list[Path]:
 
 @pytest.fixture(autouse=True)
 def _reset_converted_models():
-    processModel.converted_models.clear()
+    objmc_conversion.converted_models.clear()
     yield
-    processModel.converted_models.clear()
+    objmc_conversion.converted_models.clear()

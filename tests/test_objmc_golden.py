@@ -33,7 +33,7 @@ from dataclasses import dataclass
 from pathlib import Path
 
 import constants
-import processModel
+import objmc_conversion
 import pytest
 from conftest import objmc_paths
 
@@ -191,7 +191,7 @@ def _capture(out_dir: Path) -> dict:
 
 def _run_case(case: Case, out_dir: Path, objmc: Path) -> dict:
     for model_path, rotation in case.conversions:
-        processModel.convert_model(
+        objmc_conversion.convert_sodium_model(
             FIXTURE_PACK, out_dir, model_path, rotation, objmc, False, False
         )
     return {
