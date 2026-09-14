@@ -81,7 +81,7 @@ print(f"Processing Sodium RP in: {input_path}")
 # ----------------------------------------
 input_pack_mcmeta = input_path / constants.PACK_MCMETA
 if input_pack_mcmeta.exists():
-    with open(input_pack_mcmeta, "r") as f:
+    with open(input_pack_mcmeta, "r", encoding="utf-8-sig") as f:
         data = json.load(f)
         data["pack"]["description"] = data["pack"]["description"].replace(
             "Sodium", "Vanilla"

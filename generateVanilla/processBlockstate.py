@@ -85,7 +85,7 @@ def process(
     input_file, from_vanilla = resolve_blockstate_file(input_path, vanilla_path, file)
     util.printDebug(f"Working on blockstate file: {file}", debug)
 
-    with open(input_file, "r") as f:
+    with open(input_file, "r", encoding="utf-8-sig") as f:
         data = json.load(f)
 
     for entry in model_entries(data):

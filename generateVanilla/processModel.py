@@ -96,7 +96,7 @@ def copy_model_chain(
         print(f"WARNING!!! Missing model file: {model_file_relative}", flush=True)
         return
 
-    with open(model_pack_path / model_file_relative, "r") as f:
+    with open(model_pack_path / model_file_relative, "r", encoding="utf-8-sig") as f:
         data = json.load(f)
 
     copy_textures(input_path, output_path, data, debug)

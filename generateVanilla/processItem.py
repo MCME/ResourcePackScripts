@@ -77,7 +77,7 @@ def process(
     )
     util.printDebug(f"Working on item file: {item_file_name}", debug)
 
-    with open(input_file, "r") as f:
+    with open(input_file, "r", encoding="utf-8-sig") as f:
         data = json.load(f)
 
     for node, field in model_identifier_fields(data):

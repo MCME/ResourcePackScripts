@@ -90,7 +90,7 @@ def _resolve_obj_and_mtl(model_file: Path, model_path: str):
     mtl_path = model_path
     obj_model_path = model_path
 
-    with open(model_file, "r") as f:
+    with open(model_file, "r", encoding="utf-8-sig") as f:
         data = json.load(f)
 
     if "model" not in data:
@@ -136,7 +136,7 @@ def _read_objmeta(meta_file: Path, model_path: str) -> dict:
         return settings
 
     try:
-        with open(meta_file, "r") as f:
+        with open(meta_file, "r", encoding="utf-8-sig") as f:
             meta_data = yaml.safe_load(f)
 
         settings["texture_path"] = meta_data.get("texture", None)
@@ -162,7 +162,7 @@ def _read_objmeta(meta_file: Path, model_path: str) -> dict:
 
 def _texture_from_mtl(mtl_file: Path):
     """The texture the .mtl names, or None if the file has no map_Kd line."""
-    with open(mtl_file, "r") as f:
+    with open(mtl_file, "r", encoding="utf-8-sig") as f:
         for mtl_line in f:
             if mtl_line.startswith("map_Kd"):
                 return mtl_line.split()[1].strip()
