@@ -24,7 +24,7 @@ def _models(count):
     return [{"model": f"mcme:props/lamp_{i}"} for i in range(count)]
 
 
-def _run_models(models, limit=-1):
+def _run_models(models, max_model_entries=None):
     """Run a model entry through process_model_entry. Returns the model entries handed
     to processModel.process, in call order; the entry itself is trimmed in place."""
     with patch.object(processBlockstate.processModel, "process") as mock_process:
@@ -33,7 +33,7 @@ def _run_models(models, limit=-1):
             Path("out"),
             Path("vanilla"),
             models,
-            limit,
+            max_model_entries,
             Path("objmc.py"),
             False,
             False,
@@ -57,23 +57,23 @@ def test_list_is_processed_in_order():
     assert len(models) == 3  # nothing dropped when unlimited
 
 
-def test_list_is_trimmed_to_limit_in_place():
+def test_list_is_trimmed_to_max_model_entries_in_place():
     models = _models(5)
     # Only the retained models are converted, and the entry is trimmed in place
     # so the blockstate written out only references converted models.
-    assert _run_models(models, limit=2) == _models(2)
+    assert _run_models(models, max_model_entries=2) == _models(2)
     assert len(models) == 2
 
 
-def test_limit_zero_drops_every_model():
+def test_no_limit_keeps_every_model():
     models = _models(2)
-    assert _run_models(models, limit=0) == []
-    assert models == []
+    assert _run_models(models, max_model_entries=None) == models
+    assert len(models) == 2
 
 
-def test_limit_above_length_keeps_everything():
+def test_max_model_entries_above_length_keeps_everything():
     models = _models(1)
-    assert _run_models(models, limit=10) == models
+    assert _run_models(models, max_model_entries=10) == models
     assert len(models) == 1
 
 
@@ -82,7 +82,7 @@ def test_duplicate_models_trim_from_the_end():
     the tail, not the first equal element."""
     a, b = {"model": "mcme:props/lamp"}, {"model": "mcme:props/other"}
     models = [a, b, dict(a)]
-    _run_models(models, limit=2)
+    _run_models(models, max_model_entries=2)
     assert models == [a, b]
 
 
@@ -120,13 +120,13 @@ def test_model_entries_of_unknown_structure_is_empty():
 # =========================================================================
 
 
-def _run_process(tmp_path, limit=-1):
+def _run_process(tmp_path, max_model_entries=None):
     processBlockstate.process(
         tmp_path / "in",
         tmp_path / "out",
         tmp_path / "vanilla",
         "stone.json",
-        limit,
+        max_model_entries,
         False,
         tmp_path / "objmc.py",
         False,
@@ -202,6 +202,6 @@ def test_process_writes_trimmed_blockstate(tmp_path):
     _blockstate(tmp_path / "in", {"variants": {"": _models(4)}})
 
     with patch.object(processBlockstate.processModel, "process"):
-        output_file = _run_process(tmp_path, limit=2)
+        output_file = _run_process(tmp_path, max_model_entries=2)
 
     assert json.loads(output_file.read_text())["variants"][""] == _models(2)
