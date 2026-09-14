@@ -1,0 +1,36 @@
+{
+  "case": "rotated_parent_missing",
+  "conversions": [
+    {
+      "model": "block/pine_leaves_brown",
+      "rotation": [
+        "y",
+        180
+      ]
+    }
+  ],
+  "covers": "rotated manual parent with no _1_3 variant: warns, falls back",
+  "outputs": {
+    "assets/mcme/models/block/leaves_parent.json": {
+      "from": "vanilla/assets/mcme/models/block/leaves_parent.json",
+      "kind": "copied"
+    },
+    "assets/mcme/models/block/pine_leaves_brown_y_180.json": {
+      "content": {
+        "parent": "mcme:block/leaves_parent",
+        "textures": {
+          "0": "mcme:block/pine_leaves_brown_y_180",
+          "particle": "mcme:block/pine_leaves_brown_y_180"
+        }
+      },
+      "kind": "converted_model"
+    },
+    "assets/mcme/textures/block/pine_leaves_brown_y_180.png": {
+      "height": 256,
+      "kind": "texture",
+      "mode": "RGBA",
+      "sha256": "72633e325868b92518a3a91adbeee2abe6fef8005b1506764deab70be6c82b15",
+      "width": 160
+    }
+  }
+}

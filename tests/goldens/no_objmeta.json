@@ -1,0 +1,168 @@
+{
+  "case": "no_objmeta",
+  "conversions": [
+    {
+      "model": "block/spruce_thin_trunk_vertical",
+      "rotation": null
+    }
+  ],
+  "covers": "no .objmeta at all; no manual parent",
+  "outputs": {
+    "assets/mcme/models/block/spruce_thin_trunk_vertical.json": {
+      "content": {
+        "elements": [
+          {
+            "faces": {
+              "north": {
+                "texture": "#0",
+                "uv": [
+                  0.03333333333333333,
+                  0.275,
+                  0.3,
+                  0.475
+                ]
+              }
+            },
+            "from": [
+              8,
+              0,
+              8
+            ],
+            "to": [
+              8.000001,
+              1e-06,
+              8.000001
+            ]
+          },
+          {
+            "faces": {
+              "north": {
+                "texture": "#0",
+                "uv": [
+                  0.3666666666666667,
+                  0.275,
+                  0.6333333333333333,
+                  0.475
+                ]
+              }
+            },
+            "from": [
+              8,
+              0,
+              8
+            ],
+            "to": [
+              8.000001,
+              1e-06,
+              8.000001
+            ]
+          },
+          {
+            "faces": {
+              "north": {
+                "texture": "#0",
+                "uv": [
+                  0.7000000000000001,
+                  0.275,
+                  0.9666666666666667,
+                  0.475
+                ]
+              }
+            },
+            "from": [
+              8,
+              0,
+              8
+            ],
+            "to": [
+              8.000001,
+              1e-06,
+              8.000001
+            ]
+          },
+          {
+            "faces": {
+              "north": {
+                "texture": "#0",
+                "uv": [
+                  1.0333333333333334,
+                  0.275,
+                  1.3,
+                  0.475
+                ]
+              }
+            },
+            "from": [
+              8,
+              0,
+              8
+            ],
+            "to": [
+              8.000001,
+              1e-06,
+              8.000001
+            ]
+          },
+          {
+            "faces": {
+              "north": {
+                "texture": "#0",
+                "uv": [
+                  1.3666666666666665,
+                  0.275,
+                  1.6333333333333335,
+                  0.475
+                ]
+              }
+            },
+            "from": [
+              8,
+              0,
+              8
+            ],
+            "to": [
+              8.000001,
+              1e-06,
+              8.000001
+            ]
+          },
+          {
+            "faces": {
+              "north": {
+                "texture": "#0",
+                "uv": [
+                  1.7,
+                  0.275,
+                  1.9666666666666668,
+                  0.475
+                ]
+              }
+            },
+            "from": [
+              8,
+              0,
+              8
+            ],
+            "to": [
+              8.000001,
+              1e-06,
+              8.000001
+            ]
+          }
+        ],
+        "textures": {
+          "0": "mcme:block/spruce_thin_trunk_vertical",
+          "particle": "mcme:block/spruce_thin_trunk_vertical"
+        }
+      },
+      "kind": "converted_model"
+    },
+    "assets/mcme/textures/block/spruce_thin_trunk_vertical.png": {
+      "height": 64,
+      "kind": "texture",
+      "mode": "RGBA",
+      "sha256": "66aafee20783b2028b9251e2bb3a416a8a8e4fca6c684f7febccc3e161430d81",
+      "width": 48
+    }
+  }
+}

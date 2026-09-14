@@ -22,13 +22,20 @@ come from objmc or from our code — never from the pack shifting underneath.
 | `block/synthetic_options` | *synthetic* — `texture`, `output_texture`, `offset`, `visibility`, `options` |
 | `block/synthetic_vanilla_texture` | *synthetic* — a `minecraft:`-namespace texture, so lookup goes to `RELATIVE_VANILLA_TEXTURES_PATH` |
 
-Two cases are sequences rather than single files:
+Two more cases come from *how* a fixture is converted rather than from the files:
 
-- **rotated parent missing** — convert `pine_leaves_brown` at `y=180`. Its parent
+- **rotated parent missing** — `pine_leaves_brown` at `y=180`. Its parent
   `block/leaves_parent` has no `_1_3` variant, so this takes the fallback branch
   that warns and reuses the unrotated parent.
-- **shared parent extraction** — convert the same `model_path` twice. The second
-  call rewrites both outputs as children of a shared `*_parent` file.
+- **shared parent extraction** — `spruce_thin_trunk_vertical` converted twice, the
+  second time rotated. The second call rewrites both outputs as children of a
+  shared `*_parent` file.
+
+  It has to be that fixture specifically: a manual `parent` in `.objmeta` takes
+  priority in `convert_model`, so for any model that has one this branch is
+  never reached. `spruce_thin_trunk_vertical` is the only fixture without one.
+  The first draft of this case used `pine_leaves_brown` and silently tested the
+  manual-parent branch twice instead — the golden output is what caught it.
 
 ### Why two fixtures are synthetic
 

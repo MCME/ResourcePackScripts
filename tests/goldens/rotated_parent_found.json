@@ -1,0 +1,36 @@
+{
+  "case": "rotated_parent_found",
+  "conversions": [
+    {
+      "model": "block/spruce_leaves_omnidirectional",
+      "rotation": [
+        "y",
+        90
+      ]
+    }
+  ],
+  "covers": "rotated manual parent whose _1_2 variant exists",
+  "outputs": {
+    "assets/mcme/models/block/spruce_leaves_omnidirectional_parent_1_2.json": {
+      "from": "vanilla/assets/mcme/models/block/spruce_leaves_omnidirectional_parent_1_2.json",
+      "kind": "copied"
+    },
+    "assets/mcme/models/block/spruce_leaves_omnidirectional_y_90.json": {
+      "content": {
+        "parent": "mcme:block/spruce_leaves_omnidirectional_parent_1_2",
+        "textures": {
+          "0": "mcme:block/spruce_leaves_omnidirectional_y_90",
+          "particle": "mcme:block/spruce_leaves_omnidirectional_y_90"
+        }
+      },
+      "kind": "converted_model"
+    },
+    "assets/mcme/textures/block/spruce_leaves_omnidirectional_y_90.png": {
+      "height": 256,
+      "kind": "texture",
+      "mode": "RGBA",
+      "sha256": "4343aadf80d330947bf0e804c39178e4df636eeb33fc030845bb1c649c4415e7",
+      "width": 256
+    }
+  }
+}
