@@ -27,6 +27,7 @@ What gets recorded, and why it differs by file:
 import functools
 import hashlib
 import json
+import logging
 import re
 import subprocess
 import sys
@@ -37,6 +38,10 @@ import constants
 import objmc_conversion
 import pytest
 from conftest import objmc_paths
+
+# PIL logs every PNG chunk it reads at DEBUG, which buries the golden diff these
+# tests exist to show.
+logging.getLogger("PIL").setLevel(logging.WARNING)
 
 FIXTURE_PACK = Path(__file__).parent / "fixtures" / "sodium_pack"
 GOLDEN_DIR = Path(__file__).parent / "goldens"

@@ -274,9 +274,9 @@ def _objmc_argv(plan: ConversionPlan, objmc_path) -> list[str]:
         # per-environment.
         sys.executable,
         str(objmc_path),
-        "--objs",
+        "--obj",
         str(plan.obj_file).replace("\\", "/"),
-        "--texs",
+        "--tex",
         str(plan.texture_file).replace("\\", "/"),
         "--offset",
         plan.offset[0],
@@ -338,7 +338,11 @@ def _reshape_output(plan: ConversionPlan) -> dict:
     )
     data["textures"]["0"] = baked_texture
     data["textures"]["particle"] = baked_texture
-    del data["display"]
+    # Only rendered in the world, so the item-context properties are dropped.
+    # Both are conditional: objmc emitted `display` before the 2026 rewrite and
+    # does not now, so the key may or may not be there.
+    if "display" in data:
+        del data["display"]
     if "gui_light" in data:
         del data["gui_light"]
     util.remove_tintindex(data)
