@@ -17,9 +17,38 @@ def copy_texture_file(texture_path, output_path, texture_file_relative, debug):
     shutil.copy(texture_file, output_path / texture_file_relative)
 
 
+# The identifier a `textures` entry names, or None if it names no file.
+#
+# A value is usually the identifier itself, but since 26.1 it can also be an
+# object carrying the identifier under `sprite` alongside rendering flags:
+#
+#     "pane": {"force_translucent": true, "sprite": "minecraft:block/glass"}
+#
+# Anything else is a shape we don't know. Those are reported rather than skipped
+# quietly - a new form of this field is exactly the kind of change that should
+# be noticed, and silence here would let a whole class of texture go uncopied.
+def texture_identifier_of(texture_key, texture_value):
+    if isinstance(texture_value, str):
+        return texture_value
+    if isinstance(texture_value, dict):
+        sprite = texture_value.get("sprite")
+        if isinstance(sprite, str):
+            return sprite
+    print(
+        f"WARNING!!! Unrecognised texture value for {texture_key!r}: "
+        f"{texture_value!r} - skipping",
+        flush=True,
+    )
+    return None
+
+
 # Copies the textures a model names - but only if they exist in texture_path
 def copy_textures(texture_path, output_path, model_data, debug):
-    for texture_identifier in model_data.get("textures", {}).values():
+    for texture_key, texture_value in model_data.get("textures", {}).items():
+        texture_identifier = texture_identifier_of(texture_key, texture_value)
+        if texture_identifier is None:
+            continue
+
         if texture_identifier.startswith("#"):
             # The texture is a variable reference, not a file to copy
             continue

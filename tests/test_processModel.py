@@ -289,6 +289,69 @@ def test_copy_textures_skips_variable_references(tmp_path):
     assert not output_path.exists() or not any(output_path.rglob("*.png"))
 
 
+def test_copy_textures_reads_the_sprite_of_an_object_value(tmp_path):
+    """Since 1.21.6 a texture value can be an object carrying the identifier
+    under `sprite` alongside rendering flags - the stained glass panes do this."""
+    input_path = tmp_path / "in"
+    output_path = tmp_path / "out"
+    _vanilla_texture(input_path, "block/black_stained_glass")
+
+    processModel.copy_textures(
+        input_path,
+        output_path,
+        {
+            "textures": {
+                "pane": {
+                    "force_translucent": True,
+                    "sprite": "minecraft:block/black_stained_glass",
+                }
+            }
+        },
+        False,
+    )
+
+    assert (
+        output_path
+        / constants.RELATIVE_VANILLA_TEXTURES_PATH
+        / "block/black_stained_glass.png"
+    ).exists()
+
+
+def test_copy_textures_skips_a_sprite_object_naming_a_variable(tmp_path):
+    """The `sprite` key carries an identifier, so it can be a #reference too."""
+    input_path = tmp_path / "in"
+    output_path = tmp_path / "out"
+
+    processModel.copy_textures(
+        input_path, output_path, {"textures": {"pane": {"sprite": "#side"}}}, False
+    )
+
+    assert not output_path.exists() or not any(output_path.rglob("*.png"))
+
+
+def test_copy_textures_warns_on_an_unrecognised_value_and_continues(tmp_path, capsys):
+    """An unknown shape must not stop the rest of the model being copied, but it
+    must be visible - a silent skip would hide a format change."""
+    input_path = tmp_path / "in"
+    output_path = tmp_path / "out"
+    _vanilla_texture(input_path, "block/stone")
+
+    processModel.copy_textures(
+        input_path,
+        output_path,
+        {"textures": {"odd": ["0"], "all": "block/stone"}},
+        False,
+    )
+
+    warning = capsys.readouterr().out
+    assert "WARNING" in warning
+    assert "odd" in warning
+    # the well-formed entry alongside it is still copied
+    assert (
+        output_path / constants.RELATIVE_VANILLA_TEXTURES_PATH / "block/stone.png"
+    ).exists()
+
+
 # =========================================================================
 # copy_model_chain()
 # =========================================================================
