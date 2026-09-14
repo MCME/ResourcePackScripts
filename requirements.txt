@@ -1,0 +1,10 @@
+# Runtime
+PyYAML>=6.0          # .objmeta parsing
+
+# objmc is an external script, invoked as a subprocess under this same
+# interpreter (see sys.executable in processModel.convert_model). Its import of
+# PIL therefore has to resolve in *this* environment, not a system python.
+pillow>=12.0
+
+# Test
+pytest>=9.0

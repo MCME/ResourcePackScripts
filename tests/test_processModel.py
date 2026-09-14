@@ -82,7 +82,7 @@ def _make_fake_objmc(default_output_model=None):
     }
 
     def _fake(cmd, check=False, stdout=None, stderr=None):
-        # cmd is the runList: ['python3', objmc, '--objs', ..., '--out', MODEL, TEX, '--visibility', ...]
+        # cmd is the runList: [sys.executable, objmc, '--objs', ..., '--out', MODEL, TEX, '--visibility', ...]
         out_idx = cmd.index("--out")
         model_out = Path(cmd[out_idx + 1])
         tex_out = Path(cmd[out_idx + 2])

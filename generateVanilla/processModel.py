@@ -3,6 +3,7 @@ import os
 import re
 import shutil
 import subprocess
+import sys
 from pathlib import Path
 
 import constants
@@ -212,7 +213,10 @@ def convert_model(
             os.makedirs(output_texture_dir, exist_ok=True)
 
         runList = [
-            "python3",
+            # objmc must run under the interpreter running this script, not
+            # whatever "python3" resolves to on PATH - it imports PIL, which is
+            # installed per-environment.
+            sys.executable,
             str(objmc_path),
             "--objs",
             str(model_file).replace("\\", "/"),
