@@ -27,6 +27,7 @@ What gets recorded, and why it differs by file:
 import functools
 import hashlib
 import json
+import re
 import subprocess
 import sys
 from dataclasses import dataclass
@@ -258,3 +259,44 @@ def _diff_report(case, objmc, expected, actual) -> str:
         )
     )
     return "\n".join(lines)
+
+
+# =========================================================================
+# Contract: does this objmc still accept the command line we build?
+# =========================================================================
+
+
+def test_objmc_accepts_every_flag_we_emit(objmc, tmp_path):
+    """Every flag in our argv is one this objmc advertises.
+
+    Runs no conversion and needs no model data, so it fails in a second with a
+    precise message when a flag is renamed or dropped - where the golden tests
+    would report the same breakage as "every output vanished". Worth having
+    separately for exactly that reason: this one names the flag.
+    """
+    if (launch_failure := _objmc_launch_failure(objmc)) is not None:
+        pytest.fail(launch_failure, pytrace=False)
+
+    plan = objmc_conversion._plan_conversion(
+        FIXTURE_PACK, tmp_path / "out", "block/synthetic_options", None
+    )
+    assert plan is not None, "fixture should be convertible"
+    # synthetic_options sets every optional flag, so this argv is the widest one
+    # convert_model ever builds.
+    argv = objmc_conversion._objmc_argv(plan, objmc)
+    emitted = {token for token in argv if token.startswith("--")}
+    assert "--noshadow" in emitted and "--flipuv" in emitted, (
+        "fixture no longer exercises the optional flags"
+    )
+
+    help_text = subprocess.run(
+        [sys.executable, str(objmc), "--help"], capture_output=True, text=True
+    ).stdout
+
+    unsupported = sorted(
+        flag for flag in emitted if not re.search(rf"{re.escape(flag)}\b", help_text)
+    )
+    assert not unsupported, (
+        f"{objmc} does not advertise: {', '.join(unsupported)}\n"
+        "Its command line has changed - update _objmc_argv."
+    )
