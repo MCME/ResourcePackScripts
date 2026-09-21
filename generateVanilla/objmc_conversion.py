@@ -12,9 +12,14 @@ about objmc:
    settle every path and setting the conversion needs. Pure reading; knows
    nothing about objmc beyond the fact that `options` are flag names.
 2. `_run_objmc` - build the argv and run it. **This is objmc's CLI surface.**
-3. `_reshape_output` and `_apply_parent` - take the model JSON objmc produced,
-   fix it into our pack's conventions and link up parents. `_reshape_output`
-   is **objmc's output format**; `_apply_parent` is purely our own.
+3. `_reshape_output` and `_extract_shared_parent` - take the model JSON objmc
+   produced, fix it into our pack's conventions and link up parents.
+   `_reshape_output` is **objmc's output format**; the parent linking is purely
+   our own. A parent is never pre-baked or copied from elsewhere - it is
+   whatever geometry objmc itself produced for the first model that read a
+   given source .obj, split out the moment a second model (same .obj, same
+   rotation) is converted and found to share it. See `_parent_identifier` for
+   how models are grouped.
 
 That split is what makes an objmc upgrade tractable: a change lands in stage 2
 or stage 3, and which one it lands in tells you whether objmc's CLI moved or
@@ -27,7 +32,6 @@ objmc. Everything else is covered by the faked-subprocess tests.
 import json
 import os
 import re
-import shutil
 import subprocess
 import sys
 from dataclasses import dataclass, field
@@ -38,11 +42,32 @@ import rotate_obj
 import util
 import yaml
 
-# model_path -> the output file it was written to, or PARENT_DONE_VALUE once a
-# shared parent has been extracted for it. Module-level because a model can be
-# reached from more than one traversal root, and the second visit is what
-# triggers parent extraction.
+# parent identifier -> the _ParentGroup tracking it. The identifier is derived
+# from the source .obj file a model reads (see `_parent_identifier`), not from
+# the model's own name, so two differently-named models reading the same .obj
+# (e.g. pine_leaves_brown and maple_leaves both reading leaves_parent.obj) are
+# recognised as sharing geometry. Module-level because a model can be reached
+# from more than one traversal root, and the second visit is what triggers
+# parent extraction.
 converted_models = {}
+
+
+@dataclass
+class _ParentGroup:
+    """One parent identifier's state: its texture size, and its file until split.
+
+    objmc lays out the position/uv data it embeds in the baked texture relative
+    to that texture's own pixel width (see objmc.py's `tw`), so two bakes only
+    encode compatible offsets when their output textures are the same size.
+    `texture_size` is what `convert_sodium_model` checks before trusting a
+    borrowed `elements` array; a mismatch would otherwise read as near-black
+    noise in game rather than the intended geometry.
+    """
+
+    # The file the first model in this group was written to, or None once its
+    # elements have been split out into an actual `*_parent` file on disk.
+    file: Path | None
+    texture_size: tuple[int, int]
 
 
 # The suffix identifying a rotated variant of a model. Shared by the rotated
@@ -69,10 +94,13 @@ class ConversionPlan:
     output_model_file: Path
     output_texture_file: Path
     output_texture_path: str
+    # The pack-relative, suffix-stripped identifier of the .obj this model was
+    # read from (e.g. "block/leaves_parent"). This is what ties two
+    # differently-named models together as sharing one parent.
+    obj_model_path: str
     offset: list = field(default_factory=lambda: ["-0.5", "0.0", "-0.5"])
     visibility: int = 7
     options: list = field(default_factory=list)
-    manual_parent_model: str | None = None
     omnidirectional_parent: bool = False
 
 
@@ -129,7 +157,6 @@ def _read_objmeta(meta_file: Path, model_path: str) -> dict:
         "offset": ["-0.5", "0.0", "-0.5"],
         "options": [],
         "visibility": 7,
-        "manual_parent_model": None,
         "omnidirectional_parent": False,
     }
     if not os.path.exists(meta_file):
@@ -144,11 +171,6 @@ def _read_objmeta(meta_file: Path, model_path: str) -> dict:
         settings["offset"] = meta_data.get("offset", "-0.5 0.0 -0.5").split()
         settings["options"] = meta_data.get("options", [])
         settings["visibility"] = meta_data.get("visibility", 7)
-        # NOTE: raises AttributeError when the file has no `parent` key. Latent
-        # only because all 1246 .objmeta files in RP-Human happen to set one.
-        settings["manual_parent_model"] = (
-            meta_data.get("parent", None).split(":")[-1].strip()
-        )
         settings["omnidirectional_parent"] = meta_data.get(
             "omnidirectional_parent", False
         )
@@ -256,7 +278,7 @@ def _plan_conversion(
         offset=meta["offset"],
         visibility=meta["visibility"],
         options=meta["options"],
-        manual_parent_model=meta["manual_parent_model"],
+        obj_model_path=obj_model_path,
         omnidirectional_parent=meta["omnidirectional_parent"],
     )
 
@@ -349,107 +371,77 @@ def _reshape_output(plan: ConversionPlan) -> dict:
     return data
 
 
-def _copy_override_parent(input_path, output_path, parent_model) -> bool:
-    """Copy a parent model out of the override layer. False if it isn't there."""
-    override_model_file = (
-        input_path
-        / constants.RELATIVE_VANILLA_OVERRIDES_PATH
-        / constants.RELATIVE_SODIUM_MODELS_PATH
-        / Path(parent_model + constants.VANILLA_MODEL_EXTENSION)
-    )
-    if not override_model_file.exists():
-        return False
-    shutil.copy(
-        override_model_file,
-        output_path
-        / constants.RELATIVE_SODIUM_MODELS_PATH
-        / Path(parent_model + constants.VANILLA_MODEL_EXTENSION),
-    )
-    return True
+def _parent_base_name(obj_model_path: str) -> str:
+    """The parent identifier a given source .obj groups under.
 
-
-def _rotated_parent_name(plan: ConversionPlan, manual_parent_model: str) -> str:
-    """The parent variant matching this model's rotation.
-
-    An omnidirectional parent looks the same from every angle, so it keeps its
-    plain name; everything else has a per-rotation variant named `_1_<n>`.
+    Named after the .obj itself, not the model reading it - two differently
+    named models that read the same .obj (e.g. pine_leaves_brown and
+    maple_leaves both reading leaves_parent.obj) group under this same name.
+    Source .obj files meant to be shared are already named with a `_parent`
+    suffix by convention (`leaves_parent.obj`); this only adds the suffix when
+    it isn't already there, so the name is never doubled.
     """
+    if obj_model_path.endswith(constants.PARENT_SUFFIX):
+        return obj_model_path
+    return obj_model_path + constants.PARENT_SUFFIX
+
+
+def _parent_identifier(plan: ConversionPlan) -> str:
+    """The parent this conversion groups under, rotation included.
+
+    An omnidirectional parent looks the same from every angle, so every
+    rotation of it groups under the plain name; everything else groups under a
+    per-rotation variant named `_1_<n>`, matching only when the same axis and
+    angle recur (rotations sharing every other axis or a non-positive angle
+    all fall back to the plain, unrotated name).
+    """
+    base_name = _parent_base_name(plan.obj_model_path)
     if plan.rotation is None or plan.omnidirectional_parent:
-        return manual_parent_model
+        return base_name
     axis, angle = plan.rotation
     if axis != "y" or angle <= 0:
-        return manual_parent_model
-    if not bool(re.search(r"_[0-9]+$", manual_parent_model)):
-        manual_parent_model = manual_parent_model + "_1"
-    return manual_parent_model + "_" + str(angle // 90 + 1)
+        return base_name
+    if not bool(re.search(r"_[0-9]+$", base_name)):
+        base_name = base_name + "_1"
+    return base_name + "_" + str(angle // 90 + 1)
 
 
-def _apply_manual_parent(input_path, output_path, plan, data, debug):
-    """Point the model at the parent its .objmeta names, copying it across."""
-    del data["elements"]
-    original_manual_parent = plan.manual_parent_model
-    util.printDebug("        Manual parent: " + original_manual_parent, debug)
+def _texture_size(path: Path) -> tuple[int, int]:
+    from PIL import Image
 
-    manual_parent_model = _rotated_parent_name(plan, original_manual_parent)
-    if manual_parent_model != original_manual_parent:
-        util.printDebug("        Rotated parent: " + manual_parent_model, debug)
-
-    data["parent"] = constants.MCME_NAMESPACE + ":" + manual_parent_model
-    if manual_parent_model not in converted_models:
-        if not _copy_override_parent(input_path, output_path, manual_parent_model):
-            # The rotated variant doesn't exist, so fall back to the unrotated
-            # parent - visibly wrong in game, but better than a missing model.
-            print(
-                f"        WARNING!!! Expected parent file {manual_parent_model} not found! Using: "
-                + original_manual_parent,
-                flush=True,
-            )
-            data["parent"] = constants.MCME_NAMESPACE + ":" + original_manual_parent
-            if original_manual_parent not in converted_models:
-                if not _copy_override_parent(
-                    input_path, output_path, original_manual_parent
-                ):
-                    print(
-                        f"        ERROR!!! Expected parent file {original_manual_parent} not found!",
-                        flush=True,
-                    )
-        converted_models[manual_parent_model] = constants.PARENT_DONE_VALUE
+    with Image.open(path) as image:
+        return image.width, image.height
 
 
-def _extract_shared_parent(output_path, plan, data, compress):
+def _extract_shared_parent(output_path, parent_name: str, group: "_ParentGroup", data, compress):
     """Split the geometry of an already-converted model into a shared parent.
 
-    Reached when the same model_path is converted a second time - typically the
-    same model at another rotation. Both conversions then become children of one
-    `*_parent` file holding the elements, so the geometry is stored once.
+    Reached when a second model grouping under the same parent name, and
+    baked to the same texture size, is converted - either the same source .obj
+    read by a differently named model, or the same model at another rotation.
+    Both conversions then become children of one `*_parent` file holding the
+    elements, so the geometry is generated and stored only once.
     """
     del data["elements"]
-    parent_identifier = (
-        constants.MCME_NAMESPACE + ":" + plan.model_path + constants.PARENT_SUFFIX
-    )
+    parent_identifier = constants.MCME_NAMESPACE + ":" + parent_name
     data["parent"] = parent_identifier
 
-    first_model_file = converted_models[plan.model_path]
-    if first_model_file == constants.PARENT_DONE_VALUE:
+    if group.file is None:
         # The parent was extracted on an earlier pass; nothing left to split.
         return
 
-    with open(first_model_file, "r") as first_model_json:
+    with open(group.file, "r") as first_model_json:
         first_model_data = json.load(first_model_json)
     parent_model_data = first_model_data.copy()
     del parent_model_data["textures"]
     del first_model_data["elements"]
     first_model_data["parent"] = parent_identifier
 
-    _write_model(Path(first_model_file), first_model_data, compress)
+    _write_model(group.file, first_model_data, compress)
     _write_model(
         output_path
         / constants.RELATIVE_SODIUM_MODELS_PATH
-        / Path(
-            plan.model_path
-            + constants.PARENT_SUFFIX
-            + constants.VANILLA_MODEL_EXTENSION
-        ),
+        / Path(parent_name + constants.VANILLA_MODEL_EXTENSION),
         parent_model_data,
         compress,
     )
@@ -496,14 +488,30 @@ def convert_sodium_model(
 
     if _run_objmc(plan, objmc_path):
         data = _reshape_output(plan)
+        texture_size = _texture_size(plan.output_texture_file)
 
-        if plan.manual_parent_model:
-            _apply_manual_parent(input_path, output_path, plan, data, debug)
-        elif model_path in converted_models:
-            _extract_shared_parent(output_path, plan, data, compress)
-            converted_models[model_path] = constants.PARENT_DONE_VALUE
+        parent_name = _parent_identifier(plan)
+        group = converted_models.get(parent_name)
+        if group is not None and group.texture_size == texture_size:
+            util.printDebug(f"        Shared parent: {parent_name}", debug)
+            _extract_shared_parent(output_path, parent_name, group, data, compress)
+            converted_models[parent_name] = _ParentGroup(None, texture_size)
         else:
-            converted_models[model_path] = plan.output_model_file
+            if group is not None:
+                # Same parent group, but this bake's texture is a different
+                # size - objmc's embedded position/uv offsets are relative to
+                # the texture's own width, so borrowing the other bake's
+                # elements here would read back as corrupted (near-black) noise
+                # in game rather than the intended geometry. Keep this model's
+                # own geometry instead of sharing.
+                print(
+                    f"        WARNING!!! {model_path} shares parent group "
+                    f"{parent_name} but its baked texture is {texture_size}, "
+                    f"not {group.texture_size} - not sharing a parent with it. "
+                    "Make the source textures the same size to share geometry.",
+                    flush=True,
+                )
+            converted_models[parent_name] = _ParentGroup(plan.output_model_file, texture_size)
 
         _write_model(plan.output_model_file, data, compress)
 
