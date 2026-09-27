@@ -1,0 +1,36 @@
+{
+  "case": "omnidirectional_rotated",
+  "conversions": [
+    {
+      "model": "block/forestfloor",
+      "rotation": [
+        "y",
+        90
+      ]
+    }
+  ],
+  "covers": "omnidirectional_parent: rotation must NOT append the _1_N suffix",
+  "outputs": {
+    "assets/mcme/models/block/forestfloor_parent.json": {
+      "from": "vanilla/assets/mcme/models/block/forestfloor_parent.json",
+      "kind": "copied"
+    },
+    "assets/mcme/models/block/forestfloor_y_90.json": {
+      "content": {
+        "parent": "mcme:block/forestfloor_parent",
+        "textures": {
+          "0": "mcme:block/forestfloor_y_90",
+          "particle": "mcme:block/forestfloor_y_90"
+        }
+      },
+      "kind": "converted_model"
+    },
+    "assets/mcme/textures/block/forestfloor_y_90.png": {
+      "height": 256,
+      "kind": "texture",
+      "mode": "RGBA",
+      "sha256": "6e7a8a51a7443a1f03c66745cbec4ef9b06529bd5c739adf12df571940912d52",
+      "width": 128
+    }
+  }
+}

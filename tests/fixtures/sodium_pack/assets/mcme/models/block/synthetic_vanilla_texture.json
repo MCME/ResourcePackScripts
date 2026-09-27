@@ -1,0 +1,15 @@
+{
+  "parent": "special-model-loader:builtin/obj",
+  "particle": "minecraft:block/synthetic_vanilla_tex",
+  "flip_v": true,
+  "mtl_override": "mcme:models/block/pine_leaves_brown.mtl",
+  "model": "mcme:models/block/leaves_parent.obj",
+  "gui_light": "front",
+  "display": {
+    "gui": {
+      "rotation": [0, 0, 0],
+      "translation": [0, 0.25, 0],
+      "scale": [0.6, 0.6, 0.6]
+    }
+  }
+}

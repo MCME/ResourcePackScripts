@@ -2,23 +2,37 @@ from pathlib import Path
 
 RELATIVE_VANILLA_OVERRIDES_PATH = Path("vanilla")
 
-RELATIVE_BLOCKSTATE_PATH = Path("assets/minecraft/blockstates")
 RELATIVE_ITEMS_PATH = Path("assets/minecraft/items")
+RELATIVE_VANILLA_MODELS_PATH = Path("assets/minecraft/models")
+RELATIVE_BLOCKSTATE_PATH = Path("assets/minecraft/blockstates")
+RELATIVE_VANILLA_TEXTURES_PATH = Path("assets/minecraft/textures")
+
 RELATIVE_SODIUM_MODELS_PATH = Path("assets/mcme/models")
 RELATIVE_SODIUM_TEXTURES_PATH = Path("assets/mcme/textures")
-RELATIVE_VANILLA_MODELS_PATH = Path("assets/minecraft/models")
-RELATIVE_VANILLA_TEXTURES_PATH = Path("assets/minecraft/textures")
-RELATIVE_SHADER_PATH = Path("assets/minecraft/shaders")
-RELATIVE_OPTIFINE_PATH = Path("assets/minecraft/optifine")
-RELATIVE_TEXTS_PATH = Path("assets/minecraft/texts")
-RELATIVE_TEXTURES_GUI_PATH = Path("assets/minecraft/textures/gui")
-RELATIVE_TEXTURES_ENV_PATH = Path("assets/minecraft/textures/environment")
-RELATIVE_TEXTURES_ENTITY_PATH = Path("assets/minecraft/textures/entity")
-RELATIVE_TEXTURES_COLORMAP_PATH = Path("assets/minecraft/textures/colormap")
-RELATIVE_TEXTURES_PAINTING_PATH = Path("assets/minecraft/textures/painting")
-RELATIVE_TEXTURES_PARTICLE_PATH = Path("assets/minecraft/textures/particle")
-RELATIVE_TEXTURES_ARMOR_PATH = Path("assets/minecraft/textures/models")
-RELATIVE_SOUNDS_PATH = Path("assets/mcme")
+
+# * blockstates
+# * items
+# * models
+#   * block and item
+# * textures
+#  * block and item
+
+# Relative suffixes (after assets/<namespace>/) to skip during copytree.
+# These are processed separately by the blockstate/item/model pipeline
+# These blockstates/items/models/textures will only exist in the generated vanilla pack if a vanilla block or item exists in the RP
+IGNORED_ASSET_SUFFIXES = {
+    Path("blockstates"),
+    Path("items"),
+    Path("models"),
+    # Unable to ignore the entire textures folder because textures can be used for things like fonts
+    Path("textures/block"),
+    Path("textures/item"),
+}
+
+# Full paths (assets/<namespace>/...) to skip — for namespace-specific dirs
+IGNORED_ASSET_PATHS = {
+    Path("assets/mcme/sml_load_scopes"),
+}
 
 OBJ_MODEL_EXTENSION = ".obj"
 VANILLA_MODEL_EXTENSION = ".json"
@@ -28,6 +42,10 @@ TEXTURE_EXTENSION = ".png"
 MCMETA_EXTENSION = ".mcmeta"
 OBJMETA_EXTENSION = ".objmeta"
 MTL_EXTENSION = ".mtl"
+
+# Identifiers under this prefix name a model hardcoded in the client
+# (builtin/generated, builtin/entity) rather than a file in the pack.
+BUILTIN_MODEL_PREFIX = "builtin/"
 
 MCME_NAMESPACE = "mcme"
 VANILLA_NAMESPACE = "minecraft"

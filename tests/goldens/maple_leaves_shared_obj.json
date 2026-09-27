@@ -1,0 +1,33 @@
+{
+  "case": "maple_leaves_shared_obj",
+  "conversions": [
+    {
+      "model": "block/maple_leaves",
+      "rotation": null
+    }
+  ],
+  "covers": "a second model sharing leaves_parent.obj",
+  "outputs": {
+    "assets/mcme/models/block/leaves_parent.json": {
+      "from": "vanilla/assets/mcme/models/block/leaves_parent.json",
+      "kind": "copied"
+    },
+    "assets/mcme/models/block/maple_leaves.json": {
+      "content": {
+        "parent": "mcme:block/leaves_parent",
+        "textures": {
+          "0": "mcme:block/maple_leaves",
+          "particle": "mcme:block/maple_leaves"
+        }
+      },
+      "kind": "converted_model"
+    },
+    "assets/mcme/textures/block/maple_leaves.png": {
+      "height": 256,
+      "kind": "texture",
+      "mode": "RGBA",
+      "sha256": "e6ab53ae563e2c13b62d8a9ed2cb5dc70d18dbdefb3194352288ceaf9d607769",
+      "width": 160
+    }
+  }
+}

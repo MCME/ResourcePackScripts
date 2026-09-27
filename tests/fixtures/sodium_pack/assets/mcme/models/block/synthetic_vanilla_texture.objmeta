@@ -1,0 +1,5 @@
+# Synthetic fixture: a texture in the minecraft: namespace, which sends
+# convert_model down RELATIVE_VANILLA_TEXTURES_PATH instead of the mcme one.
+# No model in RP-Human does this, so the branch is otherwise unexercised.
+parent: block/leaves_parent
+texture: minecraft:block/synthetic_vanilla_tex

@@ -1,0 +1,33 @@
+{
+  "case": "synthetic_vanilla_texture",
+  "conversions": [
+    {
+      "model": "block/synthetic_vanilla_texture",
+      "rotation": null
+    }
+  ],
+  "covers": "minecraft:-namespace texture -> vanilla textures path",
+  "outputs": {
+    "assets/mcme/models/block/leaves_parent.json": {
+      "from": "vanilla/assets/mcme/models/block/leaves_parent.json",
+      "kind": "copied"
+    },
+    "assets/mcme/models/block/synthetic_vanilla_texture.json": {
+      "content": {
+        "parent": "mcme:block/leaves_parent",
+        "textures": {
+          "0": "mcme:block/synthetic_vanilla_texture",
+          "particle": "mcme:block/synthetic_vanilla_texture"
+        }
+      },
+      "kind": "converted_model"
+    },
+    "assets/mcme/textures/block/synthetic_vanilla_texture.png": {
+      "height": 256,
+      "kind": "texture",
+      "mode": "RGBA",
+      "sha256": "f991b10bb55539ee0f279d3878fd3d6baea1be054de030db4ef69f532cdd4ba2",
+      "width": 160
+    }
+  }
+}
