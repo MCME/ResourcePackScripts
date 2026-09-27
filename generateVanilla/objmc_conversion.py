@@ -371,23 +371,25 @@ def _reshape_output(plan: ConversionPlan) -> dict:
     return data
 
 
-def _parent_base_name(obj_model_path: str) -> str:
-    """The parent identifier a given source .obj groups under.
+def _is_parent_obj(obj_model_path: str) -> bool:
+    """Whether a source .obj is meant to be shared as a parent.
 
-    Named after the .obj itself, not the model reading it - two differently
-    named models that read the same .obj (e.g. pine_leaves_brown and
-    maple_leaves both reading leaves_parent.obj) group under this same name.
-    Source .obj files meant to be shared are already named with a `_parent`
-    suffix by convention (`leaves_parent.obj`); this only adds the suffix when
-    it isn't already there, so the name is never doubled.
+    Only .obj files already named as parents by convention are - `parent`,
+    `leaves_parent`, or a numbered variant such as `parent_2` or
+    `leaves_parent_3`. Any other .obj, numbered or not (`lamp`, `lamp_2`),
+    keeps its geometry in its own models and never becomes a parent.
     """
-    if obj_model_path.endswith(constants.PARENT_SUFFIX):
-        return obj_model_path
-    return obj_model_path + constants.PARENT_SUFFIX
+    return bool(re.search(r"(?:^|[/_])parent(?:_[0-9]+)?$", obj_model_path))
 
 
-def _parent_identifier(plan: ConversionPlan) -> str:
+def _parent_identifier(plan: ConversionPlan) -> str | None:
     """The parent this conversion groups under, rotation included.
+
+    None when the source .obj is not a parent (see `_is_parent_obj`).
+    Otherwise it is named after the .obj itself, not the model reading it -
+    two differently named models that read the same .obj (e.g.
+    pine_leaves_brown and maple_leaves both reading leaves_parent.obj) group
+    under this same name.
 
     An omnidirectional parent looks the same from every angle, so every
     rotation of it groups under the plain name; everything else groups under a
@@ -395,7 +397,9 @@ def _parent_identifier(plan: ConversionPlan) -> str:
     angle recur (rotations sharing every other axis or a non-positive angle
     all fall back to the plain, unrotated name).
     """
-    base_name = _parent_base_name(plan.obj_model_path)
+    if not _is_parent_obj(plan.obj_model_path):
+        return None
+    base_name = plan.obj_model_path
     if plan.rotation is None or plan.omnidirectional_parent:
         return base_name
     axis, angle = plan.rotation
@@ -492,7 +496,9 @@ def convert_sodium_model(
 
         parent_name = _parent_identifier(plan)
         group = converted_models.get(parent_name)
-        if group is not None and group.texture_size == texture_size:
+        if parent_name is None:
+            pass  # Not a parent .obj: the model keeps its own geometry.
+        elif group is not None and group.texture_size == texture_size:
             util.printDebug(f"        Shared parent: {parent_name}", debug)
             _extract_shared_parent(output_path, parent_name, group, data, compress)
             converted_models[parent_name] = _ParentGroup(None, texture_size)
