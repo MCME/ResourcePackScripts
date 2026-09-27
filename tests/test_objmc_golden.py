@@ -154,7 +154,7 @@ def _sha256(path: Path) -> str:
 def _fixture_index() -> dict[str, str]:
     """sha256 -> fixture-relative path, for recognising files that were copied."""
     return {
-        _sha256(f): str(f.relative_to(FIXTURE_PACK))
+        _sha256(f): f.relative_to(FIXTURE_PACK).as_posix()
         for f in FIXTURE_PACK.rglob("*")
         if f.is_file()
     }
@@ -181,7 +181,9 @@ def _capture(out_dir: Path) -> dict:
     for f in sorted(out_dir.rglob("*")):
         if not f.is_file():
             continue
-        rel = str(f.relative_to(out_dir))
+        # Forward slashes on every OS, so goldens written on Windows and on
+        # Linux compare equal
+        rel = f.relative_to(out_dir).as_posix()
         if f.suffix == constants.TEXTURE_EXTENSION:
             outputs[rel] = _describe_texture(f)
         elif (source := copied_from.get(_sha256(f))) is not None:
