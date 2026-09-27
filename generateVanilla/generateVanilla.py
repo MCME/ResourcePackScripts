@@ -9,6 +9,7 @@ import hardcodedFiles
 import processBlockstate
 import processItem
 
+
 # ------------------------------------------------------------
 # command line interface
 # ------------------------------------------------------------
@@ -29,7 +30,7 @@ parser.add_argument("input_path", help="Path to read OBJ models from")
 parser.add_argument("output_path", help="Path to write vanilla shader models in.")
 parser.add_argument("vanilla_path", help="Path to read vanilla RP from.")
 parser.add_argument(
-    "--max-model-entries",
+    "--limit",
     type=model_entry_limit,
     default=None,
     help="Cap the number of model entries used for one blockstate variant. Defaults to no limit.",
@@ -64,7 +65,7 @@ input_path = Path(args.input_path)
 output_path = Path(args.output_path)
 objmc_path = Path(args.objmc)
 debug = args.debug
-max_model_entries = args.max_model_entries
+max_model_entries = args.limit
 compress = args.compress
 no_blocks = args.noblocks
 no_items = args.noitems
