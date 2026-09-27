@@ -34,7 +34,8 @@ import os
 import re
 import subprocess
 import sys
-from dataclasses import dataclass, field
+import tempfile
+from dataclasses import dataclass, field, replace
 from pathlib import Path
 
 import constants
@@ -87,7 +88,8 @@ class ConversionPlan:
     rotation: tuple[str, float] | None
     suffix: str
     # The .obj objmc reads. For a rotated model this is a temporary file written
-    # by rotate_obj and deleted afterwards; otherwise it is source_obj_file.
+    # by rotate_obj into a directory of its own, removed with it afterwards;
+    # otherwise it is source_obj_file.
     obj_file: Path
     source_obj_file: Path
     texture_file: Path
@@ -314,9 +316,7 @@ def _plan_conversion(
         model_path=model_path,
         rotation=rotation,
         suffix=suffix,
-        obj_file=input_path
-        / sodium_models
-        / Path(obj_model_path + suffix + constants.OBJ_MODEL_EXTENSION),
+        obj_file=source_obj_file,
         source_obj_file=source_obj_file,
         texture_file=texture_file,
         output_model_file=output_model_file,
@@ -526,14 +526,27 @@ def convert_sodium_model(
     if plan is None:
         return
 
-    if plan.rotation is not None:
-        axis, angle = plan.rotation
-        # objmc has no rotation of its own, so the rotation is baked into a
-        # temporary .obj for it to read. Removed again at the end.
-        rotate_obj.rotate_obj_file(
-            plan.source_obj_file, plan.obj_file, axis, -angle
+    if plan.rotation is None:
+        _convert(output_path, plan, objmc_path, compress, debug)
+        return
+
+    axis, angle = plan.rotation
+    # objmc has no rotation of its own, so the rotation is baked into a
+    # temporary .obj for it to read. That goes in a directory of its own, never
+    # beside the source .obj: the input pack is only ever read, so no file in it
+    # can be overwritten, and then deleted, for sharing the rotated file's name.
+    with tempfile.TemporaryDirectory(prefix="objmc-") as temp_dir:
+        rotated_obj = Path(temp_dir) / (
+            plan.source_obj_file.stem + plan.suffix + constants.OBJ_MODEL_EXTENSION
+        )
+        rotate_obj.rotate_obj_file(plan.source_obj_file, rotated_obj, axis, -angle)
+        _convert(
+            output_path, replace(plan, obj_file=rotated_obj), objmc_path, compress, debug
         )
 
+
+def _convert(output_path, plan: ConversionPlan, objmc_path, compress, debug):
+    """Run objmc for a settled plan, and fit what it wrote into our pack."""
     os.makedirs(os.path.dirname(plan.output_model_file), exist_ok=True)
     os.makedirs(os.path.dirname(plan.output_texture_file), exist_ok=True)
 
@@ -558,7 +571,7 @@ def convert_sodium_model(
                 # in game rather than the intended geometry. Keep this model's
                 # own geometry instead of sharing.
                 print(
-                    f"        WARNING!!! {model_path} shares parent group "
+                    f"        WARNING!!! {plan.model_path} shares parent group "
                     f"{parent_name} but its baked texture is {texture_size}, "
                     f"not {group.texture_size} - not sharing a parent with it. "
                     "Make the source textures the same size to share geometry.",
@@ -567,6 +580,3 @@ def convert_sodium_model(
             converted_models[parent_name] = _ParentGroup(plan.output_model_file, texture_size)
 
         _write_model(plan.output_model_file, data, compress)
-
-    if plan.rotation is not None:
-        Path(plan.obj_file).unlink()

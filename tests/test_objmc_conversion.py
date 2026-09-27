@@ -380,3 +380,34 @@ def test_convert_model_skips_an_output_texture_leading_outside_the_pack(
 
     _assert_skipped_as_outside_the_pack(run, capsys)
     assert not (tmp_path / "escaped.png").exists()
+
+
+# =========================================================================
+# the rotated .obj
+# =========================================================================
+
+
+def _snapshot(root: Path) -> dict:
+    return {
+        p.relative_to(root).as_posix(): p.read_bytes()
+        for p in root.rglob("*")
+        if p.is_file()
+    }
+
+
+def test_convert_model_rotation_leaves_the_input_pack_untouched(tmp_path):
+    """The rotated .obj objmc reads used to be written next to the source .obj
+    and deleted afterwards - taking with it any real file that had its name."""
+    input_path, output_path, objmc_path = _setup_basic_convert_inputs(tmp_path)
+    _sodium_obj(input_path, "props/lamp_y_90", "# a real, committed model")
+    before = _snapshot(input_path)
+
+    with patch.object(subprocess, "run", side_effect=_make_fake_objmc()) as run:
+        objmc_conversion.convert_sodium_model(
+            input_path, output_path, "props/lamp", ("y", 90), objmc_path, False, False
+        )
+
+    assert _snapshot(input_path) == before
+    argv = run.call_args.args[0]
+    rotated_obj = Path(argv[argv.index("--obj") + 1])
+    assert not rotated_obj.resolve().is_relative_to(input_path.resolve())
