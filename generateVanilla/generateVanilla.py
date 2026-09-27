@@ -109,11 +109,16 @@ def make_ignore_processed_dirs(base_path):
         # Check if we're inside assets/<namespace>/ and match the suffix
         if len(parts) >= 2 and parts[0] == "assets":
             # FIXME: Understand this logic / make it more readable
+            namespace = parts[1]
+            exceptions = constants.NAMESPACE_IGNORE_EXCEPTIONS.get(namespace, set())
             suffix = Path(*parts[2:]) if len(parts) > 2 else Path()
             ignored = [
                 name
                 for name in contents
-                if (suffix / name) in constants.IGNORED_ASSET_SUFFIXES
+                if (
+                    (suffix / name) in constants.IGNORED_ASSET_SUFFIXES
+                    and (suffix / name) not in exceptions
+                )
                 or (rel / name) in constants.IGNORED_ASSET_PATHS
             ]
             return ignored
