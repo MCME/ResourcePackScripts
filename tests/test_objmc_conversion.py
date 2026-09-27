@@ -264,3 +264,119 @@ def test_convert_model_shared_parent_extraction_on_second_call(tmp_path):
 
     # And the group should be marked as split out into its own file
     assert objmc_conversion.converted_models["props/lamp_parent"].file is None
+
+
+# =========================================================================
+# paths leading outside the pack
+# =========================================================================
+#
+# Every path the conversion touches is built from pack content - the model
+# identifier, the model json, the .objmeta and the .mtl - so a "../" segment or
+# an absolute path in any of them could aim objmc at any file on the machine.
+# The input and output packs sit side by side in tmp_path, so four ".."
+# segments up from a pack's assets/mcme/<kind> folder land in tmp_path itself.
+
+
+def _objmeta_file(input_path: Path, model_path: str) -> Path:
+    return (
+        input_path
+        / constants.RELATIVE_SODIUM_MODELS_PATH
+        / Path(model_path + constants.OBJMETA_EXTENSION)
+    )
+
+
+def _convert(input_path, output_path, objmc_path, model_path="props/lamp"):
+    """Converts with objmc faked, returning the fake so a test can see if it ran."""
+    with patch.object(subprocess, "run", side_effect=_make_fake_objmc()) as run:
+        objmc_conversion.convert_sodium_model(
+            input_path, output_path, model_path, None, objmc_path, False, False
+        )
+    return run
+
+
+def _assert_skipped_as_outside_the_pack(run, capsys):
+    run.assert_not_called()
+    out = capsys.readouterr().out
+    assert "WARNING" in out
+    assert "outside the pack" in out
+
+
+def test_convert_model_skips_a_model_path_leading_outside_the_pack(tmp_path, capsys):
+    input_path, output_path, objmc_path = _setup_basic_convert_inputs(tmp_path)
+    # the model identifier comes from a blockstate or item definition
+    _write_json(
+        tmp_path / "elsewhere.json",
+        {
+            "model": "mcme:models/props/lamp.obj",
+            "mtl_override": "mcme:models/props/lamp.mtl",
+        },
+    )
+
+    run = _convert(
+        input_path, output_path, objmc_path, model_path="../../../../elsewhere"
+    )
+
+    _assert_skipped_as_outside_the_pack(run, capsys)
+
+
+def test_convert_model_skips_an_obj_leading_outside_the_pack(tmp_path, capsys):
+    input_path, output_path, objmc_path = _setup_basic_convert_inputs(
+        tmp_path, model_content={"model": "mcme:models/../../../../elsewhere.obj"}
+    )
+    _write_text(tmp_path / "elsewhere.obj", "# obj")
+
+    run = _convert(input_path, output_path, objmc_path)
+
+    _assert_skipped_as_outside_the_pack(run, capsys)
+
+
+def test_convert_model_skips_an_mtl_override_leading_outside_the_pack(tmp_path, capsys):
+    input_path, output_path, objmc_path = _setup_basic_convert_inputs(
+        tmp_path,
+        model_content={
+            "model": "mcme:models/props/lamp.obj",
+            "mtl_override": "mcme:models/../../../../elsewhere.mtl",
+        },
+    )
+    _write_text(tmp_path / "elsewhere.mtl", "map_Kd mcme:props/lamp\n")
+
+    run = _convert(input_path, output_path, objmc_path)
+
+    _assert_skipped_as_outside_the_pack(run, capsys)
+
+
+def test_convert_model_skips_an_objmeta_texture_leading_outside_the_pack(
+    tmp_path, capsys
+):
+    input_path, output_path, objmc_path = _setup_basic_convert_inputs(tmp_path)
+    _write_text(_objmeta_file(input_path, "props/lamp"), "texture: ../../../../secret\n")
+    (tmp_path / "secret.png").write_bytes(b"host file")
+
+    run = _convert(input_path, output_path, objmc_path)
+
+    _assert_skipped_as_outside_the_pack(run, capsys)
+
+
+def test_convert_model_skips_an_mtl_texture_at_an_absolute_path(tmp_path, capsys):
+    (tmp_path / "secret.png").write_bytes(b"host file")
+    input_path, output_path, objmc_path = _setup_basic_convert_inputs(
+        tmp_path, extra_mtl_texture=(tmp_path / "secret").as_posix()
+    )
+
+    run = _convert(input_path, output_path, objmc_path)
+
+    _assert_skipped_as_outside_the_pack(run, capsys)
+
+
+def test_convert_model_skips_an_output_texture_leading_outside_the_pack(
+    tmp_path, capsys
+):
+    input_path, output_path, objmc_path = _setup_basic_convert_inputs(tmp_path)
+    _write_text(
+        _objmeta_file(input_path, "props/lamp"), "output_texture: ../../../../escaped\n"
+    )
+
+    run = _convert(input_path, output_path, objmc_path)
+
+    _assert_skipped_as_outside_the_pack(run, capsys)
+    assert not (tmp_path / "escaped.png").exists()

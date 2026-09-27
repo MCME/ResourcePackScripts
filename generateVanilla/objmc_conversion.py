@@ -194,10 +194,29 @@ def _texture_from_mtl(mtl_file: Path):
 def _plan_conversion(
     input_path, output_path, model_path, rotation
 ) -> ConversionPlan | None:
-    """Settle every path and setting. None means there is nothing to convert."""
-    sodium_models = input_path / constants.RELATIVE_SODIUM_MODELS_PATH
+    """Settle every path and setting. None means there is nothing to convert.
 
-    model_file = sodium_models / Path(model_path + constants.VANILLA_MODEL_EXTENSION)
+    Every path here is built from pack content - the model identifier, the model
+    JSON, the .objmeta and the .mtl - so each is checked to stay inside its pack
+    before anything reads or writes it. One that leads outside skips the model.
+    """
+
+    def inside(root, relative, what):
+        path = util.contained_path(root, relative)
+        if path is None:
+            util.warn_outside_pack(f"{what} of model {model_path!r}", "the model")
+        return path
+
+    # relative to either pack
+    sodium_models = constants.RELATIVE_SODIUM_MODELS_PATH
+
+    model_file = inside(
+        input_path,
+        sodium_models / (model_path + constants.VANILLA_MODEL_EXTENSION),
+        "The model file",
+    )
+    if model_file is None:
+        return None
     if not model_file.exists():
         print(
             "        WARNING! Expected model file not found: " + str(model_file),
@@ -210,19 +229,30 @@ def _plan_conversion(
         return None
     obj_model_path, mtl_path = resolved
 
-    source_obj_file = sodium_models / Path(
-        obj_model_path + constants.OBJ_MODEL_EXTENSION
+    source_obj_file = inside(
+        input_path,
+        sodium_models / (obj_model_path + constants.OBJ_MODEL_EXTENSION),
+        "The .obj",
     )
-    if not os.path.exists(source_obj_file):
+    if source_obj_file is None or not source_obj_file.exists():
         return None
 
-    meta = _read_objmeta(
-        sodium_models / Path(model_path + constants.OBJMETA_EXTENSION), model_path
+    meta_file = inside(
+        input_path,
+        sodium_models / (model_path + constants.OBJMETA_EXTENSION),
+        "The .objmeta",
     )
+    if meta_file is None:
+        return None
+    meta = _read_objmeta(meta_file, model_path)
 
     texture_path = meta["texture_path"]
     if not texture_path:
-        mtl_file = sodium_models / Path(mtl_path + constants.MTL_EXTENSION)
+        mtl_file = inside(
+            input_path, sodium_models / (mtl_path + constants.MTL_EXTENSION), "The .mtl"
+        )
+        if mtl_file is None:
+            return None
         if not mtl_file.exists():
             print(f"Missing .mtl file {mtl_file}.")
             return None
@@ -247,6 +277,14 @@ def _plan_conversion(
             flush=True,
         )
 
+    texture_file = inside(
+        input_path,
+        relative_texture_path / (texture_path + constants.TEXTURE_EXTENSION),
+        "The texture",
+    )
+    if texture_file is None:
+        return None
+
     output_texture_path = meta["output_texture_path"]
     if not output_texture_path:
         # The output texture carries baked voxel data, so it is named after the
@@ -258,22 +296,31 @@ def _plan_conversion(
     # way - only the .obj objmc reads from differs.
     suffix = rotation_suffix(rotation)
 
+    output_model_file = inside(
+        output_path,
+        sodium_models / (model_path + suffix + constants.VANILLA_MODEL_EXTENSION),
+        "The converted model",
+    )
+    output_texture_file = inside(
+        output_path,
+        constants.RELATIVE_SODIUM_TEXTURES_PATH
+        / (output_texture_path + suffix + constants.TEXTURE_EXTENSION),
+        "The baked texture",
+    )
+    if output_model_file is None or output_texture_file is None:
+        return None
+
     return ConversionPlan(
         model_path=model_path,
         rotation=rotation,
         suffix=suffix,
-        obj_file=sodium_models
+        obj_file=input_path
+        / sodium_models
         / Path(obj_model_path + suffix + constants.OBJ_MODEL_EXTENSION),
         source_obj_file=source_obj_file,
-        texture_file=input_path
-        / relative_texture_path
-        / Path(texture_path + constants.TEXTURE_EXTENSION),
-        output_model_file=output_path
-        / constants.RELATIVE_SODIUM_MODELS_PATH
-        / Path(model_path + suffix + constants.VANILLA_MODEL_EXTENSION),
-        output_texture_file=output_path
-        / constants.RELATIVE_SODIUM_TEXTURES_PATH
-        / Path(output_texture_path + suffix + constants.TEXTURE_EXTENSION),
+        texture_file=texture_file,
+        output_model_file=output_model_file,
+        output_texture_file=output_texture_file,
         output_texture_path=output_texture_path,
         offset=meta["offset"],
         visibility=meta["visibility"],
