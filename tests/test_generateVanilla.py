@@ -7,25 +7,16 @@ stages have work to do.
 """
 
 import json
-import os
 import subprocess
 import sys
 from pathlib import Path
 
 import pytest
+from conftest import symlink_or_skip
 
 SCRIPT = Path(__file__).resolve().parent.parent / "generateVanilla" / "generateVanilla.py"
 
 SECRET = b"HOST SECRET"
-
-
-def _symlink_or_skip(link: Path, target: Path):
-    link.parent.mkdir(parents=True, exist_ok=True)
-    try:
-        os.symlink(target, link, target_is_directory=target.is_dir())
-    except OSError as e:
-        # Windows only allows symlinks in Developer Mode or as administrator
-        pytest.skip(f"cannot create symlinks here: {e}")
 
 
 @pytest.fixture
@@ -65,7 +56,7 @@ def _published_bytes(output: Path) -> bytes:
 def test_a_symlinked_asset_leading_outside_the_pack_is_not_copied(
     tmp_path, pack, host
 ):
-    _symlink_or_skip(pack / "assets/mcme/textures/font/glyph.png", host / "id_ed25519")
+    symlink_or_skip(pack / "assets/mcme/textures/font/glyph.png", host / "id_ed25519")
 
     output, out = _generate(tmp_path, pack)
 
@@ -76,7 +67,7 @@ def test_a_symlinked_asset_leading_outside_the_pack_is_not_copied(
 def test_a_symlinked_folder_leading_outside_the_pack_is_not_copied(
     tmp_path, pack, host
 ):
-    _symlink_or_skip(pack / "assets/mcme/textures/font", host)
+    symlink_or_skip(pack / "assets/mcme/textures/font", host)
 
     output, out = _generate(tmp_path, pack)
 
@@ -88,7 +79,7 @@ def test_a_symlinked_assets_folder_leading_outside_the_pack_is_not_copied(
     tmp_path, pack, host
 ):
     (pack / "assets").rmdir()
-    _symlink_or_skip(pack / "assets", host)
+    symlink_or_skip(pack / "assets", host)
 
     output, out = _generate(tmp_path, pack)
 
@@ -99,7 +90,7 @@ def test_a_symlinked_assets_folder_leading_outside_the_pack_is_not_copied(
 def test_a_symlinked_vanilla_override_leading_outside_the_pack_is_not_copied(
     tmp_path, pack, host
 ):
-    _symlink_or_skip(
+    symlink_or_skip(
         pack / "vanilla/assets/mcme/textures/font/glyph.png", host / "id_ed25519"
     )
 
@@ -112,7 +103,7 @@ def test_a_symlinked_vanilla_override_leading_outside_the_pack_is_not_copied(
 def test_a_symlinked_version_folder_leading_outside_the_pack_is_not_copied(
     tmp_path, pack, host
 ):
-    _symlink_or_skip(pack / "1_21_4", host)
+    symlink_or_skip(pack / "1_21_4", host)
 
     output, out = _generate(tmp_path, pack)
 
@@ -123,7 +114,7 @@ def test_a_symlinked_version_folder_leading_outside_the_pack_is_not_copied(
 def test_a_symlinked_pack_png_leading_outside_the_pack_is_not_copied(
     tmp_path, pack, host
 ):
-    _symlink_or_skip(pack / "pack.png", host / "id_ed25519")
+    symlink_or_skip(pack / "pack.png", host / "id_ed25519")
 
     output, out = _generate(tmp_path, pack)
 
@@ -137,7 +128,7 @@ def test_a_symlinked_pack_mcmeta_leading_outside_the_pack_is_not_read(
     (host / "config.json").write_text(
         json.dumps({"pack": {"description": "HOST SECRET Sodium"}})
     )
-    _symlink_or_skip(pack / "pack.mcmeta", host / "config.json")
+    symlink_or_skip(pack / "pack.mcmeta", host / "config.json")
 
     output, out = _generate(tmp_path, pack)
 
@@ -148,7 +139,7 @@ def test_a_symlinked_pack_mcmeta_leading_outside_the_pack_is_not_read(
 def test_a_symlinked_hardcoded_texture_leading_outside_the_pack_is_not_copied(
     tmp_path, pack, host
 ):
-    _symlink_or_skip(
+    symlink_or_skip(
         pack / "assets/minecraft/textures/block/water_flow.png", host / "id_ed25519"
     )
 
@@ -162,7 +153,7 @@ def test_a_symlink_that_stays_inside_the_pack_is_still_copied(tmp_path, pack):
     real = pack / "assets/mcme/textures/font/real.png"
     real.parent.mkdir(parents=True)
     real.write_bytes(b"GLYPH")
-    _symlink_or_skip(pack / "assets/mcme/textures/font/alias.png", real)
+    symlink_or_skip(pack / "assets/mcme/textures/font/alias.png", real)
 
     output, _ = _generate(tmp_path, pack)
 
