@@ -14,6 +14,7 @@ from unittest.mock import MagicMock, patch
 import constants
 import objmc_conversion
 import pytest
+from conftest import symlink_or_skip
 from PIL import Image
 
 
@@ -380,6 +381,36 @@ def test_convert_model_skips_an_output_texture_leading_outside_the_pack(
 
     _assert_skipped_as_outside_the_pack(run, capsys)
     assert not (tmp_path / "escaped.png").exists()
+
+
+def test_convert_model_skips_a_shared_parent_leading_outside_the_pack(
+    tmp_path, capsys
+):
+    """A shared parent is named after its .obj's path. A folder symlink in the
+    input pack can put that .obj deeper there than the same text reaches in the
+    output, which has no such link - so the path checks out in the input and
+    still climbs out of the output. On Linux that stopped the whole run."""
+    parent_obj = {"model": "mcme:models/deep/../../../../../x_parent.obj"}
+    input_path, output_path, objmc_path = _setup_basic_convert_inputs(
+        tmp_path, model_content=parent_obj
+    )
+    models = input_path / constants.RELATIVE_SODIUM_MODELS_PATH
+    (models / "a/b/c/d/e").mkdir(parents=True)
+    symlink_or_skip(models / "deep", models / "a/b/c/d/e")
+    _sodium_obj(input_path, "x_parent")
+    _sodium_model(input_path, "props/lamp_red", parent_obj)
+    _sodium_mtl(input_path, "props/lamp_red", "mcme:props/lamp")
+
+    with patch.object(subprocess, "run", side_effect=_make_fake_objmc()):
+        for model_path in ("props/lamp", "props/lamp_red"):
+            objmc_conversion.convert_sodium_model(
+                input_path, output_path, model_path, None, objmc_path, False, False
+            )
+
+    assert not (tmp_path / "x_parent.json").exists()
+    out = capsys.readouterr().out
+    assert "WARNING" in out
+    assert "outside the pack" in out
 
 
 # =========================================================================

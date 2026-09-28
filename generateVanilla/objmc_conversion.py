@@ -80,6 +80,15 @@ def rotation_suffix(rotation: tuple[str, float] | None):
     return f"_{axis}_{angle}"
 
 
+# Where a shared parent is written, relative to the output pack. Checked when
+# the conversion is planned and used when the parent is split out, so the two
+# have to agree.
+def _parent_file_relative(parent_name: str) -> Path:
+    return constants.RELATIVE_SODIUM_MODELS_PATH / (
+        parent_name + constants.VANILLA_MODEL_EXTENSION
+    )
+
+
 @dataclass
 class ConversionPlan:
     """Everything the conversion needs, settled before objmc is involved."""
@@ -312,7 +321,7 @@ def _plan_conversion(
     if output_model_file is None or output_texture_file is None:
         return None
 
-    return ConversionPlan(
+    plan = ConversionPlan(
         model_path=model_path,
         rotation=rotation,
         suffix=suffix,
@@ -328,6 +337,20 @@ def _plan_conversion(
         obj_model_path=obj_model_path,
         omnidirectional_parent=meta["omnidirectional_parent"],
     )
+
+    # A shared parent is named after the .obj's path, checked above against the
+    # input pack only. A folder symlink there can put the .obj deeper than the
+    # same text reaches in the output pack, which has no such link, so the
+    # parent's own path needs checking against the output pack too.
+    parent_name = _parent_identifier(plan)
+    if parent_name is not None:
+        parent_file = inside(
+            output_path, _parent_file_relative(parent_name), "The shared parent"
+        )
+        if parent_file is None:
+            return None
+
+    return plan
 
 
 # --------------------------------------------------------------------------
@@ -490,11 +513,7 @@ def _extract_shared_parent(output_path, parent_name: str, group: "_ParentGroup",
 
     _write_model(group.file, first_model_data, compress)
     _write_model(
-        output_path
-        / constants.RELATIVE_SODIUM_MODELS_PATH
-        / Path(parent_name + constants.VANILLA_MODEL_EXTENSION),
-        parent_model_data,
-        compress,
+        output_path / _parent_file_relative(parent_name), parent_model_data, compress
     )
 
 
