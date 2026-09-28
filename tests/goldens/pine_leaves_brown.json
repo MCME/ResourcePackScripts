@@ -1,0 +1,33 @@
+{
+  "case": "pine_leaves_brown",
+  "conversions": [
+    {
+      "model": "block/pine_leaves_brown",
+      "rotation": null
+    }
+  ],
+  "covers": "ordinary: .objmeta parent, mtl_override, texture from .mtl",
+  "outputs": {
+    "assets/mcme/models/block/leaves_parent.json": {
+      "from": "vanilla/assets/mcme/models/block/leaves_parent.json",
+      "kind": "copied"
+    },
+    "assets/mcme/models/block/pine_leaves_brown.json": {
+      "content": {
+        "parent": "mcme:block/leaves_parent",
+        "textures": {
+          "0": "mcme:block/pine_leaves_brown",
+          "particle": "mcme:block/pine_leaves_brown"
+        }
+      },
+      "kind": "converted_model"
+    },
+    "assets/mcme/textures/block/pine_leaves_brown.png": {
+      "height": 256,
+      "kind": "texture",
+      "mode": "RGBA",
+      "sha256": "f991b10bb55539ee0f279d3878fd3d6baea1be054de030db4ef69f532cdd4ba2",
+      "width": 160
+    }
+  }
+}

@@ -1,0 +1,8 @@
+{
+  "include": ["generateVanilla", "tests", "*.py"],
+  "exclude": ["**/node_modules", "**/__pycache__", "**/.*", ".venv"],
+  "extraPaths": ["generateVanilla"],
+  "typeCheckingMode": "standard",
+  "venvPath": ".",
+  "venv": ".venv"
+}

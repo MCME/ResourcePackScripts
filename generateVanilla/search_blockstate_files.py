@@ -5,7 +5,7 @@ from pathlib import Path
 
 def load_json_file(filepath):
     try:
-        with filepath.open('r') as file:
+        with filepath.open('r', encoding="utf-8-sig") as file:
             return json.load(file)
     except json.JSONDecodeError as e:
         print(f"Error while loading JSON file {filepath}: {e}")

@@ -1,0 +1,33 @@
+{
+  "case": "synthetic_options",
+  "conversions": [
+    {
+      "model": "block/synthetic_options",
+      "rotation": null
+    }
+  ],
+  "covers": "texture, output_texture, offset, visibility, options",
+  "outputs": {
+    "assets/mcme/models/block/leaves_parent.json": {
+      "from": "vanilla/assets/mcme/models/block/leaves_parent.json",
+      "kind": "copied"
+    },
+    "assets/mcme/models/block/synthetic_options.json": {
+      "content": {
+        "parent": "mcme:block/leaves_parent",
+        "textures": {
+          "0": "mcme:block/synthetic_options_baked",
+          "particle": "mcme:block/synthetic_options_baked"
+        }
+      },
+      "kind": "converted_model"
+    },
+    "assets/mcme/textures/block/synthetic_options_baked.png": {
+      "height": 256,
+      "kind": "texture",
+      "mode": "RGBA",
+      "sha256": "c5838cd16cd31a29dbd4881d48641e3774ffb4d16868a3a1e5fe7b91638d6252",
+      "width": 160
+    }
+  }
+}

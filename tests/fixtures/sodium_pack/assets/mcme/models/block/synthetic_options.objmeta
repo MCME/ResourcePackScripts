@@ -1,0 +1,12 @@
+# Synthetic fixture: exercises the .objmeta keys that RP-Human never sets.
+# Every real .objmeta in that pack uses only `parent` and `omnidirectional_parent`,
+# so without this the texture/output_texture/offset/options/visibility branches
+# of convert_model are untested against a real objmc.
+parent: block/leaves_parent
+texture: mcme:block/pine_leaves_brown
+output_texture: block/synthetic_options_baked
+offset: -0.25 0.5 -0.75
+visibility: 3
+options:
+  - noshadow
+  - flipuv
