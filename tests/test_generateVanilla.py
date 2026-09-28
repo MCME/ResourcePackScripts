@@ -1,9 +1,9 @@
 """End-to-end tests of generateVanilla.py's copying, run as the script it is.
 
 The generated pack is published, so nothing a symlink in the input pack points
-at outside that pack may end up in it. The runs here point at an empty vanilla
-pack, so there are no blockstates or items to convert and only the copying
-stages have work to do.
+at outside that pack may end up in it - and an imperfect pack must not stop the
+whole run. The runs here point at an empty vanilla pack, so there are no
+blockstates or items to convert and only the copying stages have work to do.
 """
 
 import json
@@ -158,3 +158,34 @@ def test_a_symlink_that_stays_inside_the_pack_is_still_copied(tmp_path, pack):
     output, _ = _generate(tmp_path, pack)
 
     assert (output / "assets/mcme/textures/font/alias.png").read_bytes() == b"GLYPH"
+
+
+# =========================================================================
+# folders the pack does not have
+# =========================================================================
+
+
+def test_a_pack_without_a_vanilla_folder_is_still_generated(tmp_path, pack):
+    (pack / "vanilla").rmdir()
+    glyph = pack / "assets/mcme/textures/font/glyph.png"
+    glyph.parent.mkdir(parents=True)
+    glyph.write_bytes(b"GLYPH")
+
+    output, out = _generate(tmp_path, pack)
+
+    assert (output / "assets/mcme/textures/font/glyph.png").read_bytes() == b"GLYPH"
+    assert "WARNING!!! Missing vanilla overrides folder" in out
+
+
+def test_a_pack_without_an_assets_folder_is_still_generated(tmp_path, pack):
+    (pack / "assets").rmdir()
+    (pack / "pack.png").write_bytes(b"ICON")
+    # copied after the assets, so it is only there if the run carried on
+    (pack / "1_21_4").mkdir()
+    (pack / "1_21_4" / "overlay.txt").write_text("overlay")
+
+    output, out = _generate(tmp_path, pack)
+
+    assert (output / "pack.png").read_bytes() == b"ICON"
+    assert (output / "1_21_4" / "overlay.txt").read_text() == "overlay"
+    assert "WARNING!!! Missing assets folder" in out

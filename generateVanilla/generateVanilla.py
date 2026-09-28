@@ -157,7 +157,15 @@ def make_ignore_processed_dirs(base_path):
     return ignore_fn
 
 
-if not leads_outside_pack(input_path / "assets"):
+# A pack missing one of its folders is still generated from what it has - an
+# imperfect pack must not stop the whole run
+if not (input_path / "assets").is_dir():
+    print(
+        f"WARNING!!! Missing assets folder: {input_path / 'assets'} - "
+        "nothing to copy from it",
+        flush=True,
+    )
+elif not leads_outside_pack(input_path / "assets"):
     shutil.copytree(
         input_path / "assets",
         output_path / "assets",
@@ -168,6 +176,12 @@ if not leads_outside_pack(input_path / "assets"):
 
 # apply vanilla overrides on top (these take priority over main assets)
 vanilla_override_path = input_path / constants.RELATIVE_VANILLA_OVERRIDES_PATH
+if not vanilla_override_path.is_dir():
+    print(
+        f"WARNING!!! Missing vanilla overrides folder: {vanilla_override_path} - "
+        "no overrides to apply",
+        flush=True,
+    )
 vanilla_assets = vanilla_override_path / "assets"
 if vanilla_assets.exists() and not leads_outside_pack(vanilla_assets):
     shutil.copytree(
@@ -190,7 +204,10 @@ for folder in input_path.iterdir():
             ignore=skip_links_leading_outside_pack,
             dirs_exist_ok=True,
         )
-for folder in (input_path / constants.RELATIVE_VANILLA_OVERRIDES_PATH).iterdir():
+override_folders = (
+    vanilla_override_path.iterdir() if vanilla_override_path.is_dir() else []
+)
+for folder in override_folders:
     if (
         folder.is_dir()
         and folder.name.startswith("1_")
