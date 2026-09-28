@@ -1,4 +1,5 @@
 import json
+import math
 import os
 import shutil
 
@@ -9,12 +10,16 @@ import util
 
 # Copies one texture file, if the pack being read from actually has it.
 def copy_texture_file(texture_path, output_path, texture_file_relative, debug):
-    texture_file = texture_path / texture_file_relative
+    texture_file = util.contained_path(texture_path, texture_file_relative)
+    output_file = util.contained_path(output_path, texture_file_relative)
+    if texture_file is None or output_file is None:
+        util.warn_outside_pack(f"Texture file {texture_file_relative!r}", "it")
+        return
     if not texture_file.exists():
         return
     util.printDebug(f"        Copying texture: {texture_file_relative}", debug)
-    os.makedirs((output_path / texture_file_relative).parent, exist_ok=True)
-    shutil.copy(texture_file, output_path / texture_file_relative)
+    os.makedirs(output_file.parent, exist_ok=True)
+    shutil.copy(texture_file, output_file)
 
 
 # The identifier a `textures` entry names, or None if it names no file.
@@ -81,22 +86,31 @@ def copy_model_chain(
         return
     visited.add(model_file_relative)
 
-    if (input_path / model_file_relative).exists():
+    # The identifier is text from the pack, so the file it names has to stay
+    # inside every pack it is looked for in or written to
+    input_file = util.contained_path(input_path, model_file_relative)
+    vanilla_file = util.contained_path(vanilla_path, model_file_relative)
+    output_file = util.contained_path(output_path, model_file_relative)
+    if input_file is None or vanilla_file is None or output_file is None:
+        util.warn_outside_pack(f"Model {model_identifier!r}", "it")
+        return
+
+    if input_file.exists():
         # The RP overrides this model, so we need to include it in the generated RP
-        model_pack_path = input_path
+        model_file = input_file
         util.printDebug(f"    Copying model {model_file_relative}", debug)
-        os.makedirs((output_path / model_file_relative).parent, exist_ok=True)
-        shutil.copy(input_path / model_file_relative, output_path / model_file_relative)
-    elif (vanilla_path / model_file_relative).exists():
+        os.makedirs(output_file.parent, exist_ok=True)
+        shutil.copy(input_file, output_file)
+    elif vanilla_file.exists():
         # The client already has this model, it is only read to find the
         # textures and the parent that the input RP might override
-        model_pack_path = vanilla_path
+        model_file = vanilla_file
         util.printDebug(f"    Reading vanilla model {model_file_relative}", debug)
     else:
         print(f"WARNING!!! Missing model file: {model_file_relative}", flush=True)
         return
 
-    with open(model_pack_path / model_file_relative, "r", encoding="utf-8-sig") as f:
+    with open(model_file, "r", encoding="utf-8-sig") as f:
         data = json.load(f)
 
     copy_textures(input_path, output_path, data, debug)
@@ -107,12 +121,34 @@ def copy_model_chain(
         )
 
 
+# Whether a model entry's rotation value is a usable angle. bool counts as an
+# int in Python, but true and false are no angle.
+def is_angle(value):
+    return (
+        isinstance(value, (int, float))
+        and not isinstance(value, bool)
+        and math.isfinite(value)
+    )
+
+
 # Hands the model off for objmc conversion, and points the model entry at the
 # converted model. The rotation is the part that belongs here: it lives on the
 # model entry, not in the model file.
 def convert_model_entry(
     input_path, output_path, model_path, model_entry, objmc_path, compress, debug
 ):
+    # A rotation ends up in the names of the files the conversion writes, so
+    # anything but a number - text above all - could steer those names anywhere
+    for axis in ("x", "y", "z"):
+        angle = model_entry.get(axis)
+        if angle is not None and not is_angle(angle):
+            print(
+                f"WARNING!!! Rotation {axis}={angle!r} for {model_path} is not a "
+                "number - skipping the model",
+                flush=True,
+            )
+            return
+
     # Every rotation is removed from the model entry, whether or not it gets
     # applied. The applied one is baked into the converted model, so the client
     # must not rotate it a second time.

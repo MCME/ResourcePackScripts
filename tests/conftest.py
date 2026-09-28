@@ -42,6 +42,16 @@ def objmc_paths(config) -> list[Path]:
     return [Path(p).expanduser().resolve() for p in given]
 
 
+def symlink_or_skip(link: Path, target: Path):
+    """Create a symlink, or skip the test where the OS won't allow one."""
+    link.parent.mkdir(parents=True, exist_ok=True)
+    try:
+        os.symlink(target, link, target_is_directory=target.is_dir())
+    except OSError as e:
+        # Windows only allows symlinks in Developer Mode or as administrator
+        pytest.skip(f"cannot create symlinks here: {e}")
+
+
 @pytest.fixture(autouse=True)
 def _reset_converted_models():
     objmc_conversion.converted_models.clear()

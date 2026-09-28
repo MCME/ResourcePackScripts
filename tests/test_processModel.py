@@ -499,3 +499,68 @@ def test_copy_model_chain_stops_at_a_model_with_no_parent(tmp_path):
     )
 
     assert [p.name for p in output_path.rglob("*.json")] == ["leaf.json"]
+
+
+# =========================================================================
+# paths leading outside the pack
+# =========================================================================
+#
+# An identifier is text taken from the pack, so "../" segments in it could aim
+# a copy at any file on the machine. The input pack sits one folder deeper than
+# the output here, so the same identifier reaches a different place from each:
+# a file outside the input to read, and a spot outside the output to write.
+
+
+def test_copy_textures_skips_a_texture_leading_outside_the_pack(tmp_path, capsys):
+    input_path = tmp_path / "packs" / "in"
+    output_path = tmp_path / "out"
+    (input_path / constants.RELATIVE_VANILLA_TEXTURES_PATH).mkdir(parents=True)
+    (tmp_path / "packs" / "secret.png").write_bytes(b"host file")
+
+    processModel.copy_textures(
+        input_path,
+        output_path,
+        {"textures": {"all": "minecraft:../../../../secret"}},
+        False,
+    )
+
+    assert not (tmp_path / "secret.png").exists()
+    out = capsys.readouterr().out
+    assert "WARNING" in out
+    assert "outside the pack" in out
+
+
+def test_copy_model_chain_skips_a_model_leading_outside_the_pack(tmp_path, capsys):
+    input_path = tmp_path / "packs" / "in"
+    output_path = tmp_path / "out"
+    vanilla_path = tmp_path / "vanilla"
+    (input_path / constants.RELATIVE_VANILLA_MODELS_PATH).mkdir(parents=True)
+    _write_json(tmp_path / "packs" / "secret.json", {"textures": {}})
+
+    processModel.copy_model_chain(
+        input_path, output_path, vanilla_path, "minecraft:../../../../secret", False
+    )
+
+    assert not (tmp_path / "secret.json").exists()
+    out = capsys.readouterr().out
+    assert "WARNING" in out
+    assert "outside the pack" in out
+
+
+def test_process_mcme_skips_a_rotation_that_is_not_a_number(tmp_path, capsys):
+    """A rotation ends up in the converted model's file names, so text in it
+    could steer those names anywhere - only a number is taken."""
+    model_data = {"model": "mcme:some/model", "y": "/../../../../escaped"}
+    with patch.object(objmc_conversion, "convert_sodium_model") as mock_convert:
+        processModel.process(
+            tmp_path / "in",
+            tmp_path / "out",
+            tmp_path / "vanilla",
+            model_data,
+            tmp_path / "objmc.py",
+            False,
+            False,
+        )
+
+    mock_convert.assert_not_called()
+    assert "WARNING" in capsys.readouterr().out

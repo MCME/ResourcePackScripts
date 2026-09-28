@@ -1,4 +1,5 @@
 import logging
+from pathlib import Path
 
 import constants
 
@@ -38,6 +39,24 @@ def resolve_model_file(model_identifier):
 def resolve_texture_file(texture_identifier):
     namespace, texture_name = split_namespaced(texture_identifier)
     return f"assets/{namespace}/textures/{texture_name}{constants.TEXTURE_EXTENSION}"
+
+
+def contained_path(root, relative):
+    """`root / relative`, resolved - or None when that leads outside `root`.
+
+    These paths are built from pack content, which is only text: a `..`
+    segment, an absolute path or a symlink committed to the pack could point one
+    anywhere on the machine running the conversion. Resolving follows all three,
+    so comparing the result with the resolved root catches each of them. An
+    absolute `relative` is checked as it is.
+    """
+    root = Path(root).resolve()
+    path = (root / relative).resolve()
+    return path if path.is_relative_to(root) else None
+
+
+def warn_outside_pack(what, skipping):
+    print(f"WARNING!!! {what} leads outside the pack - skipping {skipping}", flush=True)
 
 
 def remove_tintindex(data):

@@ -14,6 +14,8 @@ from unittest.mock import MagicMock, patch
 import constants
 import objmc_conversion
 import pytest
+from conftest import symlink_or_skip
+from PIL import Image
 
 
 # ---------- filesystem helpers ----------
@@ -71,7 +73,9 @@ def _sodium_texture(input_path: Path, texture_path: str, content: bytes = b"\x89
 
 def _make_fake_objmc(default_output_model=None):
     """Returns a subprocess.run replacement that writes a fake output model JSON
-    at whatever path is passed via `--out`. Returns a completed-process mock."""
+    at whatever path is passed via `--out`, alongside a small but real PNG as
+    the baked texture - the conversion reads that texture's size to decide
+    whether two bakes may share a parent. Returns a completed-process mock."""
 
     default_output_model = default_output_model or {
         "textures": {"0": "placeholder", "particle": "placeholder"},
@@ -88,7 +92,7 @@ def _make_fake_objmc(default_output_model=None):
         model_out.parent.mkdir(parents=True, exist_ok=True)
         tex_out.parent.mkdir(parents=True, exist_ok=True)
         model_out.write_text(json.dumps(default_output_model))
-        tex_out.write_bytes(b"\x89PNG_fake")
+        Image.new("RGBA", (8, 8)).save(tex_out)
         result = MagicMock()
         result.returncode = 0
         result.stdout = b""
@@ -170,8 +174,9 @@ def test_convert_model_happy_path_no_rotation(tmp_path):
     for element in data.get("elements", []):
         for face in element.get("faces", {}).values():
             assert "tintindex" not in face
-    # First conversion — should be registered in converted_models
-    assert objmc_conversion.converted_models["props/lamp"] == out_model
+    # lamp.obj is not named as a parent, so the model keeps its own geometry
+    # and is never grouped for sharing
+    assert objmc_conversion.converted_models == {}
 
 
 def test_convert_model_rotation_creates_and_cleans_rotated_obj(tmp_path):
@@ -212,66 +217,228 @@ def test_convert_model_rotation_creates_and_cleans_rotated_obj(tmp_path):
 
 
 def test_convert_model_shared_parent_extraction_on_second_call(tmp_path):
-    """When the same model_path is converted twice, the second call turns both
-    resulting model files into children of a shared *_parent file."""
-    input_path, output_path, objmc_path = _setup_basic_convert_inputs(tmp_path)
+    """When a second model reads the same parent .obj, the second conversion
+    turns both resulting model files into children of a shared *_parent file."""
+    parent_obj = {"model": "mcme:models/props/lamp_parent.obj"}
+    input_path, output_path, objmc_path = _setup_basic_convert_inputs(
+        tmp_path, model_content=parent_obj
+    )
+    _sodium_obj(input_path, "props/lamp_parent")
+    # a differently named model reading the same .obj, baked from a texture of
+    # the same size - the two conditions for sharing geometry
+    _sodium_model(input_path, "props/lamp_red", parent_obj)
+    _sodium_mtl(input_path, "props/lamp_red", "mcme:props/lamp")
 
     with patch.object(subprocess, "run", side_effect=_make_fake_objmc()):
-        objmc_conversion.convert_sodium_model(
-            input_path,
-            output_path,
-            "props/lamp",
-            None,
-            objmc_path,
-            False,
-            False,
-        )
-        # Second call for the same model_path with a rotation — this triggers the
-        # shared-parent extraction branch (line 222 in processModel.py).
-        with patch.object(objmc_conversion.rotate_obj, "rotate_obj_file") as mock_rotate:
-
-            def _fake_rotate(src, dst, axis, angle):
-                Path(dst).write_text("# rotated obj")
-
-            mock_rotate.side_effect = _fake_rotate
+        for model_path in ("props/lamp", "props/lamp_red"):
             objmc_conversion.convert_sodium_model(
                 input_path,
                 output_path,
-                "props/lamp",
-                ("y", 90),
+                model_path,
+                None,
                 objmc_path,
                 False,
                 False,
             )
 
-    first_model = (
-        output_path / constants.RELATIVE_SODIUM_MODELS_PATH / "props/lamp.json"
+    models = output_path / constants.RELATIVE_SODIUM_MODELS_PATH
+    parent_model = models / (
+        "props/lamp" + constants.PARENT_SUFFIX + constants.VANILLA_MODEL_EXTENSION
     )
-    rotated_model = (
-        output_path / constants.RELATIVE_SODIUM_MODELS_PATH / "props/lamp_y_90.json"
-    )
-    parent_model = (
-        output_path
-        / constants.RELATIVE_SODIUM_MODELS_PATH
-        / ("props/lamp" + constants.PARENT_SUFFIX + constants.VANILLA_MODEL_EXTENSION)
-    )
-
-    assert first_model.exists()
-    assert rotated_model.exists()
     assert parent_model.exists()
 
-    # The originally-converted model should now be a child pointing at the parent
-    first_data = json.loads(first_model.read_text())
-    assert (
-        first_data["parent"]
-        == f"{constants.MCME_NAMESPACE}:props/lamp{constants.PARENT_SUFFIX}"
-    )
-    assert "elements" not in first_data
+    # Both models should now be children pointing at the parent
+    for child in ("props/lamp", "props/lamp_red"):
+        child_data = json.loads(
+            (models / (child + constants.VANILLA_MODEL_EXTENSION)).read_text()
+        )
+        assert (
+            child_data["parent"]
+            == f"{constants.MCME_NAMESPACE}:props/lamp{constants.PARENT_SUFFIX}"
+        )
+        assert "elements" not in child_data
 
     # The parent should carry the shape but no textures
     parent_data = json.loads(parent_model.read_text())
     assert "textures" not in parent_data
     assert "elements" in parent_data
 
-    # And converted_models should be marked done
-    assert objmc_conversion.converted_models["props/lamp"] == constants.PARENT_DONE_VALUE
+    # And the group should be marked as split out into its own file
+    assert objmc_conversion.converted_models["props/lamp_parent"].file is None
+
+
+# =========================================================================
+# paths leading outside the pack
+# =========================================================================
+#
+# Every path the conversion touches is built from pack content - the model
+# identifier, the model json, the .objmeta and the .mtl - so a "../" segment or
+# an absolute path in any of them could aim objmc at any file on the machine.
+# The input and output packs sit side by side in tmp_path, so four ".."
+# segments up from a pack's assets/mcme/<kind> folder land in tmp_path itself.
+
+
+def _objmeta_file(input_path: Path, model_path: str) -> Path:
+    return (
+        input_path
+        / constants.RELATIVE_SODIUM_MODELS_PATH
+        / Path(model_path + constants.OBJMETA_EXTENSION)
+    )
+
+
+def _convert(input_path, output_path, objmc_path, model_path="props/lamp"):
+    """Converts with objmc faked, returning the fake so a test can see if it ran."""
+    with patch.object(subprocess, "run", side_effect=_make_fake_objmc()) as run:
+        objmc_conversion.convert_sodium_model(
+            input_path, output_path, model_path, None, objmc_path, False, False
+        )
+    return run
+
+
+def _assert_skipped_as_outside_the_pack(run, capsys):
+    run.assert_not_called()
+    out = capsys.readouterr().out
+    assert "WARNING" in out
+    assert "outside the pack" in out
+
+
+def test_convert_model_skips_a_model_path_leading_outside_the_pack(tmp_path, capsys):
+    input_path, output_path, objmc_path = _setup_basic_convert_inputs(tmp_path)
+    # the model identifier comes from a blockstate or item definition
+    _write_json(
+        tmp_path / "elsewhere.json",
+        {
+            "model": "mcme:models/props/lamp.obj",
+            "mtl_override": "mcme:models/props/lamp.mtl",
+        },
+    )
+
+    run = _convert(
+        input_path, output_path, objmc_path, model_path="../../../../elsewhere"
+    )
+
+    _assert_skipped_as_outside_the_pack(run, capsys)
+
+
+def test_convert_model_skips_an_obj_leading_outside_the_pack(tmp_path, capsys):
+    input_path, output_path, objmc_path = _setup_basic_convert_inputs(
+        tmp_path, model_content={"model": "mcme:models/../../../../elsewhere.obj"}
+    )
+    _write_text(tmp_path / "elsewhere.obj", "# obj")
+
+    run = _convert(input_path, output_path, objmc_path)
+
+    _assert_skipped_as_outside_the_pack(run, capsys)
+
+
+def test_convert_model_skips_an_mtl_override_leading_outside_the_pack(tmp_path, capsys):
+    input_path, output_path, objmc_path = _setup_basic_convert_inputs(
+        tmp_path,
+        model_content={
+            "model": "mcme:models/props/lamp.obj",
+            "mtl_override": "mcme:models/../../../../elsewhere.mtl",
+        },
+    )
+    _write_text(tmp_path / "elsewhere.mtl", "map_Kd mcme:props/lamp\n")
+
+    run = _convert(input_path, output_path, objmc_path)
+
+    _assert_skipped_as_outside_the_pack(run, capsys)
+
+
+def test_convert_model_skips_an_objmeta_texture_leading_outside_the_pack(
+    tmp_path, capsys
+):
+    input_path, output_path, objmc_path = _setup_basic_convert_inputs(tmp_path)
+    _write_text(_objmeta_file(input_path, "props/lamp"), "texture: ../../../../secret\n")
+    (tmp_path / "secret.png").write_bytes(b"host file")
+
+    run = _convert(input_path, output_path, objmc_path)
+
+    _assert_skipped_as_outside_the_pack(run, capsys)
+
+
+def test_convert_model_skips_an_mtl_texture_at_an_absolute_path(tmp_path, capsys):
+    (tmp_path / "secret.png").write_bytes(b"host file")
+    input_path, output_path, objmc_path = _setup_basic_convert_inputs(
+        tmp_path, extra_mtl_texture=(tmp_path / "secret").as_posix()
+    )
+
+    run = _convert(input_path, output_path, objmc_path)
+
+    _assert_skipped_as_outside_the_pack(run, capsys)
+
+
+def test_convert_model_skips_an_output_texture_leading_outside_the_pack(
+    tmp_path, capsys
+):
+    input_path, output_path, objmc_path = _setup_basic_convert_inputs(tmp_path)
+    _write_text(
+        _objmeta_file(input_path, "props/lamp"), "output_texture: ../../../../escaped\n"
+    )
+
+    run = _convert(input_path, output_path, objmc_path)
+
+    _assert_skipped_as_outside_the_pack(run, capsys)
+    assert not (tmp_path / "escaped.png").exists()
+
+
+def test_convert_model_skips_a_shared_parent_leading_outside_the_pack(
+    tmp_path, capsys
+):
+    """A shared parent is named after its .obj's path. A folder symlink in the
+    input pack can put that .obj deeper there than the same text reaches in the
+    output, which has no such link - so the path checks out in the input and
+    still climbs out of the output. On Linux that stopped the whole run."""
+    parent_obj = {"model": "mcme:models/deep/../../../../../x_parent.obj"}
+    input_path, output_path, objmc_path = _setup_basic_convert_inputs(
+        tmp_path, model_content=parent_obj
+    )
+    models = input_path / constants.RELATIVE_SODIUM_MODELS_PATH
+    (models / "a/b/c/d/e").mkdir(parents=True)
+    symlink_or_skip(models / "deep", models / "a/b/c/d/e")
+    _sodium_obj(input_path, "x_parent")
+    _sodium_model(input_path, "props/lamp_red", parent_obj)
+    _sodium_mtl(input_path, "props/lamp_red", "mcme:props/lamp")
+
+    with patch.object(subprocess, "run", side_effect=_make_fake_objmc()):
+        for model_path in ("props/lamp", "props/lamp_red"):
+            objmc_conversion.convert_sodium_model(
+                input_path, output_path, model_path, None, objmc_path, False, False
+            )
+
+    assert not (tmp_path / "x_parent.json").exists()
+    out = capsys.readouterr().out
+    assert "WARNING" in out
+    assert "outside the pack" in out
+
+
+# =========================================================================
+# the rotated .obj
+# =========================================================================
+
+
+def _snapshot(root: Path) -> dict:
+    return {
+        p.relative_to(root).as_posix(): p.read_bytes()
+        for p in root.rglob("*")
+        if p.is_file()
+    }
+
+
+def test_convert_model_rotation_leaves_the_input_pack_untouched(tmp_path):
+    """The rotated .obj objmc reads used to be written next to the source .obj
+    and deleted afterwards - taking with it any real file that had its name."""
+    input_path, output_path, objmc_path = _setup_basic_convert_inputs(tmp_path)
+    _sodium_obj(input_path, "props/lamp_y_90", "# a real, committed model")
+    before = _snapshot(input_path)
+
+    with patch.object(subprocess, "run", side_effect=_make_fake_objmc()) as run:
+        objmc_conversion.convert_sodium_model(
+            input_path, output_path, "props/lamp", ("y", 90), objmc_path, False, False
+        )
+
+    assert _snapshot(input_path) == before
+    argv = run.call_args.args[0]
+    rotated_obj = Path(argv[argv.index("--obj") + 1])
+    assert not rotated_obj.resolve().is_relative_to(input_path.resolve())

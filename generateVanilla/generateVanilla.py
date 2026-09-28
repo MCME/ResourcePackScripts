@@ -8,6 +8,7 @@ import constants
 import hardcodedFiles
 import processBlockstate
 import processItem
+import util
 
 
 # ------------------------------------------------------------
@@ -77,11 +78,39 @@ if not output_path.exists():
 
 print(f"Processing Sodium RP in: {input_path}")
 
+
+# ----------------------------------------
+# Symlinks in the input pack
+# ----------------------------------------
+def leads_outside_pack(path):
+    """Whether `path`, in the input pack's folder, leads outside the pack.
+
+    The generated pack is published, so a symlink committed to the input pack
+    must never have its target - which can be any file on this machine - copied
+    in. Reported, since whatever the path points at is then skipped.
+    """
+    relative = Path(path).relative_to(input_path)
+    if util.contained_path(input_path, relative) is not None:
+        return False
+    util.warn_outside_pack(str(path), "it")
+    return True
+
+
+def skip_links_leading_outside_pack(directory, contents):
+    """A copytree ignore function for symlinks that lead outside the pack."""
+    return [
+        name
+        for name in contents
+        if os.path.islink(os.path.join(directory, name))
+        and leads_outside_pack(Path(directory) / name)
+    ]
+
+
 # ----------------------------------------
 # Bring over top level files
 # ----------------------------------------
 input_pack_mcmeta = input_path / constants.PACK_MCMETA
-if input_pack_mcmeta.exists():
+if input_pack_mcmeta.exists() and not leads_outside_pack(input_pack_mcmeta):
     with open(input_pack_mcmeta, "r", encoding="utf-8-sig") as f:
         data = json.load(f)
         data["pack"]["description"] = data["pack"]["description"].replace(
@@ -94,7 +123,7 @@ if input_pack_mcmeta.exists():
 root_files = [constants.PACK_PNG, constants.LICENCE, constants.README]
 for filename in root_files:
     src_path = input_path / filename
-    if src_path.exists():
+    if src_path.exists() and not leads_outside_pack(src_path):
         shutil.copy(src_path, output_path / filename)
 
 
@@ -105,6 +134,7 @@ def make_ignore_processed_dirs(base_path):
     """Create an ignore function for copytree, relative to the given base."""
 
     def ignore_fn(directory, contents):
+        ignored = skip_links_leading_outside_pack(directory, contents)
         rel = Path(directory).relative_to(base_path)
         parts = rel.parts
         # Check if we're inside assets/<namespace>/ and match the suffix
@@ -113,7 +143,7 @@ def make_ignore_processed_dirs(base_path):
             namespace = parts[1]
             exceptions = constants.NAMESPACE_IGNORE_EXCEPTIONS.get(namespace, set())
             suffix = Path(*parts[2:]) if len(parts) > 2 else Path()
-            ignored = [
+            ignored += [
                 name
                 for name in contents
                 if (
@@ -122,24 +152,38 @@ def make_ignore_processed_dirs(base_path):
                 )
                 or (rel / name) in constants.IGNORED_ASSET_PATHS
             ]
-            return ignored
-        return []
+        return ignored
 
     return ignore_fn
 
 
-shutil.copytree(
-    input_path / "assets",
-    output_path / "assets",
-    # Skip sodium-specific dirs OR dirs used to render items/blocks
-    ignore=make_ignore_processed_dirs(input_path),
-    dirs_exist_ok=True,
-)
+# A pack missing one of its folders is still generated from what it has - an
+# imperfect pack must not stop the whole run
+if not (input_path / "assets").is_dir():
+    print(
+        f"WARNING!!! Missing assets folder: {input_path / 'assets'} - "
+        "nothing to copy from it",
+        flush=True,
+    )
+elif not leads_outside_pack(input_path / "assets"):
+    shutil.copytree(
+        input_path / "assets",
+        output_path / "assets",
+        # Skip sodium-specific dirs OR dirs used to render items/blocks
+        ignore=make_ignore_processed_dirs(input_path),
+        dirs_exist_ok=True,
+    )
 
 # apply vanilla overrides on top (these take priority over main assets)
 vanilla_override_path = input_path / constants.RELATIVE_VANILLA_OVERRIDES_PATH
+if not vanilla_override_path.is_dir():
+    print(
+        f"WARNING!!! Missing vanilla overrides folder: {vanilla_override_path} - "
+        "no overrides to apply",
+        flush=True,
+    )
 vanilla_assets = vanilla_override_path / "assets"
-if vanilla_assets.exists():
+if vanilla_assets.exists() and not leads_outside_pack(vanilla_assets):
     shutil.copytree(
         vanilla_assets,
         output_path / "assets",
@@ -149,11 +193,32 @@ if vanilla_assets.exists():
 
 # copy version-specific folders from vanilla overrides (e.g., 1_21_1)
 for folder in input_path.iterdir():
-    if folder.is_dir() and folder.name.startswith("1_"):
-        shutil.copytree(folder, output_path / folder.name, dirs_exist_ok=True)
-for folder in (input_path / constants.RELATIVE_VANILLA_OVERRIDES_PATH).iterdir():
-    if folder.is_dir() and folder.name.startswith("1_"):
-        shutil.copytree(folder, output_path / folder.name, dirs_exist_ok=True)
+    if (
+        folder.is_dir()
+        and folder.name.startswith("1_")
+        and not leads_outside_pack(folder)
+    ):
+        shutil.copytree(
+            folder,
+            output_path / folder.name,
+            ignore=skip_links_leading_outside_pack,
+            dirs_exist_ok=True,
+        )
+override_folders = (
+    vanilla_override_path.iterdir() if vanilla_override_path.is_dir() else []
+)
+for folder in override_folders:
+    if (
+        folder.is_dir()
+        and folder.name.startswith("1_")
+        and not leads_outside_pack(folder)
+    ):
+        shutil.copytree(
+            folder,
+            output_path / folder.name,
+            ignore=skip_links_leading_outside_pack,
+            dirs_exist_ok=True,
+        )
 
 # ---------------------------------------------
 # Process vanilla blockstates and item models
@@ -193,7 +258,7 @@ for model in hardcodedFiles.MODELS:
         / constants.RELATIVE_VANILLA_MODELS_PATH
         / Path(model + constants.VANILLA_MODEL_EXTENSION)
     )
-    if file.exists():
+    if file.exists() and not leads_outside_pack(file):
         shutil.copy(
             file,
             output_path
@@ -212,14 +277,14 @@ for model in hardcodedFiles.TEXTURES:
         / Path(model + constants.TEXTURE_EXTENSION + constants.MCMETA_EXTENSION)
     )
     print(meta_file)
-    if file.exists():
+    if file.exists() and not leads_outside_pack(file):
         shutil.copy(
             file,
             output_path
             / constants.RELATIVE_VANILLA_TEXTURES_PATH
             / Path(model + constants.TEXTURE_EXTENSION),
         )
-    if meta_file.exists():
+    if meta_file.exists() and not leads_outside_pack(meta_file):
         shutil.copy(
             meta_file,
             output_path
