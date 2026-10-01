@@ -6,6 +6,7 @@ from pathlib import Path
 
 import constants
 import hardcodedFiles
+import objmc_merge
 import processBlockstate
 import processItem
 import util
@@ -291,3 +292,8 @@ for model in hardcodedFiles.TEXTURES:
             / constants.RELATIVE_VANILLA_TEXTURES_PATH
             / Path(model + constants.TEXTURE_EXTENSION + constants.MCMETA_EXTENSION),
         )
+
+# ---------------------------------------------
+# Store each objmc bake's texture once
+# ---------------------------------------------
+objmc_merge.merge_shared_textures(output_path, compress, debug)
