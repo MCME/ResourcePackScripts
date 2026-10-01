@@ -57,6 +57,15 @@ visibility = 7
 # saves a bit of space, but makes it not optifine compatible
 nopow = True
 
+# Mipmap levels
+# how many mip levels the shader may sample the texture at. The atlas mipmaps
+# the whole output image, data rows included, so the texture is aligned to
+# 2^mipmap rows and padded with copies of its edge rows to keep the data from
+# bleeding into it. 0 keeps the unpadded layout, sampled at full size only.
+# Matches OBJMC_MIPMAP_LEVELS in constants.py, which the generator passes.
+mipmap = 4
+MAX_MIPMAP = 4
+
 
 class col:
     head = "\033[95m"
@@ -173,6 +182,27 @@ def uv_pixels(uv):
 def vert_pixels(vert):
     poi, uvi = vert
     return [u24(poi) + [255], u24(uvi) + [255]]
+
+
+# --------------------------------
+# texture layout
+# --------------------------------
+
+def texture_layout(start, th, mipmap):
+    """(first texture row, first data row) for a texture of th rows that may
+    begin at row `start`. Must match the shader's objmc_main.glsl.
+
+    With mipmapping, a mip level n texel covers an aligned 2^n x 2^n block of
+    the image, so the texture starts on a 2^mipmap row boundary with at least
+    one block of padding above, and the data starts one full block after the
+    block holding the texture's last row. Every block a mip level up to
+    `mipmap` samples the texture from then holds only texture and padding.
+    """
+    if mipmap <= 0:
+        return start, start + th
+    block = 1 << mipmap
+    top = -(-(start + block) // block) * block
+    return top, -(-(top + th) // block) * block + block
 
 
 # --------------------------------
@@ -293,7 +323,7 @@ def classify_direction(normal):
 # --------------------------------
 
 def objmc(obj, tex, output, scale=1.0, offset=(0.0, 0.0, 0.0), visibility=7,
-          flipuv=False, noshadow=False, nopow=True):
+          flipuv=False, noshadow=False, nopow=True, mipmap=4):
     """Convert a single .obj + texture into a custom-model .json + .png pair
     using the objcubed encoding, for a static block-type model."""
 
@@ -322,6 +352,8 @@ def objmc(obj, tex, output, scale=1.0, offset=(0.0, 0.0, 0.0), visibility=7,
         raise ObjmcError("minimum texture size is 8px wide")
     if tw > 65535 or th > 65535:
         raise ObjmcError(f"texture too large: {tw}x{th} (max 65535)")
+    if not 0 <= mipmap <= MAX_MIPMAP:
+        raise ObjmcError(f"mipmap must be 0 to {MAX_MIPMAP}, got {mipmap}")
 
     BYTE24_MAX = 16777215
     if len(data["positions"]) > BYTE24_MAX:
@@ -342,7 +374,7 @@ def objmc(obj, tex, output, scale=1.0, offset=(0.0, 0.0, 0.0), visibility=7,
 
     headerrows = 2
     uvh = math.ceil(nfaces / tw)
-    texh = th
+    textop, datatop = texture_layout(headerrows + uvh, th, mipmap)
     vph = math.ceil(len(data["positions"]) * 3 / tw)
     vth = math.ceil(len(data["uvs"]) * 2 / tw)
     vh = math.ceil(len(data["vertices"]) * 2 / tw)
@@ -350,7 +382,7 @@ def objmc(obj, tex, output, scale=1.0, offset=(0.0, 0.0, 0.0), visibility=7,
     if vph > 65535 or vth > 65535:
         raise ObjmcError(f"encoded data section too tall (positions {vph}, uvs {vth} rows; max 65535)")
 
-    ty = headerrows + uvh + texh + vph + vth + vh
+    ty = datatop + vph + vth + vh
     if not nopow:
         ty = 1 << (ty - 1).bit_length()
     if (ty > 4096 and tw < 4096) or (ty > 8 * tw):
@@ -364,7 +396,7 @@ def objmc(obj, tex, output, scale=1.0, offset=(0.0, 0.0, 0.0), visibility=7,
 
     print(f"faces: {nfaces}, verts: {nvertices}, tex: {(tw, th)}, flipuv: {flipuv}")
     print(f"uvh: {uvh}, vph: {vph}, vth: {vth}, vh: {vh}, total: {ty}")
-    print(f"offset: {offset}, scale: {scale}, noshadow: {noshadow}")
+    print(f"offset: {offset}, scale: {scale}, noshadow: {noshadow}, mipmap: {mipmap}")
     print(
         "visible:"
         + (" world" if visibility & 4 > 0 else "")
@@ -394,8 +426,8 @@ def objmc(obj, tex, output, scale=1.0, offset=(0.0, 0.0, 0.0), visibility=7,
     put(4, 0, 0, 0, 1, 128)
     # data heights: vph, vth high byte (low byte lives at t[7].b)
     put(5, 0, (vph // 256) % 256, vph % 256, (vth // 256) % 256, 255)
-    # noshadow, autorotate(=0), visibility, hasStaticDisplay(=0), colorbehavior(=0)
-    put(6, 0, (int(noshadow) << 7) | (visibility << 2), 0, 0, 255)
+    # noshadow + visibility; mipmap levels the texture is padded for
+    put(6, 0, (int(noshadow) << 7) | (visibility << 2), mipmap, 0, 255)
     # low bytes: frameH, nvertices, vth
     put(7, 0, th % 256, nvertices % 256, vth % 256, 255)
     # t[8..15]: GUI q16 transform — unused for block models, left zeroed
@@ -409,10 +441,17 @@ def objmc(obj, tex, output, scale=1.0, offset=(0.0, 0.0, 0.0), visibility=7,
     tex_px = im.load()
     for py in range(th):
         srcy = py if flipuv else (th - 1 - py)
-        dsty = headerrows + uvh + py
+        dsty = textop + py
         for x in range(tw):
             r, g, b, a = tex_px[x, srcy]
             put(x, dsty, r, g, b, a)
+    # mipmap padding: repeat the texture's edge rows out to the data either side
+    for dsty in range(headerrows + uvh, textop):
+        for x in range(tw):
+            px[x, dsty] = px[x, textop]
+    for dsty in range(textop + th, datatop):
+        for x in range(tw):
+            px[x, dsty] = px[x, textop + th - 1]
 
     # --- json model elements + uv header ---
     js = {
@@ -461,7 +500,7 @@ def objmc(obj, tex, output, scale=1.0, offset=(0.0, 0.0, 0.0), visibility=7,
 
     # --- position data ---
     print("Writing position data...")
-    y = headerrows + uvh + texh
+    y = datatop
     uv_clamped = False
     for i, pos in enumerate(data["positions"]):
         for j, pix in enumerate(pos_pixels(pos, scale, bake_offset)):
@@ -470,7 +509,7 @@ def objmc(obj, tex, output, scale=1.0, offset=(0.0, 0.0, 0.0), visibility=7,
 
     # --- uv data ---
     print("Writing uv data...")
-    y = headerrows + uvh + texh + vph
+    y = datatop + vph
     for i, uv in enumerate(data["uvs"]):
         if uv[0] < -1e-6 or uv[0] > 1 + 1e-6 or uv[1] < -1e-6 or uv[1] > 1 + 1e-6:
             uv_clamped = True
@@ -483,7 +522,7 @@ def objmc(obj, tex, output, scale=1.0, offset=(0.0, 0.0, 0.0), visibility=7,
 
     # --- vertex data ---
     print("Writing vertex data...")
-    y = headerrows + uvh + texh + vph + vth
+    y = datatop + vph + vth
     for i, vert in enumerate(data["vertices"]):
         for j, pix in enumerate(vert_pixels(vert)):
             p = i * 2 + j
@@ -524,6 +563,7 @@ def build_parser():
     parser.add_argument("--flipuv", action="store_true", dest="flipuv", help="Invert the texture to compensate for flipped UV")
     parser.add_argument("--noshadow", action="store_true", dest="noshadow", help="Disable shadows from face normals")
     parser.add_argument("--nopow", action="store_true", dest="nopow", help="Disable power of two textures")
+    parser.add_argument("--mipmap", type=int, help=f"Mipmap levels to pad the texture for, 0 to {MAX_MIPMAP}", default=mipmap)
     return parser
 
 
@@ -546,6 +586,7 @@ def main(argv=None):
             flipuv=args.flipuv,
             noshadow=args.noshadow,
             nopow=args.nopow,
+            mipmap=args.mipmap,
         )
     except ObjmcError as e:
         print(col.err + str(e) + col.end)

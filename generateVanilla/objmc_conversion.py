@@ -462,6 +462,8 @@ def _objmc_argv(plan: ConversionPlan, objmc_path) -> list[str]:
         str(plan.output_texture_file).replace("\\", "/"),
         "--visibility",
         str(plan.visibility),
+        "--mipmap",
+        str(constants.OBJMC_MIPMAP_LEVELS),
     ]
     if "noshadow" in plan.options:
         argv.append("--noshadow")
@@ -591,6 +593,21 @@ def _flipbook_frames(plan: ConversionPlan) -> list:
         ]
 
 
+def _bake_texture_rows(start: int, texture_height: int, mipmap: int):
+    """(first padding row, first texture row, first data row) of a bake.
+
+    `start` is the row after the face pointers, `mipmap` the header's t[6].g.
+    The same layout the shader's objmc_main.glsl decodes: with mipmapping, the
+    texture starts on a 2^mipmap row boundary, padded by at least one such
+    block of repeated edge rows either side.
+    """
+    if mipmap <= 0:
+        return start, start, start + texture_height
+    block = 1 << mipmap
+    top = -(-(start + block) // block) * block
+    return start, top, -(-(top + texture_height) // block) * block + block
+
+
 def _bake_flipbook(plan: ConversionPlan, frames: list) -> bool:
     """Turn objmc's single-frame bake into one bake per source frame.
 
@@ -617,7 +634,9 @@ def _bake_flipbook(plan: ConversionPlan, frames: list) -> bool:
             flush=True,
         )
         return False
-    top = 2 + math.ceil(vertex_count / 4 / texture_width)
+    start, top, data_top = _bake_texture_rows(
+        2 + math.ceil(vertex_count / 4 / texture_width), texture_height, header[6][1]
+    )
     box = (0, top, texture_width, top + texture_height)
 
     baked_section = bake.crop(box).tobytes()
@@ -637,6 +656,16 @@ def _bake_flipbook(plan: ConversionPlan, frames: list) -> bool:
     for i, frame in enumerate(frames):
         baked_frame = bake.copy()
         baked_frame.paste(frame.transpose(Image.FLIP_TOP_BOTTOM) if flip else frame, box)
+        # The mipmap padding repeats the texture's edge rows, so it has to
+        # follow each frame's texture too.
+        first_row = baked_frame.crop((0, top, texture_width, top + 1))
+        last_row = baked_frame.crop(
+            (0, top + texture_height - 1, texture_width, top + texture_height)
+        )
+        for y in range(start, top):
+            baked_frame.paste(first_row, (0, y))
+        for y in range(top + texture_height, data_top):
+            baked_frame.paste(last_row, (0, y))
         flipbook.paste(baked_frame, (0, i * bake.height))
     flipbook.save(plan.output_texture_file)
 

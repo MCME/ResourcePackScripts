@@ -66,3 +66,7 @@ README = "README.md"
 
 PARENT_DONE_VALUE = "PARENT DONE"
 PARENT_SUFFIX = "_parent"
+
+# Mipmap levels objmc pads each baked texture for, and so the most the terrain
+# shader samples an objmc model's texture at. 0 turns their mipmapping off.
+OBJMC_MIPMAP_LEVELS = 4
