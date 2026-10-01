@@ -658,3 +658,68 @@ def test_convert_model_removes_stale_mcmeta(tmp_path):
         )
 
     assert not stale.exists()
+
+# =========================================================================
+# Models on blocks the client offsets
+# =========================================================================
+
+
+def test_find_centred_models_notes_the_mcme_models_on_offset_blocks(tmp_path, monkeypatch):
+    monkeypatch.setattr(objmc_conversion, "centred_models", set())
+    blockstates = tmp_path / "in" / constants.RELATIVE_BLOCKSTATE_PATH
+    _write_json(blockstates / "fern.json", {"variants": {"": [
+        {"model": "mcme:block/fern"}, {"model": "mcme:block/fern_2", "y": 90},
+        {"model": "minecraft:block/fern"},
+    ]}})
+    _write_json(blockstates / "tall_grass.json", {"multipart": [
+        {"when": {"half": "lower"}, "apply": {"model": "mcme:block/tall_grass_bottom"}},
+    ]})
+    _write_json(blockstates / "stone.json", {"variants": {"": {"model": "mcme:block/rock"}}})
+
+    objmc_conversion.find_centred_models(tmp_path / "in")
+
+    assert objmc_conversion.centred_models == {"block/fern", "block/fern_2", "block/tall_grass_bottom"}
+
+
+@pytest.mark.parametrize("centred", [True, False])
+def test_convert_model_centres_the_carriers_of_a_model_on_an_offset_block(tmp_path, monkeypatch, centred):
+    monkeypatch.setattr(objmc_conversion, "centred_models", {"props/lamp"} if centred else set())
+    input_path, output_path, objmc_path = _setup_basic_convert_inputs(tmp_path)
+    fake = _make_fake_objmc()
+    calls = []
+
+    def _recording(cmd, **kwargs):
+        calls.append(cmd)
+        return fake(cmd, **kwargs)
+
+    with patch.object(subprocess, "run", side_effect=_recording):
+        objmc_conversion.convert_sodium_model(
+            input_path, output_path, "props/lamp", None, objmc_path, False, False
+        )
+
+    assert ("--centred" in calls[0]) == centred
+
+
+def test_centred_models_never_share_a_parent_with_the_rest(tmp_path, monkeypatch):
+    input_path, output_path, _ = _setup_basic_convert_inputs(tmp_path, model_path="props/lamp_parent")
+    monkeypatch.setattr(objmc_conversion, "centred_models", set())
+    plain = objmc_conversion._plan_conversion(input_path, output_path, "props/lamp_parent", None)
+    monkeypatch.setattr(objmc_conversion, "centred_models", {"props/lamp_parent"})
+    centred = objmc_conversion._plan_conversion(input_path, output_path, "props/lamp_parent", None)
+
+    assert objmc_conversion._parent_identifier(plain) == "props/lamp_parent"
+    assert objmc_conversion._parent_identifier(centred) == "props/lamp_parent_centred"
+
+
+@pytest.mark.parametrize("centred, flag", [(True, (1, 0, 0, 255)), (False, (0, 0, 0, 255))])
+def test_objmc_flags_centred_carriers_in_the_header(tmp_path, centred, flag):
+    import objmc
+
+    obj = tmp_path / "quad.obj"
+    obj.write_text(QUAD_OBJ)
+    texture = tmp_path / "tex.png"
+    Image.new("RGBA", (16, 16), (200, 50, 10, 255)).save(texture)
+
+    objmc.objmc(str(obj), str(texture), [str(tmp_path / "out.json"), str(tmp_path / "out.png")], centred=centred)
+
+    assert Image.open(tmp_path / "out.png").convert("RGBA").getpixel((9, 0)) == flag

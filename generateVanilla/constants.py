@@ -70,3 +70,19 @@ PARENT_SUFFIX = "_parent"
 # Mipmap levels objmc pads each baked texture for, and so the most the terrain
 # shader samples an objmc model's texture at. 0 turns their mipmapping off.
 OBJMC_MIPMAP_LEVELS = 4
+
+# Blocks the client shifts by a random offset for their position (26.2's
+# Blocks: BlockBehaviour.Properties.offsetType XZ or XYZ, copied properties
+# included). Every vertex of such a block moves, so objmc's carriers on them
+# sit at the block centre, where no shift can carry one into another block.
+OFFSET_BLOCKS = frozenset({
+    "allium", "azure_bluet", "bamboo", "bamboo_sapling", "blue_orchid",
+    "closed_eyeblossom", "cornflower", "crimson_roots", "dandelion", "fern",
+    "golden_dandelion", "hanging_roots", "large_fern", "lilac",
+    "lily_of_the_valley", "mangrove_propagule", "nether_sprouts",
+    "open_eyeblossom", "orange_tulip", "oxeye_daisy", "peony", "pink_tulip",
+    "pitcher_plant", "pointed_dripstone", "poppy", "red_tulip", "rose_bush",
+    "short_dry_grass", "short_grass", "small_dripleaf", "sulfur_spike",
+    "sunflower", "tall_dry_grass", "tall_grass", "tall_seagrass", "torchflower",
+    "warped_roots", "white_tulip", "wither_rose",
+})

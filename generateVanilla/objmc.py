@@ -259,6 +259,14 @@ CARRIER_TILT = 0.1
 # instead, which for an upward face in a canopy is the leaves beside it - dark
 # from above. A solid block right above an upward face is rare.
 CARRIER_FLAT = {"up"}
+# Centred carriers (--centred), for a model on a block the client shifts by a
+# random offset: every vertex moves, so a carrier near a block face could move
+# into the next block, and the shader would place that corner of the real face
+# there - stretching it. Centred, each carrier is its face shrunk to this
+# fraction about the block's centre, out of any shift's reach; the shader puts
+# the real face where the client moved its carrier, keeping the offset. The
+# client's occlusion is then the same at every corner of a face.
+CENTRED_SCALE = 0.001
 BLOCK_CENTER = 8.0
 
 # The corners of an element face in the order the client gives them, as
@@ -355,13 +363,14 @@ def unrotate(m, p):
     return [sum(m[j][a] * rel[j] for j in range(3)) + BLOCK_CENTER for a in range(3)]
 
 
-def carrier(face, positions, scale, offset):
+def carrier(face, positions, scale, offset, centred=False):
     """The carrier element for one OBJ face: (direction, rotation or None,
     from, to), and the face's vertices reordered to match it.
 
     The element is the face's bounds in its own rotated frame - or, for a
     CARRIER_FLAT direction, across the axis - at its place in the block (see
-    CARRIER_INSET). The shader moves carrier corner k onto the
+    CARRIER_INSET), or shrunk about the block's centre (CENTRED_SCALE). The
+    shader moves carrier corner k onto the
     face's vertex k, and the client occludes corner k as the matching corner of
     the face's bounds (FACE_CORNERS), so the vertices are turned - never
     reversed, which would flip the face - to put each by its corner.
@@ -379,10 +388,12 @@ def carrier(face, positions, scale, offset):
             rotation = tilt_rotation(direction)
     m = rotation_matrix(rotation or {"x": 0.0, "y": 0.0, "z": 0.0})
 
-    pts = [
-        [min(max(c, CARRIER_INSET), 16 - CARRIER_INSET) for c in block_position(p, scale, offset)]
-        for p in real
-    ]
+    placed = [block_position(p, scale, offset) for p in real]
+    if centred:
+        middle = [sum(p[a] for p in placed) / len(placed) for a in range(3)]
+        pts = [[BLOCK_CENTER + (p[a] - middle[a]) * CENTRED_SCALE for a in range(3)] for p in placed]
+    else:
+        pts = [[min(max(c, CARRIER_INSET), 16 - CARRIER_INSET) for c in p] for p in placed]
     local = [unrotate(m, p) for p in pts]
     lo = [min(p[a] for p in local) for a in range(3)]
     hi = [max(p[a] for p in local) for a in range(3)]
@@ -466,7 +477,7 @@ def classify_direction(normal):
 # --------------------------------
 
 def objmc(obj, tex, output, scale=1.0, offset=(0.0, 0.0, 0.0), visibility=7,
-          flipuv=False, noshadow=False, nopow=True, mipmap=4):
+          flipuv=False, noshadow=False, nopow=True, mipmap=4, centred=False):
     """Convert a single .obj + texture into a custom-model .json + .png pair
     using the objcubed encoding, for a static block-type model."""
 
@@ -486,7 +497,7 @@ def objmc(obj, tex, output, scale=1.0, offset=(0.0, 0.0, 0.0), visibility=7,
     # Before the vertex data: placing the carriers reorders the faces' vertices.
     carriers = []
     for i, face in enumerate(o["faces"]):
-        element, o["faces"][i] = carrier(face, o["positions"], scale, offset)
+        element, o["faces"][i] = carrier(face, o["positions"], scale, offset, centred)
         carriers.append(element)
     data = build_vertex_data(o)
     nfaces = len(o["faces"])
@@ -581,9 +592,12 @@ def objmc(obj, tex, output, scale=1.0, offset=(0.0, 0.0, 0.0), visibility=7,
         int(has_translucent_texels(im)), 255)
     # low bytes: frameH, nvertices, vth
     put(7, 0, th % 256, nvertices % 256, vth % 256, 255)
-    # t[8..15]: GUI q16 transform — unused for block models, left zeroed
+    # t[8..15]: GUI q16 transform — unused for block models, left zeroed -
+    # but for t[9].r, 1 for centred carriers (see CENTRED_SCALE)
     for x in range(8, 16):
         put(x, 0, 0, 0, 0, 255)
+    if centred:
+        put(9, 0, 1, 0, 0, 255)
     # Row 1: texture-animation clock / dynamic slot markers — unused, zeroed
     for x in range(0, tw):
         put(x, 1, 0, 0, 0, 255)
@@ -719,6 +733,7 @@ def build_parser():
     parser.add_argument("--noshadow", action="store_true", dest="noshadow", help="Disable shadows from face normals")
     parser.add_argument("--nopow", action="store_true", dest="nopow", help="Disable power of two textures")
     parser.add_argument("--mipmap", type=int, help=f"Mipmap levels to pad the texture for, 0 to {MAX_MIPMAP}", default=mipmap)
+    parser.add_argument("--centred", action="store_true", dest="centred", help="Carriers at the block centre, for a block the client offsets")
     return parser
 
 
@@ -742,6 +757,7 @@ def main(argv=None):
             noshadow=args.noshadow,
             nopow=args.nopow,
             mipmap=args.mipmap,
+            centred=args.centred,
         )
     except ObjmcError as e:
         print(col.err + str(e) + col.end)
