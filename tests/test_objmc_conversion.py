@@ -581,6 +581,71 @@ def test_convert_model_flipbook_bakes_each_frame(tmp_path, monkeypatch):
             assert frame.crop(box).tobytes() == frames[0].crop(box).tobytes()
 
 
+@pytest.mark.parametrize(
+    "alphas, translucent",
+    [
+        ((255,), False),  # opaque
+        ((0, 255), False),  # cutout: the shader sharpens its edges
+        ((0, 128, 255), True),  # partly transparent texels: left alone
+    ],
+)
+def test_objmc_flags_textures_with_translucent_texels(tmp_path, alphas, translucent):
+    import objmc
+
+    obj = tmp_path / "quad.obj"
+    obj.write_text(QUAD_OBJ)
+    texture = tmp_path / "tex.png"
+    image = Image.new("RGBA", (8, 8), (10, 20, 30, 255))
+    for x, alpha in enumerate(alphas):
+        image.putpixel((x, 0), (10, 20, 30, alpha))
+    image.save(texture)
+
+    objmc.objmc(str(obj), str(texture), [str(tmp_path / "out.json"), str(tmp_path / "out.png")])
+
+    assert Image.open(tmp_path / "out.png").convert("RGBA").getpixel((6, 0))[2] == translucent
+
+
+def test_objmc_colours_transparent_texels_like_their_nearest_visible_one(tmp_path):
+    import objmc
+
+    obj = tmp_path / "quad.obj"
+    obj.write_text(QUAD_OBJ)
+    texture = tmp_path / "tex.png"
+    image = Image.new("RGBA", (8, 8), (0, 0, 0, 0))
+    image.putpixel((3, 3), (200, 50, 10, 255))
+    image.save(texture)
+
+    objmc.objmc(str(obj), str(texture), [str(tmp_path / "out.json"), str(tmp_path / "out.png")])
+
+    # 1 face on an 8 wide texture: 2 header rows + 1 uv row before the padding.
+    top, _ = objmc.texture_layout(3, 8, objmc.mipmap)
+    baked = Image.open(tmp_path / "out.png").convert("RGBA").crop((0, top, 8, top + 8))
+    alphas = list(baked.getchannel("A").getdata())
+    assert sorted(alphas) == [0] * 63 + [255]  # the shape is untouched
+    assert {p[:3] for p in baked.getdata()} == {(200, 50, 10)}  # no black left
+
+
+def test_convert_model_flipbook_flags_translucent_texels_in_any_frame(tmp_path):
+    input_path, output_path, _ = _setup_basic_convert_inputs(tmp_path)
+    _sodium_obj(input_path, "props/lamp", QUAD_OBJ)
+    texture = input_path / constants.RELATIVE_SODIUM_TEXTURES_PATH / "props/lamp.png"
+    # Frame 0, all objmc sees, is cutout; only frame 1 is partly transparent.
+    sheet = Image.new("RGBA", (8, 16), (255, 0, 0, 255))
+    sheet.putpixel((0, 0), (0, 0, 0, 0))
+    sheet.putpixel((0, 8), (255, 0, 0, 128))
+    sheet.save(texture)
+    _write_json(Path(str(texture) + ".mcmeta"), {"animation": {}})
+
+    objmc_conversion.convert_sodium_model(
+        input_path, output_path, "props/lamp", None, REAL_OBJMC, False, False
+    )
+
+    out_texture = output_path / constants.RELATIVE_SODIUM_TEXTURES_PATH / "props/lamp.png"
+    frame_height = json.loads(Path(str(out_texture) + ".mcmeta").read_text())["animation"]["height"]
+    baked = Image.open(out_texture).convert("RGBA")
+    assert [baked.getpixel((6, y))[2] for y in (0, frame_height)] == [1, 1]
+
+
 def test_convert_model_removes_stale_mcmeta(tmp_path):
     input_path, output_path, objmc_path = _setup_basic_convert_inputs(tmp_path)
     stale = output_path / constants.RELATIVE_SODIUM_TEXTURES_PATH / "props/lamp.png.mcmeta"

@@ -21,6 +21,7 @@ import os
 import math
 import json
 import argparse
+from collections import deque
 
 from PIL import Image
 
@@ -182,6 +183,53 @@ def uv_pixels(uv):
 def vert_pixels(vert):
     poi, uvi = vert
     return [u24(poi) + [255], u24(uvi) + [255]]
+
+
+def has_translucent_texels(image):
+    """Whether any texel is partly transparent (alpha strictly between 0 and 255).
+
+    Every objmc face renders in the client's translucent layer: its UVs cover
+    only its pointer pixel, whose alpha byte is a row number. Mipmapped and
+    filtered sampling blurs a cutout texture's edges into a band of partly
+    transparent pixels there, which the layer blends and still writes to
+    depth - showing through to whatever was drawn before them. So the shader
+    sharpens such a texture's edges to about a pixel; one with partly
+    transparent texels of its own is left as it is.
+    """
+    lo, hi = image.getchannel("A").getextrema()
+    if lo == 255 or hi == 0:
+        return False
+    return any(0 < a < 255 for a in image.getchannel("A").getdata())
+
+
+def bleed_transparent_colours(image):
+    """The image with each fully transparent texel coloured like its nearest
+    visible one (alpha unchanged).
+
+    Mip levels average colour without regard to alpha, and so does filtering,
+    so a cutout texture's transparent texels - usually black - would darken
+    its edges, the more the coarser the mip level. Vanilla fills them in
+    (TextureUtil.solidify), but from the whole atlas sprite, data rows
+    included; this keeps to the texture.
+    """
+    w, h = image.size
+    pixels = list(image.getdata())
+    queue = deque(i for i, p in enumerate(pixels) if p[3] > 0)
+    if not queue or len(queue) == len(pixels):
+        return image
+    filled = [p[3] > 0 for p in pixels]
+    while queue:
+        i = queue.popleft()
+        x, y = i % w, i // w
+        r, g, b, _ = pixels[i]
+        for j, inside in ((i - 1, x > 0), (i + 1, x < w - 1), (i - w, y > 0), (i + w, y < h - 1)):
+            if inside and not filled[j]:
+                filled[j] = True
+                pixels[j] = (r, g, b, 0)
+                queue.append(j)
+    bled = Image.new("RGBA", (w, h))
+    bled.putdata(pixels)
+    return bled
 
 
 # --------------------------------
@@ -426,8 +474,11 @@ def objmc(obj, tex, output, scale=1.0, offset=(0.0, 0.0, 0.0), visibility=7,
     put(4, 0, 0, 0, 1, 128)
     # data heights: vph, vth high byte (low byte lives at t[7].b)
     put(5, 0, (vph // 256) % 256, vph % 256, (vth // 256) % 256, 255)
-    # noshadow + visibility; mipmap levels the texture is padded for
-    put(6, 0, (int(noshadow) << 7) | (visibility << 2), mipmap, 0, 255)
+    # noshadow + visibility; mipmap levels the texture is padded for; whether
+    # the texture has partly transparent texels (else the shader sharpens its
+    # mipmapped edges, see has_translucent_texels)
+    put(6, 0, (int(noshadow) << 7) | (visibility << 2), mipmap,
+        int(has_translucent_texels(im)), 255)
     # low bytes: frameH, nvertices, vth
     put(7, 0, th % 256, nvertices % 256, vth % 256, 255)
     # t[8..15]: GUI q16 transform — unused for block models, left zeroed
@@ -438,7 +489,7 @@ def objmc(obj, tex, output, scale=1.0, offset=(0.0, 0.0, 0.0), visibility=7,
         put(x, 1, 0, 0, 0, 255)
 
     # --- texture data (single, non-animated) ---
-    tex_px = im.load()
+    tex_px = bleed_transparent_colours(im).load()
     for py in range(th):
         srcy = py if flipuv else (th - 1 - py)
         dsty = textop + py
