@@ -257,18 +257,52 @@ def texture_layout(start, th, mipmap):
 # carrier element orientation
 # --------------------------------
 
-# Carrier elements are shrunk to this fraction of the real OBJ geometry and
-# recentered on the block, so the placeholder shape never clips into
-# neighbouring blocks regardless of how large the source model is.
-ELEMENT_SCALE = 0.3
+# A carrier element sits where its real face sits in the block, because the
+# client works out ambient occlusion and smooth light for each corner of a
+# carrier face at that corner: the real face then gets the occlusion of where
+# it is. Positions here are block model units, 0-16 across the block.
+#
+# Vertices outside the block are clamped to CARRIER_INSET inside it. The
+# client's corner blend is not clamped, and extrapolates for a face reaching
+# past the block (too dark or too bright); and objmc_main.glsl finds the block
+# from floor(Position), so no carrier corner may reach a block boundary.
+CARRIER_INSET = 0.5
+# Carrier corners stay at least this far inside the block once rotated.
+CARRIER_MARGIN = 0.25
+# Smallest width of a carrier face, so a sliver of a face still has an area.
+CARRIER_MIN_SIZE = 0.05
+# Tilt, in degrees, given to a carrier that would face exactly along an axis.
+# The client treats such a face in a block with a full collision box (leaves)
+# as the block's outside face, lit by the block in front of it - black when
+# that block is solid. Any tilt at all stops that.
+CARRIER_TILT = 0.1
+# Directions whose carriers are left flat instead - along the axis, unrotated -
+# so that the client does treat them as the block's outside face, occluded and
+# lit by the layer in front. For an upward face that is what lies above it: the
+# open air over a canopy. A rotated face is occluded by its own block's layer
+# instead, which for an upward face in a canopy is the leaves beside it - dark
+# from above. A solid block right above an upward face is rare.
+CARRIER_FLAT = {"up"}
 BLOCK_CENTER = 8.0
 
+# The corners of an element face in the order the client gives them, as
+# (x, y, z) picks between the element's from (0) and to (1). The client
+# weighs each corner's occlusion by the same corner of the face's bounds
+# (26.2's FaceInfo and BlockModelLighter).
+FACE_CORNERS = {
+    "down": ((0, 0, 1), (0, 0, 0), (1, 0, 0), (1, 0, 1)),
+    "up": ((0, 1, 0), (0, 1, 1), (1, 1, 1), (1, 1, 0)),
+    "north": ((1, 1, 0), (1, 0, 0), (0, 0, 0), (0, 1, 0)),
+    "south": ((0, 1, 1), (0, 0, 1), (1, 0, 1), (1, 1, 1)),
+    "west": ((0, 1, 0), (0, 0, 0), (0, 0, 1), (0, 1, 1)),
+    "east": ((1, 1, 1), (1, 0, 1), (1, 0, 0), (1, 1, 0)),
+}
 
-def model_center(positions):
-    xs = [p[0] for p in positions]
-    ys = [p[1] for p in positions]
-    zs = [p[2] for p in positions]
-    return ((min(xs) + max(xs)) / 2, (min(ys) + max(ys)) / 2, (min(zs) + max(zs)) / 2)
+
+def block_position(pos, scale, offset):
+    """Where the shader puts an OBJ vertex in its block, in model units:
+    objmc_main.glsl's block origin + 0.5 + pos * scale + the bake offset."""
+    return [16 * (pos[a] * scale + offset[a] + (0.0 if a == 1 else 0.5)) for a in range(3)]
 
 
 DIRECTION_AXIS = {"east": ("x", 1), "west": ("x", -1), "up": ("y", 1),
@@ -319,24 +353,100 @@ def rotation_matrix(rotation):
     )
 
 
-def carrier_bounds(face_positions, center, rotation):
-    origin = (BLOCK_CENTER, BLOCK_CENTER, BLOCK_CENTER)
+def tilt_rotation(direction):
+    """CARRIER_TILT about an axis across the face, for a face along an axis."""
+    across = {"x": "z", "y": "x", "z": "x"}[DIRECTION_AXIS[direction][0]]
+    rotation = {"origin": [8, 8, 8], "x": 0.0, "y": 0.0, "z": 0.0}
+    rotation[across] = CARRIER_TILT
+    return rotation
+
+
+def rotate(m, p):
+    """Rotate a point about the block centre, as the client rotates an element."""
+    rel = [p[a] - BLOCK_CENTER for a in range(3)]
+    return [sum(m[a][j] * rel[j] for j in range(3)) + BLOCK_CENTER for a in range(3)]
+
+
+def unrotate(m, p):
+    # M is orthogonal, so its transpose undoes the rotation Minecraft will re-apply.
+    rel = [p[a] - BLOCK_CENTER for a in range(3)]
+    return [sum(m[j][a] * rel[j] for j in range(3)) + BLOCK_CENTER for a in range(3)]
+
+
+def carrier(face, positions, scale, offset):
+    """The carrier element for one OBJ face: (direction, rotation or None,
+    from, to), and the face's vertices reordered to match it.
+
+    The element is the face's bounds in its own rotated frame - or, for a
+    CARRIER_FLAT direction, across the axis - at its place in the block (see
+    CARRIER_INSET). The shader moves carrier corner k onto the
+    face's vertex k, and the client occludes corner k as the matching corner of
+    the face's bounds (FACE_CORNERS), so the vertices are turned - never
+    reversed, which would flip the face - to put each by its corner.
+    """
+    real = [positions[v[0]] if v[0] < len(positions) else [0.0, 0.0, 0.0] for v in face]
+    normal = face_normal(real)
+    direction = classify_direction(normal)
+    axis = "xyz".index(DIRECTION_AXIS[direction][0])
+    if direction in CARRIER_FLAT:
+        rotation = None
+    else:
+        rotation = free_rotation(direction, normal) or tilt_rotation(direction)
+    m = rotation_matrix(rotation or {"x": 0.0, "y": 0.0, "z": 0.0})
+
     pts = [
-        [(p[a] - center[a]) * ELEMENT_SCALE + origin[a] for a in range(3)]
-        for p in face_positions
+        [min(max(c, CARRIER_INSET), 16 - CARRIER_INSET) for c in block_position(p, scale, offset)]
+        for p in real
     ]
-    if rotation is not None:
-        m = rotation_matrix(rotation)
-        local = []
-        for p in pts:
-            rel = [p[a] - origin[a] for a in range(3)]
-            # M is orthogonal, so its transpose undoes the rotation Minecraft will re-apply.
-            unrot = [sum(m[j][a] * rel[j] for j in range(3)) for a in range(3)]
-            local.append([unrot[a] + origin[a] for a in range(3)])
-        pts = local
-    elem_from = [min(p[a] for p in pts) for a in range(3)]
-    elem_to = [max(p[a] for p in pts) for a in range(3)]
-    return elem_from, elem_to
+    local = [unrotate(m, p) for p in pts]
+    lo = [min(p[a] for p in local) for a in range(3)]
+    hi = [max(p[a] for p in local) for a in range(3)]
+    if rotation is None:
+        lo[axis] = hi[axis] = (lo[axis] + hi[axis]) / 2
+    for a in range(3):
+        if a != axis and hi[a] - lo[a] < CARRIER_MIN_SIZE:
+            mid = (lo[a] + hi[a]) / 2
+            lo[a], hi[a] = mid - CARRIER_MIN_SIZE / 2, mid + CARRIER_MIN_SIZE / 2
+
+    # The rotated bounds can reach past the face's own points, so shrink them
+    # about the face's centre until every corner is inside the block.
+    centre = [sum(p[a] for p in pts) / len(pts) for a in range(3)]
+    corners = [rotate(m, [(lo, hi)[pick[a]][a] for a in range(3)]) for pick in FACE_CORNERS[direction]]
+    fit = 1.0
+    for w in corners:
+        for a in range(3):
+            d = w[a] - centre[a]
+            if d > 0:
+                fit = min(fit, (16 - CARRIER_MARGIN - centre[a]) / d)
+            elif d < 0:
+                fit = min(fit, (CARRIER_MARGIN - centre[a]) / d)
+    if fit < 1.0:
+        c = unrotate(m, centre)
+        lo = [c[a] + (lo[a] - c[a]) * fit for a in range(3)]
+        hi = [c[a] + (hi[a] - c[a]) * fit for a in range(3)]
+        corners = [rotate(m, [(lo, hi)[pick[a]][a] for a in range(3)]) for pick in FACE_CORNERS[direction]]
+
+    # Where the client takes each corner's occlusion: that corner of the
+    # rotated face's bounds, across the face.
+    across = [a for a in range(3) if a != axis]
+    bmin = [min(w[a] for w in corners) for a in range(3)]
+    bmax = [max(w[a] for w in corners) for a in range(3)]
+    samples = [[(bmin, bmax)[pick[a]][a] for a in across] for pick in FACE_CORNERS[direction]]
+
+    n = min(4, len(face))
+    order = list(face)
+    if n >= 3:
+        def cost(r):
+            turned = [r + k for k in range(n)] + ([r + 2] if n == 3 else [])
+            return sum(
+                (pts[i % n][a] - s[j]) ** 2
+                for i, s in zip(turned, samples)
+                for j, a in enumerate(across)
+            )
+        best = min(range(n), key=cost)
+        order = [face[(best + k) % n] for k in range(n)] + list(face[n:])
+
+    return (direction, rotation, lo, hi), order
 
 
 def face_normal(positions):
@@ -388,6 +498,11 @@ def objmc(obj, tex, output, scale=1.0, offset=(0.0, 0.0, 0.0), visibility=7,
     print("\n" + col.cyan + "objmc start" + col.end)
 
     o = readobj(obj)
+    # Before the vertex data: placing the carriers reorders the faces' vertices.
+    carriers = []
+    for i, face in enumerate(o["faces"]):
+        element, o["faces"][i] = carrier(face, o["positions"], scale, offset)
+        carriers.append(element)
     data = build_vertex_data(o)
     nfaces = len(o["faces"])
     if nfaces == 0:
@@ -509,22 +624,14 @@ def objmc(obj, tex, output, scale=1.0, offset=(0.0, 0.0, 0.0), visibility=7,
         "textures": {"0": os.path.splitext(output[1])[0]},
         "elements": [],
     }
-    center = model_center(o["positions"])
-    for i, face in enumerate(o["faces"]):
+    for i, (direction, rotation, elem_from, elem_to) in enumerate(carriers):
         posx = i % tw
         posy = i // tw + headerrows
         put(posx, posy, (posx // 256) % 256, posx % 256, (posy // 256) % 256, posy % 256)
 
-        # Carrier geometry = the real face, shrunk and recentered on the block
-        # so it never clips into neighbouring blocks; the element is then
-        # rotated (exact x/y/z, Minecraft 25w46a+) to match the true face
-        # normal, so vanilla per-face diffuse shading lines up correctly.
-        face_positions = [o["positions"][v[0]] for v in face]
-        normal = face_normal(face_positions)
-        direction = classify_direction(normal)
-        rotation = free_rotation(direction, normal)
-        elem_from, elem_to = carrier_bounds(face_positions, center, rotation)
-
+        # Carrier geometry = the real face at its place in the block (see
+        # carrier), rotated (exact x/y/z, Minecraft 25w46a+) to the true face
+        # normal unless left flat (CARRIER_FLAT).
         element = {
             "from": elem_from,
             "to": elem_to,
