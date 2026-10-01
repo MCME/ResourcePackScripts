@@ -744,7 +744,9 @@ def convert_sodium_model(
     # temporary .obj for it to read. That goes in a directory of its own, never
     # beside the source .obj: the input pack is only ever read, so no file in it
     # can be overwritten, and then deleted, for sharing the rotated file's name.
-    with tempfile.TemporaryDirectory(prefix="objmc-") as temp_dir:
+    # A virus scanner or file watcher may still hold the file when the directory
+    # is removed; that must not abort the whole export.
+    with tempfile.TemporaryDirectory(prefix="objmc-", ignore_cleanup_errors=True) as temp_dir:
         rotated_obj = Path(temp_dir) / (
             plan.source_obj_file.stem + plan.suffix + constants.OBJ_MODEL_EXTENSION
         )
@@ -763,7 +765,7 @@ def _convert(output_path, plan: ConversionPlan, objmc_path, compress, debug):
     _output_mcmeta_file(plan).unlink(missing_ok=True)
 
     frames = None
-    with tempfile.TemporaryDirectory() as temp_dir:
+    with tempfile.TemporaryDirectory(ignore_cleanup_errors=True) as temp_dir:
         objmc_plan = plan
         if plan.flipbook is not None:
             util.printDebug(
