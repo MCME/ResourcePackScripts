@@ -723,3 +723,24 @@ def test_objmc_flags_centred_carriers_in_the_header(tmp_path, centred, flag):
     objmc.objmc(str(obj), str(texture), [str(tmp_path / "out.json"), str(tmp_path / "out.png")], centred=centred)
 
     assert Image.open(tmp_path / "out.png").convert("RGBA").getpixel((9, 0)) == flag
+
+
+def test_objmc_keeps_header_and_pointers_nearly_opaque(tmp_path):
+    # OptiFine makes nearly transparent pixels fully transparent, and the client
+    # then recolours them - so nothing the shader reads may be.
+    import objmc
+
+    obj = tmp_path / "quad.obj"
+    obj.write_text(QUAD_OBJ)
+    texture = tmp_path / "tex.png"
+    Image.new("RGBA", (16, 16), (200, 50, 10, 255)).save(texture)
+
+    objmc.objmc(str(obj), str(texture), [str(tmp_path / "out.json"), str(tmp_path / "out.png")])
+
+    bake = Image.open(tmp_path / "out.png").convert("RGBA")
+    header = [bake.getpixel((x, 0)) for x in range(16)]
+    pointer = bake.getpixel((0, 2))  # the one face's
+    assert all(p[3] == 255 for p in header)
+    assert pointer[3] == objmc.POINTER_ALPHA
+    # the pointer holds its own column and row
+    assert (pointer[0] * 16 + (pointer[1] >> 4), (pointer[1] & 15) * 256 + pointer[2]) == (0, 2)
