@@ -442,3 +442,218 @@ def test_convert_model_rotation_leaves_the_input_pack_untouched(tmp_path):
     argv = run.call_args.args[0]
     rotated_obj = Path(argv[argv.index("--obj") + 1])
     assert not rotated_obj.resolve().is_relative_to(input_path.resolve())
+
+
+# =========================================================================
+# flipbook textures
+# =========================================================================
+
+REAL_OBJMC = Path(__file__).resolve().parent.parent / "generateVanilla" / "objmc.py"
+
+QUAD_OBJ = """v 0 0 0
+v 1 0 0
+v 1 1 0
+v 0 1 0
+vt 0 0
+vt 1 0
+vt 1 1
+vt 0 1
+f 1/1 2/2 3/3 4/4
+"""
+
+
+@pytest.mark.parametrize(
+    "animation, sheet, expected",
+    [
+        ({}, (16, 64), (16, 16)),
+        ({"height": 8}, (16, 64), (16, 8)),
+        ({"width": 8, "height": 8}, (16, 64), (8, 8)),
+        # The frame list never changes the cut, even when it lists more frames
+        # than square frames give - the client shows square frames regardless.
+        ({"frames": list(range(16))}, (48, 384), (48, 48)),
+        ({"frames": [0, 1, 0]}, (48, 384), (48, 48)),
+    ],
+)
+def test_flipbook_frame_size(animation, sheet, expected):
+    assert objmc_conversion._flipbook_frame_size(animation, *sheet) == expected
+
+
+@pytest.mark.parametrize("mipmap", [0, 1, 2, 4])
+def test_bake_texture_rows_keep_mip_blocks_clear_of_data(mipmap):
+    import objmc
+
+    for start in range(3, 40):
+        for texture_height in (1, 7, 8, 16, 24, 48):
+            padding_top, top, data_top = objmc_conversion._bake_texture_rows(
+                start, texture_height, mipmap
+            )
+            # The converter decodes the same layout objmc encodes.
+            assert (top, data_top) == objmc.texture_layout(start, texture_height, mipmap)
+            assert padding_top == start <= top
+            assert top + texture_height <= data_top
+            # Every block a mip level up to `mipmap` reads texture rows from
+            # holds nothing but texture and its padding.
+            for level in range(1, mipmap + 1):
+                block = 1 << level
+                first_block = top // block * block
+                last_block_end = -(-(top + texture_height) // block) * block
+                assert start <= first_block and last_block_end <= data_top
+
+
+def test_convert_model_flipbook_drops_frames_past_the_sheet(tmp_path, capsys):
+    from PIL import Image
+
+    input_path, output_path, _ = _setup_basic_convert_inputs(tmp_path)
+    _sodium_obj(input_path, "props/lamp", QUAD_OBJ)
+    texture = input_path / constants.RELATIVE_SODIUM_TEXTURES_PATH / "props/lamp.png"
+    Image.new("RGBA", (8, 16), (255, 0, 0, 255)).save(texture)
+    _write_json(
+        Path(str(texture) + ".mcmeta"),
+        {"animation": {"frames": [0, {"index": 1, "time": 2}, 2, {"index": 3}]}},
+    )
+
+    objmc_conversion.convert_sodium_model(
+        input_path, output_path, "props/lamp", None, REAL_OBJMC, False, False
+    )
+
+    out_texture = output_path / constants.RELATIVE_SODIUM_TEXTURES_PATH / "props/lamp.png"
+    mcmeta = json.loads(Path(str(out_texture) + ".mcmeta").read_text())
+    # Two square 8x8 frames: indices 2 and 3 do not exist.
+    assert mcmeta["animation"]["frames"] == [0, {"index": 1, "time": 2}]
+    assert Image.open(out_texture).height == 2 * mcmeta["animation"]["height"]
+    assert "dropping them" in capsys.readouterr().out
+
+
+def test_convert_model_flipbook_bakes_each_frame(tmp_path, monkeypatch):
+    from PIL import Image
+
+    # The texture rows asserted below are for 2 mip levels.
+    monkeypatch.setattr(constants, "OBJMC_MIPMAP_LEVELS", 2)
+
+    input_path, output_path, _ = _setup_basic_convert_inputs(tmp_path)
+    _sodium_obj(input_path, "props/lamp", QUAD_OBJ)
+    texture = input_path / constants.RELATIVE_SODIUM_TEXTURES_PATH / "props/lamp.png"
+    colours = [(255, 0, 0, 255), (0, 255, 0, 255), (0, 0, 255, 128)]
+    sheet = Image.new("RGBA", (8, 8 * len(colours)))
+    for i, colour in enumerate(colours):
+        sheet.paste(colour, (0, i * 8, 8, (i + 1) * 8))
+    sheet.putpixel((0, 0), (1, 2, 3, 255))  # tells the texture's orientation apart
+    sheet.save(texture)
+    _write_json(
+        Path(str(texture) + ".mcmeta"),
+        {"animation": {"frametime": 3, "interpolate": True}},
+    )
+
+    objmc_conversion.convert_sodium_model(
+        input_path, output_path, "props/lamp", None, REAL_OBJMC, False, False
+    )
+
+    out_texture = output_path / constants.RELATIVE_SODIUM_TEXTURES_PATH / "props/lamp.png"
+    mcmeta = json.loads(Path(str(out_texture) + ".mcmeta").read_text())
+    baked = Image.open(out_texture).convert("RGBA")
+    frame_height = mcmeta["animation"]["height"]
+    assert mcmeta["animation"] == {
+        "frametime": 3,
+        "interpolate": False,
+        "width": 8,
+        "height": frame_height,
+    }
+    assert baked.size == (8, frame_height * len(colours))
+
+    frames = [
+        baked.crop((0, i * frame_height, 8, (i + 1) * frame_height))
+        for i in range(len(colours))
+    ]
+    # 1 face on an 8 wide texture: 2 header rows + 1 uv row, then mipmap padding
+    # to the next 4-row boundary at least 4 rows on (8), the texture, and
+    # padding to 4 rows past the boundary after it (20), where the data starts.
+    padding_top, texture_rows, data_top = 3, (8, 16), 20
+    for i, frame in enumerate(frames):
+        source = sheet.crop((0, i * 8, 8, (i + 1) * 8)).transpose(Image.FLIP_TOP_BOTTOM)
+        assert frame.crop((0, texture_rows[0], 8, texture_rows[1])).tobytes() == source.tobytes()
+        first_row, last_row = source.crop((0, 0, 8, 1)), source.crop((0, 7, 8, 8))
+        for y in range(padding_top, texture_rows[0]):
+            assert frame.crop((0, y, 8, y + 1)).tobytes() == first_row.tobytes()
+        for y in range(texture_rows[1], data_top):
+            assert frame.crop((0, y, 8, y + 1)).tobytes() == last_row.tobytes()
+        for rows in ((0, padding_top), (data_top, frame_height)):
+            box = (0, rows[0], 8, rows[1])
+            assert frame.crop(box).tobytes() == frames[0].crop(box).tobytes()
+
+
+@pytest.mark.parametrize(
+    "alphas, translucent",
+    [
+        ((255,), False),  # opaque
+        ((0, 255), False),  # cutout: the shader sharpens its edges
+        ((0, 128, 255), True),  # partly transparent texels: left alone
+    ],
+)
+def test_objmc_flags_textures_with_translucent_texels(tmp_path, alphas, translucent):
+    import objmc
+
+    obj = tmp_path / "quad.obj"
+    obj.write_text(QUAD_OBJ)
+    texture = tmp_path / "tex.png"
+    image = Image.new("RGBA", (8, 8), (10, 20, 30, 255))
+    for x, alpha in enumerate(alphas):
+        image.putpixel((x, 0), (10, 20, 30, alpha))
+    image.save(texture)
+
+    objmc.objmc(str(obj), str(texture), [str(tmp_path / "out.json"), str(tmp_path / "out.png")])
+
+    assert Image.open(tmp_path / "out.png").convert("RGBA").getpixel((6, 0))[2] == translucent
+
+
+def test_objmc_colours_transparent_texels_like_their_nearest_visible_one(tmp_path):
+    import objmc
+
+    obj = tmp_path / "quad.obj"
+    obj.write_text(QUAD_OBJ)
+    texture = tmp_path / "tex.png"
+    image = Image.new("RGBA", (8, 8), (0, 0, 0, 0))
+    image.putpixel((3, 3), (200, 50, 10, 255))
+    image.save(texture)
+
+    objmc.objmc(str(obj), str(texture), [str(tmp_path / "out.json"), str(tmp_path / "out.png")])
+
+    # 1 face on an 8 wide texture: 2 header rows + 1 uv row before the padding.
+    top, _ = objmc.texture_layout(3, 8, objmc.mipmap)
+    baked = Image.open(tmp_path / "out.png").convert("RGBA").crop((0, top, 8, top + 8))
+    alphas = list(baked.getchannel("A").getdata())
+    assert sorted(alphas) == [0] * 63 + [255]  # the shape is untouched
+    assert {p[:3] for p in baked.getdata()} == {(200, 50, 10)}  # no black left
+
+
+def test_convert_model_flipbook_flags_translucent_texels_in_any_frame(tmp_path):
+    input_path, output_path, _ = _setup_basic_convert_inputs(tmp_path)
+    _sodium_obj(input_path, "props/lamp", QUAD_OBJ)
+    texture = input_path / constants.RELATIVE_SODIUM_TEXTURES_PATH / "props/lamp.png"
+    # Frame 0, all objmc sees, is cutout; only frame 1 is partly transparent.
+    sheet = Image.new("RGBA", (8, 16), (255, 0, 0, 255))
+    sheet.putpixel((0, 0), (0, 0, 0, 0))
+    sheet.putpixel((0, 8), (255, 0, 0, 128))
+    sheet.save(texture)
+    _write_json(Path(str(texture) + ".mcmeta"), {"animation": {}})
+
+    objmc_conversion.convert_sodium_model(
+        input_path, output_path, "props/lamp", None, REAL_OBJMC, False, False
+    )
+
+    out_texture = output_path / constants.RELATIVE_SODIUM_TEXTURES_PATH / "props/lamp.png"
+    frame_height = json.loads(Path(str(out_texture) + ".mcmeta").read_text())["animation"]["height"]
+    baked = Image.open(out_texture).convert("RGBA")
+    assert [baked.getpixel((6, y))[2] for y in (0, frame_height)] == [1, 1]
+
+
+def test_convert_model_removes_stale_mcmeta(tmp_path):
+    input_path, output_path, objmc_path = _setup_basic_convert_inputs(tmp_path)
+    stale = output_path / constants.RELATIVE_SODIUM_TEXTURES_PATH / "props/lamp.png.mcmeta"
+    _write_json(stale, {"animation": {}})
+
+    with patch.object(subprocess, "run", side_effect=_make_fake_objmc()):
+        objmc_conversion.convert_sodium_model(
+            input_path, output_path, "props/lamp", None, objmc_path, False, False
+        )
+
+    assert not stale.exists()

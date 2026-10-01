@@ -88,6 +88,15 @@ def rotation_suffix(rotation: tuple[str, float] | None):
     return f"_{axis}_{angle}"
 
 
+# Where a shared parent is written, relative to the output pack. Checked when
+# the conversion is planned and used when the parent is split out, so the two
+# have to agree.
+def _parent_file_relative(parent_name: str) -> Path:
+    return constants.RELATIVE_SODIUM_MODELS_PATH / (
+        parent_name + constants.VANILLA_MODEL_EXTENSION
+    )
+
+
 @dataclass
 class Flipbook:
     """A source texture the client animates through its `.mcmeta`.
@@ -115,7 +124,8 @@ class ConversionPlan:
     rotation: tuple[str, float] | None
     suffix: str
     # The .obj objmc reads. For a rotated model this is a temporary file written
-    # by rotate_obj and deleted afterwards; otherwise it is source_obj_file.
+    # by rotate_obj into a directory of its own, removed with it afterwards;
+    # otherwise it is source_obj_file.
     obj_file: Path
     source_obj_file: Path
     texture_file: Path
@@ -277,10 +287,29 @@ def _read_flipbook(texture_file: Path) -> Flipbook | None:
 def _plan_conversion(
     input_path, output_path, model_path, rotation
 ) -> ConversionPlan | None:
-    """Settle every path and setting. None means there is nothing to convert."""
-    sodium_models = input_path / constants.RELATIVE_SODIUM_MODELS_PATH
+    """Settle every path and setting. None means there is nothing to convert.
 
-    model_file = sodium_models / Path(model_path + constants.VANILLA_MODEL_EXTENSION)
+    Every path here is built from pack content - the model identifier, the model
+    JSON, the .objmeta and the .mtl - so each is checked to stay inside its pack
+    before anything reads or writes it. One that leads outside skips the model.
+    """
+
+    def inside(root, relative, what):
+        path = util.contained_path(root, relative)
+        if path is None:
+            util.warn_outside_pack(f"{what} of model {model_path!r}", "the model")
+        return path
+
+    # relative to either pack
+    sodium_models = constants.RELATIVE_SODIUM_MODELS_PATH
+
+    model_file = inside(
+        input_path,
+        sodium_models / (model_path + constants.VANILLA_MODEL_EXTENSION),
+        "The model file",
+    )
+    if model_file is None:
+        return None
     if not model_file.exists():
         print(
             "        WARNING! Expected model file not found: " + str(model_file),
@@ -293,19 +322,30 @@ def _plan_conversion(
         return None
     obj_model_path, mtl_path = resolved
 
-    source_obj_file = sodium_models / Path(
-        obj_model_path + constants.OBJ_MODEL_EXTENSION
+    source_obj_file = inside(
+        input_path,
+        sodium_models / (obj_model_path + constants.OBJ_MODEL_EXTENSION),
+        "The .obj",
     )
-    if not os.path.exists(source_obj_file):
+    if source_obj_file is None or not source_obj_file.exists():
         return None
 
-    meta = _read_objmeta(
-        sodium_models / Path(model_path + constants.OBJMETA_EXTENSION), model_path
+    meta_file = inside(
+        input_path,
+        sodium_models / (model_path + constants.OBJMETA_EXTENSION),
+        "The .objmeta",
     )
+    if meta_file is None:
+        return None
+    meta = _read_objmeta(meta_file, model_path)
 
     texture_path = meta["texture_path"]
     if not texture_path:
-        mtl_file = sodium_models / Path(mtl_path + constants.MTL_EXTENSION)
+        mtl_file = inside(
+            input_path, sodium_models / (mtl_path + constants.MTL_EXTENSION), "The .mtl"
+        )
+        if mtl_file is None:
+            return None
         if not mtl_file.exists():
             print(f"Missing .mtl file {mtl_file}.")
             return None
@@ -330,6 +370,14 @@ def _plan_conversion(
             flush=True,
         )
 
+    texture_file = inside(
+        input_path,
+        relative_texture_path / (texture_path + constants.TEXTURE_EXTENSION),
+        "The texture",
+    )
+    if texture_file is None:
+        return None
+
     output_texture_path = meta["output_texture_path"]
     if not output_texture_path:
         # The output texture carries baked voxel data, so it is named after the
@@ -341,26 +389,29 @@ def _plan_conversion(
     # way - only the .obj objmc reads from differs.
     suffix = rotation_suffix(rotation)
 
-    texture_file = (
-        input_path
-        / relative_texture_path
-        / Path(texture_path + constants.TEXTURE_EXTENSION)
+    output_model_file = inside(
+        output_path,
+        sodium_models / (model_path + suffix + constants.VANILLA_MODEL_EXTENSION),
+        "The converted model",
     )
+    output_texture_file = inside(
+        output_path,
+        constants.RELATIVE_SODIUM_TEXTURES_PATH
+        / (output_texture_path + suffix + constants.TEXTURE_EXTENSION),
+        "The baked texture",
+    )
+    if output_model_file is None or output_texture_file is None:
+        return None
 
-    return ConversionPlan(
+    plan = ConversionPlan(
         model_path=model_path,
         rotation=rotation,
         suffix=suffix,
-        obj_file=sodium_models
-        / Path(obj_model_path + suffix + constants.OBJ_MODEL_EXTENSION),
+        obj_file=source_obj_file,
         source_obj_file=source_obj_file,
         texture_file=texture_file,
-        output_model_file=output_path
-        / constants.RELATIVE_SODIUM_MODELS_PATH
-        / Path(model_path + suffix + constants.VANILLA_MODEL_EXTENSION),
-        output_texture_file=output_path
-        / constants.RELATIVE_SODIUM_TEXTURES_PATH
-        / Path(output_texture_path + suffix + constants.TEXTURE_EXTENSION),
+        output_model_file=output_model_file,
+        output_texture_file=output_texture_file,
         output_texture_path=output_texture_path,
         offset=meta["offset"],
         visibility=meta["visibility"],
@@ -369,6 +420,20 @@ def _plan_conversion(
         omnidirectional_parent=meta["omnidirectional_parent"],
         flipbook=_read_flipbook(texture_file),
     )
+
+    # A shared parent is named after the .obj's path, checked above against the
+    # input pack only. A folder symlink there can put the .obj deeper than the
+    # same text reaches in the output pack, which has no such link, so the
+    # parent's own path needs checking against the output pack too.
+    parent_name = _parent_identifier(plan)
+    if parent_name is not None:
+        parent_file = inside(
+            output_path, _parent_file_relative(parent_name), "The shared parent"
+        )
+        if parent_file is None:
+            return None
+
+    return plan
 
 
 # --------------------------------------------------------------------------
@@ -397,6 +462,8 @@ def _objmc_argv(plan: ConversionPlan, objmc_path) -> list[str]:
         str(plan.output_texture_file).replace("\\", "/"),
         "--visibility",
         str(plan.visibility),
+        "--mipmap",
+        str(constants.OBJMC_MIPMAP_LEVELS),
     ]
     if "noshadow" in plan.options:
         argv.append("--noshadow")
@@ -526,6 +593,68 @@ def _flipbook_frames(plan: ConversionPlan) -> list:
         ]
 
 
+def _bake_texture_rows(start: int, texture_height: int, mipmap: int):
+    """(first padding row, first texture row, first data row) of a bake.
+
+    `start` is the row after the face pointers, `mipmap` the header's t[6].g.
+    The same layout the shader's objmc_main.glsl decodes: with mipmapping, the
+    texture starts on a 2^mipmap row boundary, padded by at least one such
+    block of repeated edge rows either side.
+    """
+    if mipmap <= 0:
+        return start, start, start + texture_height
+    block = 1 << mipmap
+    top = -(-(start + block) // block) * block
+    return start, top, -(-(top + texture_height) // block) * block + block
+
+
+def _bleed_transparent_colours(image):
+    """The image with each fully transparent texel coloured like its nearest
+    visible one, alpha unchanged - as objmc.py's bleed_transparent_colours does
+    to the texture it bakes, so every frame of a flipbook matches the first.
+
+    Mip levels and filtering average colour without regard to alpha, so the
+    usually black colour of transparent texels would darken a cutout edge.
+    """
+    from collections import deque
+
+    from PIL import Image
+
+    width, height = image.size
+    pixels = list(image.getdata())
+    queue = deque(i for i, p in enumerate(pixels) if p[3] > 0)
+    if not queue or len(queue) == len(pixels):
+        return image
+    filled = [p[3] > 0 for p in pixels]
+    while queue:
+        i = queue.popleft()
+        x, y = i % width, i // width
+        red, green, blue, _ = pixels[i]
+        for j, inside in (
+            (i - 1, x > 0),
+            (i + 1, x < width - 1),
+            (i - width, y > 0),
+            (i + width, y < height - 1),
+        ):
+            if inside and not filled[j]:
+                filled[j] = True
+                pixels[j] = (red, green, blue, 0)
+                queue.append(j)
+    bled = Image.new("RGBA", (width, height))
+    bled.putdata(pixels)
+    return bled
+
+
+def _has_translucent_texels(image) -> bool:
+    """Whether any texel is partly transparent (alpha strictly between 0 and 255)."""
+    return any(0 < a < 255 for a in image.getchannel("A").getdata())
+
+
+def _visible_texels(image) -> list:
+    """The image's texels, with every fully transparent one as (0, 0, 0, 0)."""
+    return [p if p[3] > 0 else (0, 0, 0, 0) for p in image.getdata()]
+
+
 def _bake_flipbook(plan: ConversionPlan, frames: list) -> bool:
     """Turn objmc's single-frame bake into one bake per source frame.
 
@@ -552,13 +681,17 @@ def _bake_flipbook(plan: ConversionPlan, frames: list) -> bool:
             flush=True,
         )
         return False
-    top = 2 + math.ceil(vertex_count / 4 / texture_width)
+    start, top, data_top = _bake_texture_rows(
+        2 + math.ceil(vertex_count / 4 / texture_width), texture_height, header[6][1]
+    )
     box = (0, top, texture_width, top + texture_height)
 
-    baked_section = bake.crop(box).tobytes()
-    if baked_section == frames[0].tobytes():
+    # objmc recolours the fully transparent texels it bakes (see
+    # _bleed_transparent_colours), so only the visible ones are compared.
+    baked_section = _visible_texels(bake.crop(box))
+    if baked_section == _visible_texels(frames[0]):
         flip = False
-    elif baked_section == frames[0].transpose(Image.FLIP_TOP_BOTTOM).tobytes():
+    elif baked_section == _visible_texels(frames[0].transpose(Image.FLIP_TOP_BOTTOM)):
         flip = True
     else:
         print(
@@ -568,10 +701,28 @@ def _bake_flipbook(plan: ConversionPlan, frames: list) -> bool:
         )
         return False
 
+    # The header's t[6].b tells the shader whether the texture has partly
+    # transparent texels to leave alone. objmc set it from the first frame
+    # alone, but every frame plays.
+    translucent = any(_has_translucent_texels(frame) for frame in frames)
+    red, green, _, alpha = bake.getpixel((6, 0))
+    bake.putpixel((6, 0), (red, green, int(translucent), alpha))
+
     flipbook = Image.new("RGBA", (bake.width, bake.height * len(frames)))
     for i, frame in enumerate(frames):
+        frame = _bleed_transparent_colours(frame)
         baked_frame = bake.copy()
         baked_frame.paste(frame.transpose(Image.FLIP_TOP_BOTTOM) if flip else frame, box)
+        # The mipmap padding repeats the texture's edge rows, so it has to
+        # follow each frame's texture too.
+        first_row = baked_frame.crop((0, top, texture_width, top + 1))
+        last_row = baked_frame.crop(
+            (0, top + texture_height - 1, texture_width, top + texture_height)
+        )
+        for y in range(start, top):
+            baked_frame.paste(first_row, (0, y))
+        for y in range(top + texture_height, data_top):
+            baked_frame.paste(last_row, (0, y))
         flipbook.paste(baked_frame, (0, i * bake.height))
     flipbook.save(plan.output_texture_file)
 
@@ -638,11 +789,7 @@ def _extract_shared_parent(output_path, parent_name: str, group: "_ParentGroup",
 
     _write_model(group.file, first_model_data, compress)
     _write_model(
-        output_path
-        / constants.RELATIVE_SODIUM_MODELS_PATH
-        / Path(parent_name + constants.VANILLA_MODEL_EXTENSION),
-        parent_model_data,
-        compress,
+        output_path / _parent_file_relative(parent_name), parent_model_data, compress
     )
 
 
@@ -674,14 +821,29 @@ def convert_sodium_model(
     if plan is None:
         return
 
-    if plan.rotation is not None:
-        axis, angle = plan.rotation
-        # objmc has no rotation of its own, so the rotation is baked into a
-        # temporary .obj for it to read. Removed again at the end.
-        rotate_obj.rotate_obj_file(
-            plan.source_obj_file, plan.obj_file, axis, -angle
+    if plan.rotation is None:
+        _convert(output_path, plan, objmc_path, compress, debug)
+        return
+
+    axis, angle = plan.rotation
+    # objmc has no rotation of its own, so the rotation is baked into a
+    # temporary .obj for it to read. That goes in a directory of its own, never
+    # beside the source .obj: the input pack is only ever read, so no file in it
+    # can be overwritten, and then deleted, for sharing the rotated file's name.
+    # A virus scanner or file watcher may still hold the file when the directory
+    # is removed; that must not abort the whole export.
+    with tempfile.TemporaryDirectory(prefix="objmc-", ignore_cleanup_errors=True) as temp_dir:
+        rotated_obj = Path(temp_dir) / (
+            plan.source_obj_file.stem + plan.suffix + constants.OBJ_MODEL_EXTENSION
+        )
+        rotate_obj.rotate_obj_file(plan.source_obj_file, rotated_obj, axis, -angle)
+        _convert(
+            output_path, replace(plan, obj_file=rotated_obj), objmc_path, compress, debug
         )
 
+
+def _convert(output_path, plan: ConversionPlan, objmc_path, compress, debug):
+    """Run objmc for a settled plan, and fit what it wrote into our pack."""
     os.makedirs(os.path.dirname(plan.output_model_file), exist_ok=True)
     os.makedirs(os.path.dirname(plan.output_texture_file), exist_ok=True)
     # A .mcmeta left by an earlier export would have the client animate a bake
@@ -689,7 +851,7 @@ def convert_sodium_model(
     _output_mcmeta_file(plan).unlink(missing_ok=True)
 
     frames = None
-    with tempfile.TemporaryDirectory() as temp_dir:
+    with tempfile.TemporaryDirectory(ignore_cleanup_errors=True) as temp_dir:
         objmc_plan = plan
         if plan.flipbook is not None:
             util.printDebug(
@@ -728,7 +890,7 @@ def convert_sodium_model(
                 # in game rather than the intended geometry. Keep this model's
                 # own geometry instead of sharing.
                 print(
-                    f"        WARNING!!! {model_path} shares parent group "
+                    f"        WARNING!!! {plan.model_path} shares parent group "
                     f"{parent_name} but its baked texture is {texture_size}, "
                     f"not {group.texture_size} - not sharing a parent with it. "
                     "Make the source textures the same size to share geometry.",
@@ -737,6 +899,3 @@ def convert_sodium_model(
             converted_models[parent_name] = _ParentGroup(plan.output_model_file, texture_size)
 
         _write_model(plan.output_model_file, data, compress)
-
-    if plan.rotation is not None:
-        Path(plan.obj_file).unlink()
