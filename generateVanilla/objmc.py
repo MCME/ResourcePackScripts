@@ -21,7 +21,6 @@ import os
 import math
 import json
 import argparse
-from collections import deque
 
 from PIL import Image
 
@@ -202,34 +201,11 @@ def has_translucent_texels(image):
     return any(0 < a < 255 for a in image.getchannel("A").getdata())
 
 
-def bleed_transparent_colours(image):
-    """The image with each fully transparent texel coloured like its nearest
-    visible one (alpha unchanged).
-
-    Mip levels average colour without regard to alpha, and so does filtering,
-    so a cutout texture's transparent texels - usually black - would darken
-    its edges, the more the coarser the mip level. Vanilla fills them in
-    (TextureUtil.solidify), but from the whole atlas sprite, data rows
-    included; this keeps to the texture.
-    """
-    w, h = image.size
-    pixels = list(image.getdata())
-    queue = deque(i for i, p in enumerate(pixels) if p[3] > 0)
-    if not queue or len(queue) == len(pixels):
-        return image
-    filled = [p[3] > 0 for p in pixels]
-    while queue:
-        i = queue.popleft()
-        x, y = i % w, i // w
-        r, g, b, _ = pixels[i]
-        for j, inside in ((i - 1, x > 0), (i + 1, x < w - 1), (i - w, y > 0), (i + w, y < h - 1)):
-            if inside and not filled[j]:
-                filled[j] = True
-                pixels[j] = (r, g, b, 0)
-                queue.append(j)
-    bled = Image.new("RGBA", (w, h))
-    bled.putdata(pixels)
-    return bled
+def transparent_zeroed(image):
+    """The image with every fully transparent texel as (0, 0, 0, 0)."""
+    zeroed = Image.new("RGBA", image.size)
+    zeroed.putdata([p if p[3] > 0 else (0, 0, 0, 0) for p in image.getdata()])
+    return zeroed
 
 
 # --------------------------------
@@ -297,6 +273,12 @@ FACE_CORNERS = {
     "west": ((0, 1, 0), (0, 0, 0), (0, 0, 1), (0, 1, 1)),
     "east": ((1, 1, 1), (1, 0, 1), (1, 0, 0), (1, 1, 0)),
 }
+
+
+def json_number(value, places):
+    """value rounded to places decimals, as an int when whole: shorter JSON."""
+    value = round(value, places)
+    return int(value) if value == int(value) else value
 
 
 def block_position(pos, scale, offset):
@@ -391,7 +373,10 @@ def carrier(face, positions, scale, offset):
     if direction in CARRIER_FLAT:
         rotation = None
     else:
-        rotation = free_rotation(direction, normal) or tilt_rotation(direction)
+        rotation = free_rotation(direction, normal)
+        # Below the 0.01 degrees the angles are written to, it would be flat.
+        if rotation is None or max(abs(rotation[a]) for a in "xyz") < 0.01:
+            rotation = tilt_rotation(direction)
     m = rotation_matrix(rotation or {"x": 0.0, "y": 0.0, "z": 0.0})
 
     pts = [
@@ -604,7 +589,11 @@ def objmc(obj, tex, output, scale=1.0, offset=(0.0, 0.0, 0.0), visibility=7,
         put(x, 1, 0, 0, 0, 255)
 
     # --- texture data (single, non-animated) ---
-    tex_px = bleed_transparent_colours(im).load()
+    # Fully transparent texels are written as (0, 0, 0, 0), which compresses
+    # best: their colour is never seen. The client recolours every one of them
+    # like its nearest visible texel as it loads the atlas, before mipmapping
+    # (26.2's MipmapGenerator -> TextureUtil.solidify).
+    tex_px = transparent_zeroed(im).load()
     for py in range(th):
         srcy = py if flipuv else (th - 1 - py)
         dsty = textop + py
@@ -631,17 +620,20 @@ def objmc(obj, tex, output, scale=1.0, offset=(0.0, 0.0, 0.0), visibility=7,
 
         # Carrier geometry = the real face at its place in the block (see
         # carrier), rotated (exact x/y/z, Minecraft 25w46a+) to the true face
-        # normal unless left flat (CARRIER_FLAT).
+        # normal unless left flat (CARRIER_FLAT). Rounded for a smaller file:
+        # positions to 0.001 of a pixel, well inside CARRIER_MARGIN; angles to
+        # 0.01 degrees, under 0.003 of a pixel at the block's edge; UVs to six
+        # figures, far inside the 0.1-0.9 of the pointer pixel they span.
         element = {
-            "from": elem_from,
-            "to": elem_to,
+            "from": [json_number(c, 3) for c in elem_from],
+            "to": [json_number(c, 3) for c in elem_to],
             "faces": {
                 direction: {
                     "uv": [
-                        (posx + 0.1) * 16 / tw,
-                        (posy + 0.1) * 16 / ty,
-                        (posx + 0.9) * 16 / tw,
-                        (posy + 0.9) * 16 / ty,
+                        float(f"{(posx + 0.1) * 16 / tw:.6g}"),
+                        float(f"{(posy + 0.1) * 16 / ty:.6g}"),
+                        float(f"{(posx + 0.9) * 16 / tw:.6g}"),
+                        float(f"{(posy + 0.9) * 16 / ty:.6g}"),
                     ],
                     "texture": "#0",
                     "tintindex": 0,
@@ -649,7 +641,12 @@ def objmc(obj, tex, output, scale=1.0, offset=(0.0, 0.0, 0.0), visibility=7,
             },
         }
         if rotation is not None:
-            element["rotation"] = rotation
+            # An axis left out is 0 to the client.
+            element["rotation"] = {"origin": rotation["origin"]}
+            for axis in "xyz":
+                angle = json_number(rotation[axis], 2)
+                if angle:
+                    element["rotation"][axis] = angle
         js["elements"].append(element)
 
     print("Writing json model...")
