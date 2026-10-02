@@ -73,7 +73,7 @@ So you can look at a release before it reaches players, and going back to an old
 ## 1. Before you release
 
 - **Push your work to the branch the stage builds from**: `development` for the RP server, `master` for production. The server runs `git pull` on that branch at the start of every release. Work that is only on your computer, or on another branch, isn't in the release.
-- **Pick a new version tag**, for example `v4.1.4`. It becomes part of every download URL, so use only letters, digits, dots and dashes. Keep it short: the plugin stores each player's pack URL in a 100-character column, and today's longest URLs are already 96 characters.
+- **Pick a new version tag**, for example `v4.1.4`. It becomes part of every download URL, so use only letters, digits, dots and dashes. The plugin stores each player's pack URL in a 255-character column, so the whole URL must stay under 255 characters.
 - **Use a new tag for every release.** Reusing a tag replaces that release's zips, except for vanilla-only packs on production, where the upload fails (see [Re-running a release](troubleshooting.md#re-running-a-release)).
 - **Optional but recommended:** run the conversion on your own computer with generateVanilla (see the [README](../README.md#generate-the-vanilla-pack)) and read the warnings. The server runs the same code.
 
@@ -172,7 +172,7 @@ flowchart LR
 
 ### Vanilla-only packs: `releaseGeneral.sh` (two zips)
 
-Used by Rohan, Lothlorien, Dwarven and, for now, Paths of the Dead. There's no conversion: the pack is zipped as it is. The server's checkout is the folder `<Pack>-Vanilla`.
+Used by Rohan, Lothlorien, Dwarven and, on production for now, Paths of the Dead. There's no conversion: the pack is zipped as it is. The server's checkout is the folder `<Pack>-Vanilla`.
 
 | Step | What happens | Output |
 |---|---|---|
@@ -186,7 +186,7 @@ Used by Rohan, Lothlorien, Dwarven and, for now, Paths of the Dead. There's no c
 - **Files and folders at the top of the repository whose names start with a dot** (`.git`, `.gitignore`, `.github`) never end up in a zip. Deeper down they do, so don't commit `.DS_Store` and the like.
 - **Everything else at the top of your repository goes into the Sodium zip and the vanilla-only zips**: `README.md`, `changelog.txt`, `blockList.txt` and so on. Keep the top level tidy.
 - **ResourcePackScripts is pulled at the start of every Sodium release.** A change merged into `development` here is used by the next test release; a change merged into `master` by the next production release.
-- **The converter walks Minecraft 1.21.4's blocks and items.** Blocks added in later versions are dropped from the Vanilla and Lite zips. See [Known limits](pack-repository.md#known-limits).
+- **The converter walks Minecraft 26.2's blocks and items** (1.21.4's until October 2026). Blocks added in later versions are dropped from the Vanilla and Lite zips. See [Known limits](pack-repository.md#known-limits).
 
 ## 6. The result
 

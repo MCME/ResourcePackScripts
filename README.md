@@ -35,7 +35,7 @@ flowchart LR
 
 - **Python 3.10 or newer**, with the dependencies installed: `pip install -r requirements.txt`. That gives you PyYAML and Pillow. pytest is only needed for the tests.
 - **The Sodium pack**, for example a checkout of [RP-Human](https://github.com/MCME/RP-Human) `master`.
-- **The vanilla resources** of the Minecraft version the pack targets. Unzip the client jar, `.minecraft/versions/<version>/<version>.jar`, and use the folder that contains `assets/`. The tool reads `assets/minecraft/blockstates`, `items` and `models` from it. Only blocks and items in that version's list are converted. The release server uses 1.21.4's, so use those to see what a release will contain.
+- **The vanilla resources** of the Minecraft version the pack targets. Unzip the client jar, `.minecraft/versions/<version>/<version>.jar`, and use the folder that contains `assets/`. The tool reads `assets/minecraft/blockstates`, `items` and `models` from it. Only blocks and items in that version's list are converted. The release server uses 26.2's, so use those to see what a release will contain.
 
 ### Generate the vanilla pack
 

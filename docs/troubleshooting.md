@@ -6,6 +6,7 @@
 - [Re-running a release](#re-running-a-release)
 - [Players see the old pack, or no pack](#players-see-the-old-pack-or-no-pack)
 - [Something is missing from the Vanilla or Lite zip](#something-is-missing-from-the-vanilla-or-lite-zip)
+- [No custom inventory found](#no-custom-inventory-found)
 
 ## Error messages in game
 
@@ -83,12 +84,21 @@ That fixes a broken release under the same URL. But players and servers that alr
 - **Did the SHA-1 get stored?** `/rp server` downloads every zip of the newest slot to hash it. If a zip is missing from the release, hashing stops there and the rest keep an old or empty hash. When you update an older slot, run `/rp calcsha <pack> all` afterwards.
 - **Online players don't get a new release automatically.** They get it when they next join the network or walk into another RP region. `/rp <pack> -force` resends it to you, to check.
 - **Is there a region for the pack where the player is?** `/rp check` tells you which pack the region at your position gives.
+- **Does the region name the pack exactly?** A region's `rp:` value must be the pack's name with the same capitals. One that differs gives nothing, without an error.
 
 ## Something is missing from the Vanilla or Lite zip
 
 The converter only writes what the vanilla blockstates and items need. Check, in this order:
 
-1. **Is the block or item in Minecraft 1.21.4?** The converter walks 1.21.4's list. Newer blocks are dropped. See [Known limits](pack-repository.md#known-limits).
+1. **Is the block or item in Minecraft 26.2?** The converter walks 26.2's list. Newer blocks are dropped. See [Known limits](pack-repository.md#known-limits).
 2. **Is the file referenced?** Models and textures that no blockstate or item definition reaches aren't copied. `finder.py` helps find who uses a model.
 3. **Is there a warning for it?** Search the run's log for the file name.
 4. **Is it in a folder that is rebuilt?** `blockstates`, `items`, `models`, `textures/block` and `textures/item` are rebuilt from what is used. Everything else under `assets/` is copied as it is.
+
+## No custom inventory found
+
+`No custom inventory found for rp "<Pack>"` when a player opens the block inventory (the swap-hands key, or `/inv`) means MCME-Architect has no custom block inventory under the name of the pack the player currently has.
+
+- **The pack name and the inventory folder differ**, often only in capitals: the pack is `PathsOfTheDead` but the folder `inventories/block/Pathsofthedead`. The names must be identical. Rename the pack back rather than the folder, because every block item carries the old name (see [Choose the pack name once](server-setup.md#choose-the-pack-name-once)).
+- **The pack has no inventory yet.** Ask an admin to set one up, or run `/inv download <pack>` if its `<Pack>-Inventories` checkout exists.
+- **After a fix, run `/architect reload`** on every server that uses that config.

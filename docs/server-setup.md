@@ -34,10 +34,11 @@ Each folder holds:
 | `<Pack>-Sodium/`, `<Pack>-Vanilla/` | The server's checkout of each pack. The folder name must be the pack's name exactly, capitals included, plus `-Sodium` (Sodium packs) or `-Vanilla` (vanilla-only packs). |
 | `ResourcePackScripts/` | A checkout of this repository. Sodium releases pull it and run its generateVanilla. |
 | `Footprints/` | `activator_rail.png` and `activator_rail_on.png`, copied into every Footprints zip |
-| `Vanilla-1.21.4/` | The `assets/` of the Minecraft 1.21.4 client, which generateVanilla walks |
+| `Vanilla-26.2/` | The `assets/` of the Minecraft 26.2 client, which generateVanilla walks. `Vanilla-1.21.4/`, used until October 2026, is still there. |
 | `release/` | Scratch folder each release builds in. Its zips stay next to it until the next release. |
 | `pipeline/`, `runs/` (test only) | The wrapper, and the log and summary of every run. Never touch `runs/.lock`: a release that finds it held refuses to start. |
-| `*-Inventories/`, `*-Common/`, `*-Vanilla` of Sodium packs | Older or separate tools. Not used by the release scripts. |
+| `<Pack>-Inventories/` | A checkout of `MCME/RP-Inventories` that `/inv download` and `/inv upload` copy the pack's custom inventory from and to (see [Choose the pack name once](#choose-the-pack-name-once)) |
+| `*-Common/`, `*-Vanilla` of Sodium packs | Older checkouts. Not used by the release scripts. |
 
 The scripts publish with the `gh` command line tool, logged in on the server. That login needs write access to every release repository.
 
@@ -63,6 +64,20 @@ gh api repos/<owner>/<repo> --jq .permissions.push    # must print true
 ## 2. Tell MCME-Architect about the pack
 
 Each server's MCME-Architect `config.yml` needs two sections for the pack. Several servers share one file (see [Things to know](#things-to-know)).
+
+### Choose the pack name once
+
+The pack's name, the key under `ServerResourcePacks` and `gitHubRpReleases`, is more than a label. MCME-Architect uses the exact same name, capitals included, for:
+
+| Where | What |
+|---|---|
+| The release | The checkout folder `<Pack>-Sodium` or `<Pack>-Vanilla`, and every zip name |
+| The custom block inventory | The folder `inventories/block/<Pack>/` in the MCME-Architect folder. The block inventory (the swap-hands key, or `/inv`) is the one whose folder name equals the pack the player has. |
+| Every block from that inventory | The block ID `<Pack>/<block>`, which every block item carries in its lore |
+| Inventory download and upload | The checkout `<Pack>-Inventories` in the automation folder, and the target `inventories/block/<Pack>/`. `/inv download <pack>` turns what you type into the pack's name first. |
+| RP regions | The `rp:` value of every region that gives the pack |
+
+**Never rename a pack that already has an inventory.** If one of these names differs from the pack name, players get `No custom inventory found for rp "<Pack>"` and inventory download stops working. To rename after all, rename every item in the table together, on every server that has the pack, and expect blocks players already carry to keep the old name.
 
 ### `gitHubRpReleases`: how to release it
 
@@ -120,7 +135,7 @@ Players get a pack through RP regions:
 
 1. Make a WorldEdit selection of the area.
 2. `/rp create <region name>` opens a chat editor.
-3. In the editor, `rp <Pack>` sets the pack (the start of its name is enough, as with `/rp release`), and `weight <n>` decides which region wins where regions overlap: the highest wins.
+3. In the editor, `rp <Pack>` sets the pack (the start of its name is enough, as with `/rp release`; the region stores the full name), and `weight <n>` decides which region wins where regions overlap: the highest wins.
 
 `/rp list` lists the regions, `/rp edit <name>` changes one, and `/rp remove <name>` deletes one. Regions are per server, and show on the map in the "RpRegions" layer.
 
@@ -175,8 +190,8 @@ To fix it, remove the bad slot from every variant of that pack in the config fil
 
 - **Servers share config files.** mainworld, moria, freebuild, plotworld, themedbuilds, pvpserver and terrain share one file; hub, eventserver and the RP server have their own. `/rp server` on one server rewrites the shared file from *its* memory. Run `/architect reload` on the other servers sharing it before anyone changes anything there.
 - **`/rp server` refreshes the SHA-1 of the newest slot only.** It writes the URL into the slot you name but keeps that slot's old SHA-1. If you update an older slot (for example `1.21.4` while `26_2` exists), run `/rp calcsha <pack> all` afterwards, or those players' downloads fail the hash check.
-- **Player URLs are stored in a 100-character database column.** `https://github.com/<owner>/<repo>/releases/download/<tag>/<zip>` must stay under 100 characters. Today's longest is 96. Keep pack names, repository names and tags short.
+- **Player URLs are stored in a 255-character database column** (`currentURL` in the `architect_rp` table, widened from 100 in October 2026). `https://github.com/<owner>/<repo>/releases/download/<tag>/<zip>` must stay under 255 characters. MCME-Architect's own code still creates the column with 100 characters, so after a `/rp dropdb` it has to be widened again.
 - **MCME-Architect waits 5 minutes** for `/rp release`, then reports `terminated=false` while the release carries on. After 10 minutes it stops waiting and reports `exitCode=-1`.
 - **The production scripts differ slightly from the test ones:** no pipeline wrapper, and `releaseGeneral.sh` uploads without `--clobber`, so re-releasing a tag doesn't replace its zips there.
 - **The release notes say "for MC 1.21.4"** (fixed text in the scripts).
-- **generateVanilla walks `Vanilla-1.21.4`**, so blocks newer than 1.21.4 are dropped from Vanilla and Lite zips. To fix it, unzip the `assets/` of the client jar of the packs' version next to it and point the scripts at that folder. Try it on the test folder first: it changes what every Sodium release contains. **Check the folder name twice:** with a wrong vanilla folder, generateVanilla finds no blockstates, writes none, and still ends without an error.
+- **generateVanilla walks `Vanilla-26.2`** (both automation folders, since October 2026), so blocks newer than 26.2 are dropped from Vanilla and Lite zips. For a new Minecraft version: download the client jar from Mojang's version list, check its SHA-1, unzip its `assets/` next to the old folder as `Vanilla-<version>`, and point the two generateVanilla lines of `releaseVanillaSodium.sh` at it. Try it on the test folder first: it changes what every Sodium release contains. **Check the folder name twice:** with a wrong vanilla folder, generateVanilla finds no blockstates, writes none, and still ends without an error.

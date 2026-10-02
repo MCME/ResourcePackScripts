@@ -68,7 +68,7 @@ The converter doesn't walk the pack. It walks the **vanilla client's** `assets/m
 
 Only files from 1 or 2 are written to the output. A vanilla client's file is only walked, to copy any models and textures the pack overrides somewhere in its chains.
 
-**So the vanilla resources decide what can be converted.** A blockstate for a block that isn't in that version's list is never read and is missing from the output. The same goes for anything outside the `minecraft` namespace. The server currently uses Minecraft 1.21.4's resources.
+**So the vanilla resources decide what can be converted.** A blockstate for a block that isn't in that version's list is never read and is missing from the output. The same goes for anything outside the `minecraft` namespace. The server uses Minecraft 26.2's resources since October 2026 (1.21.4's before).
 
 **Blockstates:** for `variants`, every value; for `multipart`, every part's `apply`. A value is one model entry or a weighted list of them.
 

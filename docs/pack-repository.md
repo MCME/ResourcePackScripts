@@ -155,7 +155,7 @@ These live in `assets/minecraft/blockstates/` and `assets/minecraft/items/`, and
 - **Put the most important models first in a list.** The Lite variant keeps only the first two of every list.
 - **Rotate around one axis only.** The Vanilla variant can bake an `x`, `y` *or* `z` rotation into a model, not two. With `x` and `y` on one entry, `y` is dropped with a warning. Make a pre-rotated model instead.
 - **Rotations must be numbers.**
-- **Only blocks and items that exist in Minecraft 1.21.4 reach the Vanilla and Lite variants** (see [Known limits](#known-limits)).
+- **Only blocks and items that exist in Minecraft 26.2 reach the Vanilla and Lite variants** (see [Known limits](#known-limits)).
 
 ### The `vanilla/` folder
 
@@ -229,12 +229,12 @@ cd ResourcePackScripts
 pip install -r requirements.txt
 
 # Vanilla variant
-python generateVanilla/generateVanilla.py ../RP-Human ../out-vanilla ../minecraft-1.21.4 --objmc generateVanilla/objmc.py
+python generateVanilla/generateVanilla.py ../RP-Human ../out-vanilla ../minecraft-26.2 --objmc generateVanilla/objmc.py
 # Lite variant
-python generateVanilla/generateVanilla.py ../RP-Human ../out-lite ../minecraft-1.21.4 --objmc generateVanilla/objmc.py --limit 2
+python generateVanilla/generateVanilla.py ../RP-Human ../out-lite ../minecraft-26.2 --objmc generateVanilla/objmc.py --limit 2
 ```
 
-- **`../minecraft-1.21.4`** is the folder with `assets/` from the Minecraft **1.21.4** client jar (`.minecraft/versions/1.21.4/1.21.4.jar`, unzipped). Use 1.21.4 because the server does.
+- **`../minecraft-26.2`** is the folder with `assets/` from the Minecraft **26.2** client jar (`.minecraft/versions/26.2/26.2.jar`, unzipped). Use 26.2 because the server does.
 - **Use a new, empty output folder for every run.** The converter never deletes anything from it.
 - **Read every `WARNING`, `Error`, `Missing` and `Note:` line.** Not every message starts with `WARNING`. [Troubleshooting](troubleshooting.md#generator-warnings) says what each one means.
 - **To try it in game**, zip the *contents* of the output folder, so that `pack.mcmeta` is at the top of the zip, and put the zip in your `resourcepacks` folder.
@@ -249,7 +249,7 @@ python generateVanilla/generateVanilla.py ../RP-Human ../out-lite ../minecraft-1
 
    | They need | Example |
    |---|---|
-   | The pack's name in the pipeline: one word, letters only. Every zip is named after it, and its first letters are what staff type. | `Rivendell` |
+   | The pack's name in the pipeline: one word, letters only. Every zip is named after it, and its first letters are what staff type. **It can't change later**: it also names the pack's custom block inventory and every block in it (see [Choose the pack name once](server-setup.md#choose-the-pack-name-once)). | `Rivendell` |
    | Sodium pack or vanilla-only | Sodium |
    | The repository | `MCME/RP-Rivendell` |
    | The test release repository | A test repository, or `MCME/RP-Rivendell` itself |
@@ -288,19 +288,19 @@ As of October 2026. The pack name is the name in the server config, with its exa
 |---|---|---|---|---|
 | Human | `h` | Sodium | `MCME/RP-Human` `development` → `EriolEandur/RP-Gondor` | `MCME/RP-Human` `master` → `MCME/RP-Human` |
 | Mordor | `m` | Sodium | `MCME/RP-Mordor` `development` → `EriolEandur/RP-Mordor` | `MCME/RP-Mordor` `master` → `MCME/RP-Mordor` |
-| Paths of the Dead | `p` | vanilla-only, see below | `MCME/RP-Human` `dev/PathofTheDead` → `EriolEandur/RP-Gondor`, as `Pathsofthedead` | `MCME/RP-Human` `PathOfTheDead` → `MCME/RP-Human`, as `PathsOfTheDead` |
+| Paths of the Dead | `p` | Sodium on test, vanilla-only on production, see below | `MCME/RP-PathOfTheDead` `development` → `EriolEandur/RP-Gondor`, as `Pathsofthedead` | `MCME/RP-Human` `PathOfTheDead` → `MCME/RP-Human`, as `PathsOfTheDead` |
 | Dwarven | `d` | vanilla-only | `MCME/RP-Dwarven` `development` → `EriolEandur/RP-Moria` | `MCME/RP-Dwarven` `master` → `MCME/RP-Dwarven` |
 | Erebor | `er` | vanilla-only | `MCME/RP-Dwarven` `erebor` → `EriolEandur/RP-Moria` | — |
 | Rohan | `r` | vanilla-only | `MCME/RP-Rohan` `development` → `EriolEandur/RP-Rohan` | `MCME/RP-Rohan` `master` → `MCME/RP-Rohan` |
 | Lothlorien | `l` | vanilla-only | `MCME/RP-Lothlorien` `development` → `EriolEandur/RP-Lothlorien` | `MCME/RP-Lothlorien` `master` → `MCME/RP-Lothlorien` |
 
-`MCME/RP-PathOfTheDead` exists, but the pipeline doesn't build from it yet. Paths of the Dead is still built from RP-Human branches.
+**Paths of the Dead is moving to its own repository.** Since 2 October 2026 the test stage builds `MCME/RP-PathOfTheDead` `development` as a Sodium pack. Production still builds the old RP-Human branch `PathOfTheDead` as a vanilla-only pack, until it moves too. The RP-Human branches `dev/PathofTheDead` and `PathOfTheDead` are deprecated: don't commit to them.
 
-**Paths of the Dead is being turned into a Sodium pack.** Since October 2026 its test branch has `mcme:` models, but it is still released as a vanilla-only pack and its `.gitignore` ignores `*.obj`. Until it goes through [Turn a vanilla-only pack into a Sodium pack](#turn-a-vanilla-only-pack-into-a-sodium-pack), those blocks show as missing models.
+The pack name is `Pathsofthedead` on the test stage and `PathsOfTheDead` on production. The custom block inventory is `Pathsofthedead` on both, so production's pack name should change to `Pathsofthedead` when it moves (see [Choose the pack name once](server-setup.md#choose-the-pack-name-once)).
 
 ## Known limits
 
-- **Blocks newer than Minecraft 1.21.4 are dropped from the Vanilla and Lite variants.** The converter walks the block and item list of the vanilla resources it is given, and the server gives it 1.21.4's. A pack that changes copper bars or the cinnabar and sulfur blocks, for example, would lose those blockstates. The fix is on the server side: give it the resources of the version the packs are for.
+- **Blocks newer than the server's vanilla resources are dropped from the Vanilla and Lite variants.** The converter walks the block and item list of the vanilla resources it is given. Since October 2026 that is Minecraft 26.2's; before, it was 1.21.4's, which dropped copper bars and the cinnabar and sulfur walls. When the packs move to a newer Minecraft version, the server needs that version's resources too.
 - **The GitHub release notes always say "for MC 1.21.4"**, whatever the version.
 - **Only one rotation axis per model entry** is baked (see [above](#blockstates-and-item-definitions)).
 - **Only `1_…` overlay folders** reach the Vanilla variant. An overlay named for a newer version, such as `26_2`, would be dropped.
