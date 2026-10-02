@@ -125,7 +125,9 @@ def _read_bake(path: Path, identifier: str):
     texture_height = t[1][2] * 256 + t[7][0]
     vertex_count = t[2][0] * 16777216 + t[2][1] * 65536 + t[2][2] * 256 + t[7][1]
     frames = t[3][0] * 65536 + t[3][1] * 256 + t[3][2]
-    if width != bake.width or max(frames, 1) != 1 or max(t[3][3], 1) != 1:
+    # objmc writes one texture as 255 (objmc.py's POINTER_ALPHA)
+    textures = 1 if t[3][3] == 255 else max(t[3][3], 1)
+    if width != bake.width or max(frames, 1) != 1 or textures != 1:
         return None
     mipmap = t[6][1]
     position_rows = t[5][0] * 256 + t[5][1]
