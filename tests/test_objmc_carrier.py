@@ -109,3 +109,16 @@ def test_carrier_gives_a_sliver_of_a_face_an_area():
     for a in range(3):
         if a != axis:
             assert hi[a] - lo[a] >= objmc.CARRIER_MIN_SIZE - 1e-9
+
+
+def test_carrier_centred_sits_at_the_block_centre(tmp_path):
+    # A face reaching right to the block's edges.
+    positions = [[0.0, 0.0, 0.5], [1.0, 0.0, 0.5], [1.0, 1.0, 0.4], [0.0, 1.0, 0.4]]
+
+    element, _ = objmc.carrier(_face(4), positions, 1.0, OFFSET, centred=True)
+
+    # No random block offset (at most 0.25 of a block, 4 pixels) can carry a
+    # corner into another block, and the shader reads the offset back from it.
+    for corner in _corners(*element):
+        assert max(abs(c - 8) for c in corner) < 0.05
+
