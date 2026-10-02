@@ -1,12 +1,17 @@
-"""Reads an objmc carrier face back the way objmc_main.glsl does.
+"""Reads an objmc carrier face back the way objmc_main.glsl does - for the
+tests, and for checking a release zip (release/squash.py).
 
 For each of the face's four corners: the header values, and the raw texels of
 the position and UV the corner resolves to, and a digest of the texture the
-shader samples. Two bakes that decode the same render the same.
+shader samples - fully transparent texels counted as (0, 0, 0, 0), since the
+client recolours them as it loads the atlas. Two bakes that decode the same
+render the same.
 """
 
 import hashlib
 import math
+
+from PIL import Image
 
 MARKER = (12, 34, 56, 255)
 
@@ -56,7 +61,7 @@ def decode_face(image, uv):
             tuple(t[1:8]),
             tuple(at(data_top, position * 3 + k) for k in range(3)),
             tuple(at(data_top + position_rows, texcoord * 2 + k) for k in range(2)),
-            hashlib.md5(texture.tobytes()).hexdigest(),
+            _digest(texture),
         ))
     return tuple(corners)
 
@@ -68,3 +73,14 @@ def decode_model(image, elements):
         for face in element["faces"].values()
         if face.get("texture") == "#0"
     ]
+
+
+def visible_bytes(image):
+    """An RGBA image's bytes, with every fully transparent texel as (0, 0, 0, 0)."""
+    image = image.convert("RGBA")
+    shown = image.getchannel("A").point(lambda a: 255 if a else 0)
+    return Image.composite(image, Image.new("RGBA", image.size), shown).tobytes()
+
+
+def _digest(image):
+    return hashlib.md5(visible_bytes(image)).hexdigest()

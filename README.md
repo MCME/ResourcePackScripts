@@ -4,7 +4,7 @@ Tools for the MCME (Minecraft Middle-earth) resource packs. The main one, **gene
 
 The Sodium variant's 3D models are `.obj` files, which only render with the Special Model Loader client mod. generateVanilla bakes each of those models with [objmc](https://github.com/Godlander/objmc) into an ordinary block model plus a texture that carries the geometry. Core shaders in the pack then draw the real shape, so players see the same models without any mods.
 
-- [User manual](#user-manual): generate the vanilla variant of a pack
+- [User manual](#user-manual): generate the vanilla variant of a pack, and build the release zips
 - [Developer manual](#developer-manual): work on the code
 - [Other scripts](#other-scripts): small standalone helpers
 
@@ -132,6 +132,23 @@ Many people can push to the resource pack repos, so treat a pack as input you do
 - Clone the pack with `git -c core.symlinks=false clone …`, so symlinks in it arrive as plain files.
 - Use a fresh output folder, and review the result before publishing it.
 
+### Build the release zips
+
+`release/squash.py` zips a pack with [PackSquash](https://github.com/ComunidadAylas/PackSquash) (tested with v0.4.1), then checks the zip against the pack:
+
+```bash
+python release/squash.py vanilla <vanilla pack folder> Human-Vanilla.zip --packsquash <path to packsquash>
+python release/squash.py sodium <sodium pack folder> Human-Sodium.zip --packsquash <path to packsquash>
+```
+
+- **Only a checked zip is a release.** The script fails, and says what broke, if a file the game reads went missing, a shader or `.obj` changed, a lossless texture's pixels changed, or an objmc model in the vanilla pack no longer decodes as in the pack.
+- **What goes in:** `assets`, `pack.mcmeta`, `pack.png` and `license.txt`. The vanilla pack leaves out `assets/minecraft/optifine`, the Sodium pack all of it but `texture.properties`.
+- **Textures are compressed lossily** where that saves space, except objmc bakes and labPBR maps (`*_n.png`, `*_s.png`), which are kept exact.
+- **Identical files are stored once.** Minecraft reads such a zip, but some zip tools, Python's among them, can't unpack it.
+- Instead of `--packsquash` you can set `PACKSQUASH`, or put `packsquash` on the PATH.
+
+The script's docstring lists the PackSquash pitfalls it works around.
+
 ## Other scripts
 
 Standalone helpers. generateVanilla doesn't use them.
@@ -166,6 +183,9 @@ pip install -r requirements.txt
 | `generateVanilla/processModel.py` | One model entry: `mcme:` models go to objmc, others to the parent-chain copy. Also checks rotations. |
 | `generateVanilla/objmc_conversion.py` | The conversion, in three stages: plan it (settle and check every path), run objmc, then fit its output into the pack and link shared parents. The module docstring explains the split. |
 | `generateVanilla/objmc.py` | objmc, bundled: a Python port of the objcubed encoding, for static block models only. It runs as a subprocess under the same Python. |
+| `generateVanilla/objmc_merge.py` | After conversion, merges the bakes holding the same texture into one sprite, so each texture is stored once |
+| `generateVanilla/objmc_decode.py` | Reads a carrier back the way the shader does. The tests and `release/squash.py` compare bakes with it. |
+| `release/squash.py` | Builds and checks a release zip with PackSquash |
 | `generateVanilla/rotate_obj.py` | Rotates `.obj` vertices and normals |
 | `generateVanilla/util.py` | Identifier-to-path helpers, `contained_path`, logging |
 | `generateVanilla/constants.py` | Folder names, the folders rebuilt instead of copied, namespaces |
