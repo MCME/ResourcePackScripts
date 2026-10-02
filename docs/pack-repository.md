@@ -288,15 +288,15 @@ As of October 2026. The pack name is the name in the server config, with its exa
 |---|---|---|---|---|
 | Human | `h` | Sodium | `MCME/RP-Human` `development` → `EriolEandur/RP-Gondor` | `MCME/RP-Human` `master` → `MCME/RP-Human` |
 | Mordor | `m` | Sodium | `MCME/RP-Mordor` `development` → `EriolEandur/RP-Mordor` | `MCME/RP-Mordor` `master` → `MCME/RP-Mordor` |
-| Paths of the Dead | `p` | Sodium on test, vanilla-only on production, see below | `MCME/RP-PathOfTheDead` `development` → `EriolEandur/RP-Gondor`, as `Pathsofthedead` | `MCME/RP-Human` `PathOfTheDead` → `MCME/RP-Human`, as `PathsOfTheDead` |
+| Paths of the Dead | `p` | Sodium | `MCME/RP-PathOfTheDead` `development` → `EriolEandur/RP-Gondor` | `MCME/RP-PathOfTheDead` `master` → `MCME/RP-PathOfTheDead` |
 | Dwarven | `d` | vanilla-only | `MCME/RP-Dwarven` `development` → `EriolEandur/RP-Moria` | `MCME/RP-Dwarven` `master` → `MCME/RP-Dwarven` |
 | Erebor | `er` | vanilla-only | `MCME/RP-Dwarven` `erebor` → `EriolEandur/RP-Moria` | — |
 | Rohan | `r` | vanilla-only | `MCME/RP-Rohan` `development` → `EriolEandur/RP-Rohan` | `MCME/RP-Rohan` `master` → `MCME/RP-Rohan` |
 | Lothlorien | `l` | vanilla-only | `MCME/RP-Lothlorien` `development` → `EriolEandur/RP-Lothlorien` | `MCME/RP-Lothlorien` `master` → `MCME/RP-Lothlorien` |
 
-**Paths of the Dead is moving to its own repository.** Since 2 October 2026 the test stage builds `MCME/RP-PathOfTheDead` `development` as a Sodium pack. Production still builds the old RP-Human branch `PathOfTheDead` as a vanilla-only pack, until it moves too. The RP-Human branches `dev/PathofTheDead` and `PathOfTheDead` are deprecated: don't commit to them.
+**Paths of the Dead is moving to its own repository.** Since October 2026 both stages build `MCME/RP-PathOfTheDead` as a Sodium pack: the test stage from `development`, production from `master`. The RP-Human branches `dev/PathofTheDead` and `PathOfTheDead` are deprecated: don't commit to them.
 
-The pack name is `Pathsofthedead` on the test stage and `PathsOfTheDead` on production. The custom block inventory is `Pathsofthedead` on both, so production's pack name should change to `Pathsofthedead` when it moves (see [Choose the pack name once](server-setup.md#choose-the-pack-name-once)).
+The pack name is `Pathsofthedead` on both stages, the same as its custom block inventory (see [Choose the pack name once](server-setup.md#choose-the-pack-name-once)). Production used `PathsOfTheDead` until October 2026, which left its Paths inventory unreachable.
 
 ## Known limits
 

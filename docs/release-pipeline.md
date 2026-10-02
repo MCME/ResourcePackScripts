@@ -172,7 +172,7 @@ flowchart LR
 
 ### Vanilla-only packs: `releaseGeneral.sh` (two zips)
 
-Used by Rohan, Lothlorien, Dwarven and, on production for now, Paths of the Dead. There's no conversion: the pack is zipped as it is. The server's checkout is the folder `<Pack>-Vanilla`.
+Used by Rohan, Lothlorien and Dwarven. There's no conversion: the pack is zipped as it is. The server's checkout is the folder `<Pack>-Vanilla`.
 
 | Step | What happens | Output |
 |---|---|---|
