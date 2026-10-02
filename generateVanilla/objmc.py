@@ -21,7 +21,6 @@ import os
 import math
 import json
 import argparse
-from collections import deque
 
 from PIL import Image
 
@@ -185,11 +184,28 @@ def vert_pixels(vert):
     return [u24(poi) + [255], u24(uvi) + [255]]
 
 
+# A face pointer's alpha. Below 255, so the client puts every objmc face in its
+# translucent layer, which the shader's soft edges need; high, because OptiFine
+# makes nearly transparent pixels fully transparent - and the client recolours
+# fully transparent ones - which once wiped pointers holding a row in alpha.
+# Every other pixel the shader reads is opaque.
+POINTER_ALPHA = 254
+# A pointer's column and row are 12 bits each.
+POINTER_MAX = 4096
+
+
+def pointer_pixel(x, y):
+    """A face pointer: its own column and row in the bake, 12 bits each, in
+    red, green and blue - objmc_main.glsl subtracts them from the pixel's
+    atlas position to find the bake's header."""
+    return x >> 4, ((x & 15) << 4) | (y >> 8), y & 255, POINTER_ALPHA
+
+
 def has_translucent_texels(image):
     """Whether any texel is partly transparent (alpha strictly between 0 and 255).
 
     Every objmc face renders in the client's translucent layer: its UVs cover
-    only its pointer pixel, whose alpha byte is a row number. Mipmapped and
+    only its pointer pixel, whose alpha is POINTER_ALPHA. Mipmapped and
     filtered sampling blurs a cutout texture's edges into a band of partly
     transparent pixels there, which the layer blends and still writes to
     depth - showing through to whatever was drawn before them. So the shader
@@ -202,34 +218,11 @@ def has_translucent_texels(image):
     return any(0 < a < 255 for a in image.getchannel("A").getdata())
 
 
-def bleed_transparent_colours(image):
-    """The image with each fully transparent texel coloured like its nearest
-    visible one (alpha unchanged).
-
-    Mip levels average colour without regard to alpha, and so does filtering,
-    so a cutout texture's transparent texels - usually black - would darken
-    its edges, the more the coarser the mip level. Vanilla fills them in
-    (TextureUtil.solidify), but from the whole atlas sprite, data rows
-    included; this keeps to the texture.
-    """
-    w, h = image.size
-    pixels = list(image.getdata())
-    queue = deque(i for i, p in enumerate(pixels) if p[3] > 0)
-    if not queue or len(queue) == len(pixels):
-        return image
-    filled = [p[3] > 0 for p in pixels]
-    while queue:
-        i = queue.popleft()
-        x, y = i % w, i // w
-        r, g, b, _ = pixels[i]
-        for j, inside in ((i - 1, x > 0), (i + 1, x < w - 1), (i - w, y > 0), (i + w, y < h - 1)):
-            if inside and not filled[j]:
-                filled[j] = True
-                pixels[j] = (r, g, b, 0)
-                queue.append(j)
-    bled = Image.new("RGBA", (w, h))
-    bled.putdata(pixels)
-    return bled
+def transparent_zeroed(image):
+    """The image with every fully transparent texel as (0, 0, 0, 0)."""
+    zeroed = Image.new("RGBA", image.size)
+    zeroed.putdata([p if p[3] > 0 else (0, 0, 0, 0) for p in image.getdata()])
+    return zeroed
 
 
 # --------------------------------
@@ -257,18 +250,66 @@ def texture_layout(start, th, mipmap):
 # carrier element orientation
 # --------------------------------
 
-# Carrier elements are shrunk to this fraction of the real OBJ geometry and
-# recentered on the block, so the placeholder shape never clips into
-# neighbouring blocks regardless of how large the source model is.
-ELEMENT_SCALE = 0.3
+# A carrier element sits where its real face sits in the block, because the
+# client works out ambient occlusion and smooth light for each corner of a
+# carrier face at that corner: the real face then gets the occlusion of where
+# it is. Positions here are block model units, 0-16 across the block.
+#
+# Vertices outside the block are clamped to CARRIER_INSET inside it. The
+# client's corner blend is not clamped, and extrapolates for a face reaching
+# past the block (too dark or too bright); and objmc_main.glsl finds the block
+# from floor(Position), so no carrier corner may reach a block boundary.
+CARRIER_INSET = 0.5
+# Carrier corners stay at least this far inside the block once rotated.
+CARRIER_MARGIN = 0.25
+# Smallest width of a carrier face, so a sliver of a face still has an area.
+CARRIER_MIN_SIZE = 0.05
+# Tilt, in degrees, given to a carrier that would face exactly along an axis.
+# The client treats such a face in a block with a full collision box (leaves)
+# as the block's outside face, lit by the block in front of it - black when
+# that block is solid. Any tilt at all stops that.
+CARRIER_TILT = 0.1
+# Directions whose carriers are left flat instead - along the axis, unrotated -
+# so that the client does treat them as the block's outside face, occluded and
+# lit by the layer in front. For an upward face that is what lies above it: the
+# open air over a canopy. A rotated face is occluded by its own block's layer
+# instead, which for an upward face in a canopy is the leaves beside it - dark
+# from above. A solid block right above an upward face is rare.
+CARRIER_FLAT = {"up"}
+# Centred carriers (--centred), for a model on a block the client shifts by a
+# random offset: every vertex moves, so a carrier near a block face could move
+# into the next block, and the shader would place that corner of the real face
+# there - stretching it. Centred, each carrier is its face shrunk to this
+# fraction about the block's centre, out of any shift's reach; the shader puts
+# the real face where the client moved its carrier, keeping the offset. The
+# client's occlusion is then the same at every corner of a face.
+CENTRED_SCALE = 0.001
 BLOCK_CENTER = 8.0
 
+# The corners of an element face in the order the client gives them, as
+# (x, y, z) picks between the element's from (0) and to (1). The client
+# weighs each corner's occlusion by the same corner of the face's bounds
+# (26.2's FaceInfo and BlockModelLighter).
+FACE_CORNERS = {
+    "down": ((0, 0, 1), (0, 0, 0), (1, 0, 0), (1, 0, 1)),
+    "up": ((0, 1, 0), (0, 1, 1), (1, 1, 1), (1, 1, 0)),
+    "north": ((1, 1, 0), (1, 0, 0), (0, 0, 0), (0, 1, 0)),
+    "south": ((0, 1, 1), (0, 0, 1), (1, 0, 1), (1, 1, 1)),
+    "west": ((0, 1, 0), (0, 0, 0), (0, 0, 1), (0, 1, 1)),
+    "east": ((1, 1, 1), (1, 0, 1), (1, 0, 0), (1, 1, 0)),
+}
 
-def model_center(positions):
-    xs = [p[0] for p in positions]
-    ys = [p[1] for p in positions]
-    zs = [p[2] for p in positions]
-    return ((min(xs) + max(xs)) / 2, (min(ys) + max(ys)) / 2, (min(zs) + max(zs)) / 2)
+
+def json_number(value, places):
+    """value rounded to places decimals, as an int when whole: shorter JSON."""
+    value = round(value, places)
+    return int(value) if value == int(value) else value
+
+
+def block_position(pos, scale, offset):
+    """Where the shader puts an OBJ vertex in its block, in model units:
+    objmc_main.glsl's block origin + 0.5 + pos * scale + the bake offset."""
+    return [16 * (pos[a] * scale + offset[a] + (0.0 if a == 1 else 0.5)) for a in range(3)]
 
 
 DIRECTION_AXIS = {"east": ("x", 1), "west": ("x", -1), "up": ("y", 1),
@@ -319,24 +360,106 @@ def rotation_matrix(rotation):
     )
 
 
-def carrier_bounds(face_positions, center, rotation):
-    origin = (BLOCK_CENTER, BLOCK_CENTER, BLOCK_CENTER)
-    pts = [
-        [(p[a] - center[a]) * ELEMENT_SCALE + origin[a] for a in range(3)]
-        for p in face_positions
-    ]
-    if rotation is not None:
-        m = rotation_matrix(rotation)
-        local = []
-        for p in pts:
-            rel = [p[a] - origin[a] for a in range(3)]
-            # M is orthogonal, so its transpose undoes the rotation Minecraft will re-apply.
-            unrot = [sum(m[j][a] * rel[j] for j in range(3)) for a in range(3)]
-            local.append([unrot[a] + origin[a] for a in range(3)])
-        pts = local
-    elem_from = [min(p[a] for p in pts) for a in range(3)]
-    elem_to = [max(p[a] for p in pts) for a in range(3)]
-    return elem_from, elem_to
+def tilt_rotation(direction):
+    """CARRIER_TILT about an axis across the face, for a face along an axis."""
+    across = {"x": "z", "y": "x", "z": "x"}[DIRECTION_AXIS[direction][0]]
+    rotation = {"origin": [8, 8, 8], "x": 0.0, "y": 0.0, "z": 0.0}
+    rotation[across] = CARRIER_TILT
+    return rotation
+
+
+def rotate(m, p):
+    """Rotate a point about the block centre, as the client rotates an element."""
+    rel = [p[a] - BLOCK_CENTER for a in range(3)]
+    return [sum(m[a][j] * rel[j] for j in range(3)) + BLOCK_CENTER for a in range(3)]
+
+
+def unrotate(m, p):
+    # M is orthogonal, so its transpose undoes the rotation Minecraft will re-apply.
+    rel = [p[a] - BLOCK_CENTER for a in range(3)]
+    return [sum(m[j][a] * rel[j] for j in range(3)) + BLOCK_CENTER for a in range(3)]
+
+
+def carrier(face, positions, scale, offset, centred=False):
+    """The carrier element for one OBJ face: (direction, rotation or None,
+    from, to), and the face's vertices reordered to match it.
+
+    The element is the face's bounds in its own rotated frame - or, for a
+    CARRIER_FLAT direction, across the axis - at its place in the block (see
+    CARRIER_INSET), or shrunk about the block's centre (CENTRED_SCALE). The
+    shader moves carrier corner k onto the
+    face's vertex k, and the client occludes corner k as the matching corner of
+    the face's bounds (FACE_CORNERS), so the vertices are turned - never
+    reversed, which would flip the face - to put each by its corner.
+    """
+    real = [positions[v[0]] if v[0] < len(positions) else [0.0, 0.0, 0.0] for v in face]
+    normal = face_normal(real)
+    direction = classify_direction(normal)
+    axis = "xyz".index(DIRECTION_AXIS[direction][0])
+    if direction in CARRIER_FLAT:
+        rotation = None
+    else:
+        rotation = free_rotation(direction, normal)
+        # Below the 0.01 degrees the angles are written to, it would be flat.
+        if rotation is None or max(abs(rotation[a]) for a in "xyz") < 0.01:
+            rotation = tilt_rotation(direction)
+    m = rotation_matrix(rotation or {"x": 0.0, "y": 0.0, "z": 0.0})
+
+    placed = [block_position(p, scale, offset) for p in real]
+    if centred:
+        middle = [sum(p[a] for p in placed) / len(placed) for a in range(3)]
+        pts = [[BLOCK_CENTER + (p[a] - middle[a]) * CENTRED_SCALE for a in range(3)] for p in placed]
+    else:
+        pts = [[min(max(c, CARRIER_INSET), 16 - CARRIER_INSET) for c in p] for p in placed]
+    local = [unrotate(m, p) for p in pts]
+    lo = [min(p[a] for p in local) for a in range(3)]
+    hi = [max(p[a] for p in local) for a in range(3)]
+    if rotation is None:
+        lo[axis] = hi[axis] = (lo[axis] + hi[axis]) / 2
+    for a in range(3):
+        if a != axis and hi[a] - lo[a] < CARRIER_MIN_SIZE:
+            mid = (lo[a] + hi[a]) / 2
+            lo[a], hi[a] = mid - CARRIER_MIN_SIZE / 2, mid + CARRIER_MIN_SIZE / 2
+
+    # The rotated bounds can reach past the face's own points, so shrink them
+    # about the face's centre until every corner is inside the block.
+    centre = [sum(p[a] for p in pts) / len(pts) for a in range(3)]
+    corners = [rotate(m, [(lo, hi)[pick[a]][a] for a in range(3)]) for pick in FACE_CORNERS[direction]]
+    fit = 1.0
+    for w in corners:
+        for a in range(3):
+            d = w[a] - centre[a]
+            if d > 0:
+                fit = min(fit, (16 - CARRIER_MARGIN - centre[a]) / d)
+            elif d < 0:
+                fit = min(fit, (CARRIER_MARGIN - centre[a]) / d)
+    if fit < 1.0:
+        c = unrotate(m, centre)
+        lo = [c[a] + (lo[a] - c[a]) * fit for a in range(3)]
+        hi = [c[a] + (hi[a] - c[a]) * fit for a in range(3)]
+        corners = [rotate(m, [(lo, hi)[pick[a]][a] for a in range(3)]) for pick in FACE_CORNERS[direction]]
+
+    # Where the client takes each corner's occlusion: that corner of the
+    # rotated face's bounds, across the face.
+    across = [a for a in range(3) if a != axis]
+    bmin = [min(w[a] for w in corners) for a in range(3)]
+    bmax = [max(w[a] for w in corners) for a in range(3)]
+    samples = [[(bmin, bmax)[pick[a]][a] for a in across] for pick in FACE_CORNERS[direction]]
+
+    n = min(4, len(face))
+    order = list(face)
+    if n >= 3:
+        def cost(r):
+            turned = [r + k for k in range(n)] + ([r + 2] if n == 3 else [])
+            return sum(
+                (pts[i % n][a] - s[j]) ** 2
+                for i, s in zip(turned, samples)
+                for j, a in enumerate(across)
+            )
+        best = min(range(n), key=cost)
+        order = [face[(best + k) % n] for k in range(n)] + list(face[n:])
+
+    return (direction, rotation, lo, hi), order
 
 
 def face_normal(positions):
@@ -371,7 +494,7 @@ def classify_direction(normal):
 # --------------------------------
 
 def objmc(obj, tex, output, scale=1.0, offset=(0.0, 0.0, 0.0), visibility=7,
-          flipuv=False, noshadow=False, nopow=True, mipmap=4):
+          flipuv=False, noshadow=False, nopow=True, mipmap=4, centred=False):
     """Convert a single .obj + texture into a custom-model .json + .png pair
     using the objcubed encoding, for a static block-type model."""
 
@@ -388,6 +511,11 @@ def objmc(obj, tex, output, scale=1.0, offset=(0.0, 0.0, 0.0), visibility=7,
     print("\n" + col.cyan + "objmc start" + col.end)
 
     o = readobj(obj)
+    # Before the vertex data: placing the carriers reorders the faces' vertices.
+    carriers = []
+    for i, face in enumerate(o["faces"]):
+        element, o["faces"][i] = carrier(face, o["positions"], scale, offset, centred)
+        carriers.append(element)
     data = build_vertex_data(o)
     nfaces = len(o["faces"])
     if nfaces == 0:
@@ -398,8 +526,11 @@ def objmc(obj, tex, output, scale=1.0, offset=(0.0, 0.0, 0.0), visibility=7,
     tw, th = im.size
     if tw < 8:
         raise ObjmcError("minimum texture size is 8px wide")
-    if tw > 65535 or th > 65535:
-        raise ObjmcError(f"texture too large: {tw}x{th} (max 65535)")
+    if tw > POINTER_MAX or th > 65535:
+        raise ObjmcError(
+            f"texture too large: {tw}x{th} (max {POINTER_MAX} wide - a face pointer "
+            f"holds its column in 12 bits - and 65535 high)"
+        )
     if not 0 <= mipmap <= MAX_MIPMAP:
         raise ObjmcError(f"mipmap must be 0 to {MAX_MIPMAP}, got {mipmap}")
 
@@ -422,6 +553,11 @@ def objmc(obj, tex, output, scale=1.0, offset=(0.0, 0.0, 0.0), visibility=7,
 
     headerrows = 2
     uvh = math.ceil(nfaces / tw)
+    if headerrows + uvh > POINTER_MAX:
+        raise ObjmcError(
+            f"too many faces for a {tw} wide texture ({nfaces}): a face pointer holds "
+            f"its row in 12 bits. Use a wider texture."
+        )
     textop, datatop = texture_layout(headerrows + uvh, th, mipmap)
     vph = math.ceil(len(data["positions"]) * 3 / tw)
     vth = math.ceil(len(data["uvs"]) * 2 / tw)
@@ -468,10 +604,12 @@ def objmc(obj, tex, output, scale=1.0, offset=(0.0, 0.0, 0.0), visibility=7,
     put(1, 0, tw // 256, tw % 256, th // 256, 255)
     # nvertices (top 3 bytes; low byte lives at t[7].g)
     put(2, 0, (nvertices // 16777216) % 256, (nvertices // 65536) % 256, (nvertices // 256) % 256, 255)
-    # nframes (=1), ntextures (=1) — no animation support in this script
-    put(3, 0, 0, 0, 1, 1)
-    # duration(=1)/autoplay(0)/easing(0)/interpolation(0) — inert, no animation
-    put(4, 0, 0, 0, 1, 128)
+    # nframes (=1), ntextures (=1, written as 255, see POINTER_ALPHA) — no
+    # animation support in this script
+    put(3, 0, 0, 0, 1, 255)
+    # duration(=1)/autoplay/easing/interpolation — inert with one frame, so
+    # the alpha is free to be opaque (see POINTER_ALPHA)
+    put(4, 0, 0, 0, 1, 255)
     # data heights: vph, vth high byte (low byte lives at t[7].b)
     put(5, 0, (vph // 256) % 256, vph % 256, (vth // 256) % 256, 255)
     # noshadow + visibility; mipmap levels the texture is padded for; whether
@@ -481,15 +619,22 @@ def objmc(obj, tex, output, scale=1.0, offset=(0.0, 0.0, 0.0), visibility=7,
         int(has_translucent_texels(im)), 255)
     # low bytes: frameH, nvertices, vth
     put(7, 0, th % 256, nvertices % 256, vth % 256, 255)
-    # t[8..15]: GUI q16 transform — unused for block models, left zeroed
+    # t[8..15]: GUI q16 transform — unused for block models, left zeroed -
+    # but for t[9].r, 1 for centred carriers (see CENTRED_SCALE)
     for x in range(8, 16):
         put(x, 0, 0, 0, 0, 255)
+    if centred:
+        put(9, 0, 1, 0, 0, 255)
     # Row 1: texture-animation clock / dynamic slot markers — unused, zeroed
     for x in range(0, tw):
         put(x, 1, 0, 0, 0, 255)
 
     # --- texture data (single, non-animated) ---
-    tex_px = bleed_transparent_colours(im).load()
+    # Fully transparent texels are written as (0, 0, 0, 0), which compresses
+    # best: their colour is never seen. The client recolours every one of them
+    # like its nearest visible texel as it loads the atlas, before mipmapping
+    # (26.2's MipmapGenerator -> TextureUtil.solidify).
+    tex_px = transparent_zeroed(im).load()
     for py in range(th):
         srcy = py if flipuv else (th - 1 - py)
         dsty = textop + py
@@ -509,32 +654,27 @@ def objmc(obj, tex, output, scale=1.0, offset=(0.0, 0.0, 0.0), visibility=7,
         "textures": {"0": os.path.splitext(output[1])[0]},
         "elements": [],
     }
-    center = model_center(o["positions"])
-    for i, face in enumerate(o["faces"]):
+    for i, (direction, rotation, elem_from, elem_to) in enumerate(carriers):
         posx = i % tw
         posy = i // tw + headerrows
-        put(posx, posy, (posx // 256) % 256, posx % 256, (posy // 256) % 256, posy % 256)
+        put(posx, posy, *pointer_pixel(posx, posy))
 
-        # Carrier geometry = the real face, shrunk and recentered on the block
-        # so it never clips into neighbouring blocks; the element is then
-        # rotated (exact x/y/z, Minecraft 25w46a+) to match the true face
-        # normal, so vanilla per-face diffuse shading lines up correctly.
-        face_positions = [o["positions"][v[0]] for v in face]
-        normal = face_normal(face_positions)
-        direction = classify_direction(normal)
-        rotation = free_rotation(direction, normal)
-        elem_from, elem_to = carrier_bounds(face_positions, center, rotation)
-
+        # Carrier geometry = the real face at its place in the block (see
+        # carrier), rotated (exact x/y/z, Minecraft 25w46a+) to the true face
+        # normal unless left flat (CARRIER_FLAT). Rounded for a smaller file:
+        # positions to 0.001 of a pixel, well inside CARRIER_MARGIN; angles to
+        # 0.01 degrees, under 0.003 of a pixel at the block's edge; UVs to six
+        # figures, far inside the 0.1-0.9 of the pointer pixel they span.
         element = {
-            "from": elem_from,
-            "to": elem_to,
+            "from": [json_number(c, 3) for c in elem_from],
+            "to": [json_number(c, 3) for c in elem_to],
             "faces": {
                 direction: {
                     "uv": [
-                        (posx + 0.1) * 16 / tw,
-                        (posy + 0.1) * 16 / ty,
-                        (posx + 0.9) * 16 / tw,
-                        (posy + 0.9) * 16 / ty,
+                        float(f"{(posx + 0.1) * 16 / tw:.6g}"),
+                        float(f"{(posy + 0.1) * 16 / ty:.6g}"),
+                        float(f"{(posx + 0.9) * 16 / tw:.6g}"),
+                        float(f"{(posy + 0.9) * 16 / ty:.6g}"),
                     ],
                     "texture": "#0",
                     "tintindex": 0,
@@ -542,7 +682,12 @@ def objmc(obj, tex, output, scale=1.0, offset=(0.0, 0.0, 0.0), visibility=7,
             },
         }
         if rotation is not None:
-            element["rotation"] = rotation
+            # An axis left out is 0 to the client.
+            element["rotation"] = {"origin": rotation["origin"]}
+            for axis in "xyz":
+                angle = json_number(rotation[axis], 2)
+                if angle:
+                    element["rotation"][axis] = angle
         js["elements"].append(element)
 
     print("Writing json model...")
@@ -615,6 +760,7 @@ def build_parser():
     parser.add_argument("--noshadow", action="store_true", dest="noshadow", help="Disable shadows from face normals")
     parser.add_argument("--nopow", action="store_true", dest="nopow", help="Disable power of two textures")
     parser.add_argument("--mipmap", type=int, help=f"Mipmap levels to pad the texture for, 0 to {MAX_MIPMAP}", default=mipmap)
+    parser.add_argument("--centred", action="store_true", dest="centred", help="Carriers at the block centre, for a block the client offsets")
     return parser
 
 
@@ -638,6 +784,7 @@ def main(argv=None):
             noshadow=args.noshadow,
             nopow=args.nopow,
             mipmap=args.mipmap,
+            centred=args.centred,
         )
     except ObjmcError as e:
         print(col.err + str(e) + col.end)

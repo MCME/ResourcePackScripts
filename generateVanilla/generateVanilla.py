@@ -6,6 +6,8 @@ from pathlib import Path
 
 import constants
 import hardcodedFiles
+import objmc_conversion
+import objmc_merge
 import processBlockstate
 import processItem
 import util
@@ -223,6 +225,10 @@ for folder in override_folders:
 # ---------------------------------------------
 # Process vanilla blockstates and item models
 # ---------------------------------------------
+# Models on blocks the client offsets get their carriers centred, which has to
+# be known before any of them is converted
+objmc_conversion.find_centred_models(input_path)
+
 if not no_blocks:
     for blockstate_file in (vanilla_path / constants.RELATIVE_BLOCKSTATE_PATH).glob(
         "*" + constants.BLOCKSTATE_EXTENSION
@@ -291,3 +297,8 @@ for model in hardcodedFiles.TEXTURES:
             / constants.RELATIVE_VANILLA_TEXTURES_PATH
             / Path(model + constants.TEXTURE_EXTENSION + constants.MCMETA_EXTENSION),
         )
+
+# ---------------------------------------------
+# Store each objmc bake's texture once
+# ---------------------------------------------
+objmc_merge.merge_shared_textures(output_path, compress, debug)

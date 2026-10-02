@@ -60,6 +60,44 @@ import yaml
 # parent extraction.
 converted_models = {}
 
+# The models (paths in the mcme namespace) the input pack puts on a block the
+# client shifts by a random offset (constants.OFFSET_BLOCKS). Their carriers sit
+# at the block centre (objmc.py's --centred). Filled by find_centred_models
+# before any conversion.
+centred_models = set()
+
+
+def find_centred_models(input_path):
+    """Note every mcme model the input pack's blockstates put on an offset block."""
+    centred_models.clear()
+    for block in constants.OFFSET_BLOCKS:
+        blockstate = Path(input_path) / constants.RELATIVE_BLOCKSTATE_PATH / (
+            block + constants.BLOCKSTATE_EXTENSION
+        )
+        if not blockstate.is_file():
+            continue
+        try:
+            with open(blockstate, "r", encoding="utf-8-sig") as f:
+                data = json.load(f)
+        except (OSError, ValueError):
+            continue
+        for identifier in _model_identifiers(data):
+            namespace, model_path = util.split_namespaced(identifier)
+            if namespace == constants.MCME_NAMESPACE:
+                centred_models.add(model_path)
+
+
+def _model_identifiers(node):
+    """Every "model" a blockstate names, in variants and multipart alike."""
+    if isinstance(node, dict):
+        if isinstance(node.get("model"), str):
+            yield node["model"]
+        for value in node.values():
+            yield from _model_identifiers(value)
+    elif isinstance(node, list):
+        for value in node:
+            yield from _model_identifiers(value)
+
 
 @dataclass
 class _ParentGroup:
@@ -142,6 +180,8 @@ class ConversionPlan:
     omnidirectional_parent: bool = False
     # Set when the source texture is animated by its .mcmeta.
     flipbook: Flipbook | None = None
+    # Set for a model on a block the client offsets (see centred_models).
+    centred: bool = False
 
 
 # --------------------------------------------------------------------------
@@ -419,6 +459,7 @@ def _plan_conversion(
         obj_model_path=obj_model_path,
         omnidirectional_parent=meta["omnidirectional_parent"],
         flipbook=_read_flipbook(texture_file),
+        centred=model_path in centred_models,
     )
 
     # A shared parent is named after the .obj's path, checked above against the
@@ -469,6 +510,8 @@ def _objmc_argv(plan: ConversionPlan, objmc_path) -> list[str]:
         argv.append("--noshadow")
     if "flipuv" in plan.options:
         argv.append("--flipuv")
+    if plan.centred:
+        argv.append("--centred")
     return argv
 
 
@@ -538,7 +581,17 @@ def _is_parent_obj(obj_model_path: str) -> bool:
 
 
 def _parent_identifier(plan: ConversionPlan) -> str | None:
-    """The parent this conversion groups under, rotation included.
+    """The parent this conversion groups under, rotation and centring
+    included: centred carriers (see centred_models) differ from the rest, so
+    they never share a parent with them."""
+    name = _geometry_parent_identifier(plan)
+    if name is not None and plan.centred:
+        name += "_centred"
+    return name
+
+
+def _geometry_parent_identifier(plan: ConversionPlan) -> str | None:
+    """The parent this conversion's geometry groups under, rotation included.
 
     None when the source .obj is not a parent (see `_is_parent_obj`).
     Otherwise it is named after the .obj itself, not the model reading it -
@@ -608,50 +661,15 @@ def _bake_texture_rows(start: int, texture_height: int, mipmap: int):
     return start, top, -(-(top + texture_height) // block) * block + block
 
 
-def _bleed_transparent_colours(image):
-    """The image with each fully transparent texel coloured like its nearest
-    visible one, alpha unchanged - as objmc.py's bleed_transparent_colours does
-    to the texture it bakes, so every frame of a flipbook matches the first.
-
-    Mip levels and filtering average colour without regard to alpha, so the
-    usually black colour of transparent texels would darken a cutout edge.
-    """
-    from collections import deque
-
-    from PIL import Image
-
-    width, height = image.size
-    pixels = list(image.getdata())
-    queue = deque(i for i, p in enumerate(pixels) if p[3] > 0)
-    if not queue or len(queue) == len(pixels):
-        return image
-    filled = [p[3] > 0 for p in pixels]
-    while queue:
-        i = queue.popleft()
-        x, y = i % width, i // width
-        red, green, blue, _ = pixels[i]
-        for j, inside in (
-            (i - 1, x > 0),
-            (i + 1, x < width - 1),
-            (i - width, y > 0),
-            (i + width, y < height - 1),
-        ):
-            if inside and not filled[j]:
-                filled[j] = True
-                pixels[j] = (red, green, blue, 0)
-                queue.append(j)
-    bled = Image.new("RGBA", (width, height))
-    bled.putdata(pixels)
-    return bled
-
-
 def _has_translucent_texels(image) -> bool:
     """Whether any texel is partly transparent (alpha strictly between 0 and 255)."""
     return any(0 < a < 255 for a in image.getchannel("A").getdata())
 
 
 def _visible_texels(image) -> list:
-    """The image's texels, with every fully transparent one as (0, 0, 0, 0)."""
+    """The image's texels, with every fully transparent one as (0, 0, 0, 0) -
+    as objmc.py bakes them (its transparent_zeroed): their colour is never
+    seen, the client recolouring them as it loads the atlas."""
     return [p if p[3] > 0 else (0, 0, 0, 0) for p in image.getdata()]
 
 
@@ -686,8 +704,8 @@ def _bake_flipbook(plan: ConversionPlan, frames: list) -> bool:
     )
     box = (0, top, texture_width, top + texture_height)
 
-    # objmc recolours the fully transparent texels it bakes (see
-    # _bleed_transparent_colours), so only the visible ones are compared.
+    # objmc zeroes the fully transparent texels it bakes, so only the visible
+    # ones are compared.
     baked_section = _visible_texels(bake.crop(box))
     if baked_section == _visible_texels(frames[0]):
         flip = False
@@ -710,7 +728,9 @@ def _bake_flipbook(plan: ConversionPlan, frames: list) -> bool:
 
     flipbook = Image.new("RGBA", (bake.width, bake.height * len(frames)))
     for i, frame in enumerate(frames):
-        frame = _bleed_transparent_colours(frame)
+        visible = Image.new("RGBA", frame.size)
+        visible.putdata(_visible_texels(frame))
+        frame = visible
         baked_frame = bake.copy()
         baked_frame.paste(frame.transpose(Image.FLIP_TOP_BOTTOM) if flip else frame, box)
         # The mipmap padding repeats the texture's edge rows, so it has to
