@@ -184,11 +184,28 @@ def vert_pixels(vert):
     return [u24(poi) + [255], u24(uvi) + [255]]
 
 
+# A face pointer's alpha. Below 255, so the client puts every objmc face in its
+# translucent layer, which the shader's soft edges need; high, because OptiFine
+# makes nearly transparent pixels fully transparent - and the client recolours
+# fully transparent ones - which once wiped pointers holding a row in alpha.
+# Every other pixel the shader reads is opaque.
+POINTER_ALPHA = 254
+# A pointer's column and row are 12 bits each.
+POINTER_MAX = 4096
+
+
+def pointer_pixel(x, y):
+    """A face pointer: its own column and row in the bake, 12 bits each, in
+    red, green and blue - objmc_main.glsl subtracts them from the pixel's
+    atlas position to find the bake's header."""
+    return x >> 4, ((x & 15) << 4) | (y >> 8), y & 255, POINTER_ALPHA
+
+
 def has_translucent_texels(image):
     """Whether any texel is partly transparent (alpha strictly between 0 and 255).
 
     Every objmc face renders in the client's translucent layer: its UVs cover
-    only its pointer pixel, whose alpha byte is a row number. Mipmapped and
+    only its pointer pixel, whose alpha is POINTER_ALPHA. Mipmapped and
     filtered sampling blurs a cutout texture's edges into a band of partly
     transparent pixels there, which the layer blends and still writes to
     depth - showing through to whatever was drawn before them. So the shader
@@ -509,8 +526,11 @@ def objmc(obj, tex, output, scale=1.0, offset=(0.0, 0.0, 0.0), visibility=7,
     tw, th = im.size
     if tw < 8:
         raise ObjmcError("minimum texture size is 8px wide")
-    if tw > 65535 or th > 65535:
-        raise ObjmcError(f"texture too large: {tw}x{th} (max 65535)")
+    if tw > POINTER_MAX or th > 65535:
+        raise ObjmcError(
+            f"texture too large: {tw}x{th} (max {POINTER_MAX} wide - a face pointer "
+            f"holds its column in 12 bits - and 65535 high)"
+        )
     if not 0 <= mipmap <= MAX_MIPMAP:
         raise ObjmcError(f"mipmap must be 0 to {MAX_MIPMAP}, got {mipmap}")
 
@@ -533,6 +553,11 @@ def objmc(obj, tex, output, scale=1.0, offset=(0.0, 0.0, 0.0), visibility=7,
 
     headerrows = 2
     uvh = math.ceil(nfaces / tw)
+    if headerrows + uvh > POINTER_MAX:
+        raise ObjmcError(
+            f"too many faces for a {tw} wide texture ({nfaces}): a face pointer holds "
+            f"its row in 12 bits. Use a wider texture."
+        )
     textop, datatop = texture_layout(headerrows + uvh, th, mipmap)
     vph = math.ceil(len(data["positions"]) * 3 / tw)
     vth = math.ceil(len(data["uvs"]) * 2 / tw)
@@ -579,10 +604,12 @@ def objmc(obj, tex, output, scale=1.0, offset=(0.0, 0.0, 0.0), visibility=7,
     put(1, 0, tw // 256, tw % 256, th // 256, 255)
     # nvertices (top 3 bytes; low byte lives at t[7].g)
     put(2, 0, (nvertices // 16777216) % 256, (nvertices // 65536) % 256, (nvertices // 256) % 256, 255)
-    # nframes (=1), ntextures (=1) — no animation support in this script
-    put(3, 0, 0, 0, 1, 1)
-    # duration(=1)/autoplay(0)/easing(0)/interpolation(0) — inert, no animation
-    put(4, 0, 0, 0, 1, 128)
+    # nframes (=1), ntextures (=1, written as 255, see POINTER_ALPHA) — no
+    # animation support in this script
+    put(3, 0, 0, 0, 1, 255)
+    # duration(=1)/autoplay/easing/interpolation — inert with one frame, so
+    # the alpha is free to be opaque (see POINTER_ALPHA)
+    put(4, 0, 0, 0, 1, 255)
     # data heights: vph, vth high byte (low byte lives at t[7].b)
     put(5, 0, (vph // 256) % 256, vph % 256, (vth // 256) % 256, 255)
     # noshadow + visibility; mipmap levels the texture is padded for; whether
@@ -630,7 +657,7 @@ def objmc(obj, tex, output, scale=1.0, offset=(0.0, 0.0, 0.0), visibility=7,
     for i, (direction, rotation, elem_from, elem_to) in enumerate(carriers):
         posx = i % tw
         posy = i // tw + headerrows
-        put(posx, posy, (posx // 256) % 256, posx % 256, (posy // 256) % 256, posy % 256)
+        put(posx, posy, *pointer_pixel(posx, posy))
 
         # Carrier geometry = the real face at its place in the block (see
         # carrier), rotated (exact x/y/z, Minecraft 25w46a+) to the true face

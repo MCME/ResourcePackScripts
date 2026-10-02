@@ -22,7 +22,7 @@ def decode_face(image, uv):
         v = uv[1] if corner in (0, 3) else uv[3]
         x, y = int(u * width / 16), int(v * height / 16)
         r, g, b, a = px[x, y]
-        offset_x, offset_y = r * 256 + g, b * 256 + a
+        offset_x, offset_y = r * 16 + (g >> 4), (g & 15) * 256 + b
         left, top = x - offset_x, y - offset_y
         t = [px[left + i, top] for i in range(16)]
         assert t[0] == MARKER, f"no header for corner {corner}"
