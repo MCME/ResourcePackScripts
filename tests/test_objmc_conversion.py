@@ -605,13 +605,14 @@ def test_objmc_flags_textures_with_translucent_texels(tmp_path, alphas, transluc
     assert Image.open(tmp_path / "out.png").convert("RGBA").getpixel((6, 0))[2] == translucent
 
 
-def test_objmc_colours_transparent_texels_like_their_nearest_visible_one(tmp_path):
+def test_objmc_zeroes_transparent_texels(tmp_path):
     import objmc
 
     obj = tmp_path / "quad.obj"
     obj.write_text(QUAD_OBJ)
     texture = tmp_path / "tex.png"
-    image = Image.new("RGBA", (8, 8), (0, 0, 0, 0))
+    # A fully transparent texel with a colour of its own, which is never seen.
+    image = Image.new("RGBA", (8, 8), (90, 90, 90, 0))
     image.putpixel((3, 3), (200, 50, 10, 255))
     image.save(texture)
 
@@ -622,7 +623,7 @@ def test_objmc_colours_transparent_texels_like_their_nearest_visible_one(tmp_pat
     baked = Image.open(tmp_path / "out.png").convert("RGBA").crop((0, top, 8, top + 8))
     alphas = list(baked.getchannel("A").getdata())
     assert sorted(alphas) == [0] * 63 + [255]  # the shape is untouched
-    assert {p[:3] for p in baked.getdata()} == {(200, 50, 10)}  # no black left
+    assert set(baked.getdata()) == {(200, 50, 10, 255), (0, 0, 0, 0)}
 
 
 def test_convert_model_flipbook_flags_translucent_texels_in_any_frame(tmp_path):

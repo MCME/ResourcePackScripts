@@ -608,50 +608,15 @@ def _bake_texture_rows(start: int, texture_height: int, mipmap: int):
     return start, top, -(-(top + texture_height) // block) * block + block
 
 
-def _bleed_transparent_colours(image):
-    """The image with each fully transparent texel coloured like its nearest
-    visible one, alpha unchanged - as objmc.py's bleed_transparent_colours does
-    to the texture it bakes, so every frame of a flipbook matches the first.
-
-    Mip levels and filtering average colour without regard to alpha, so the
-    usually black colour of transparent texels would darken a cutout edge.
-    """
-    from collections import deque
-
-    from PIL import Image
-
-    width, height = image.size
-    pixels = list(image.getdata())
-    queue = deque(i for i, p in enumerate(pixels) if p[3] > 0)
-    if not queue or len(queue) == len(pixels):
-        return image
-    filled = [p[3] > 0 for p in pixels]
-    while queue:
-        i = queue.popleft()
-        x, y = i % width, i // width
-        red, green, blue, _ = pixels[i]
-        for j, inside in (
-            (i - 1, x > 0),
-            (i + 1, x < width - 1),
-            (i - width, y > 0),
-            (i + width, y < height - 1),
-        ):
-            if inside and not filled[j]:
-                filled[j] = True
-                pixels[j] = (red, green, blue, 0)
-                queue.append(j)
-    bled = Image.new("RGBA", (width, height))
-    bled.putdata(pixels)
-    return bled
-
-
 def _has_translucent_texels(image) -> bool:
     """Whether any texel is partly transparent (alpha strictly between 0 and 255)."""
     return any(0 < a < 255 for a in image.getchannel("A").getdata())
 
 
 def _visible_texels(image) -> list:
-    """The image's texels, with every fully transparent one as (0, 0, 0, 0)."""
+    """The image's texels, with every fully transparent one as (0, 0, 0, 0) -
+    as objmc.py bakes them (its transparent_zeroed): their colour is never
+    seen, the client recolouring them as it loads the atlas."""
     return [p if p[3] > 0 else (0, 0, 0, 0) for p in image.getdata()]
 
 
@@ -686,8 +651,8 @@ def _bake_flipbook(plan: ConversionPlan, frames: list) -> bool:
     )
     box = (0, top, texture_width, top + texture_height)
 
-    # objmc recolours the fully transparent texels it bakes (see
-    # _bleed_transparent_colours), so only the visible ones are compared.
+    # objmc zeroes the fully transparent texels it bakes, so only the visible
+    # ones are compared.
     baked_section = _visible_texels(bake.crop(box))
     if baked_section == _visible_texels(frames[0]):
         flip = False
@@ -710,7 +675,9 @@ def _bake_flipbook(plan: ConversionPlan, frames: list) -> bool:
 
     flipbook = Image.new("RGBA", (bake.width, bake.height * len(frames)))
     for i, frame in enumerate(frames):
-        frame = _bleed_transparent_colours(frame)
+        visible = Image.new("RGBA", frame.size)
+        visible.putdata(_visible_texels(frame))
+        frame = visible
         baked_frame = bake.copy()
         baked_frame.paste(frame.transpose(Image.FLIP_TOP_BOTTOM) if flip else frame, box)
         # The mipmap padding repeats the texture's edge rows, so it has to
