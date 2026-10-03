@@ -7,6 +7,7 @@ How MCME's resource packs get from a Git repository to the players, and what thi
 | Make a new or existing pack repository ready for the pipeline | [Set up a pack repository](pack-repository.md) |
 | Know what happens when I run `/rp release`, step by step | [The release pipeline](release-pipeline.md) |
 | Understand exactly how a Sodium pack becomes a vanilla pack | [How generateVanilla converts a pack](conversion.md) |
+| Work on shaders, or add a shader feature to a pack | [The shader base](shader-base.md) |
 | Fix a failed release, a warning, or a pack players don't get | [Troubleshooting](troubleshooting.md) |
 | Add a pack to the automation on the server (admins) | [Add a pack to the automation](server-setup.md) |
 | Run the converter on my own computer, or work on its code | The [README](../README.md) |

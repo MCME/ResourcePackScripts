@@ -2,6 +2,7 @@ import argparse
 import json
 import os
 import shutil
+import sys
 from pathlib import Path
 
 import constants
@@ -10,6 +11,7 @@ import objmc_conversion
 import objmc_merge
 import processBlockstate
 import processItem
+import shader_base
 import util
 
 
@@ -223,6 +225,16 @@ for folder in override_folders:
         )
 
 # ---------------------------------------------
+# The shader base (docs/shader-base.md)
+# ---------------------------------------------
+# Unlike an imperfect pack, a pack with its own copy of a base file stops the
+# run: shipped, the two copies drift apart until one breaks the other.
+try:
+    shader_base.apply([input_path, vanilla_override_path], output_path)
+except shader_base.ShaderBaseError as e:
+    sys.exit(f"ERROR: {e}")
+
+# ---------------------------------------------
 # Process vanilla blockstates and item models
 # ---------------------------------------------
 # Models on blocks the client offsets get their carriers centred, which has to
@@ -302,3 +314,12 @@ for model in hardcodedFiles.TEXTURES:
 # Store each objmc bake's texture once
 # ---------------------------------------------
 objmc_merge.merge_shared_textures(output_path, compress, debug)
+
+# ---------------------------------------------
+# Sign the water textures for the base's water, and check that every shader
+# import resolves, or the client drops every pack
+# ---------------------------------------------
+try:
+    shader_base.finish(output_path)
+except shader_base.ShaderBaseError as e:
+    sys.exit(f"ERROR: {e}")

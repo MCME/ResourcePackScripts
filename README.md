@@ -81,7 +81,7 @@ python generateVanilla/generateVanilla.py RP-Human ../RP-Human-vanilla ../minecr
 ```
 
 - **The Sodium model JSON** names its `.obj` in `model`, for example `"model": "mcme:models/block/leaves_parent.obj"`. It reads the `.mtl` with its own name, or the one named in `mtl_override`.
-- **The objmc core shaders are not generated.** The baked models only render with objmc's shaders in the vanilla pack. RP-Human keeps them in `vanilla/assets/minecraft/shaders/`. They must match the objmc in this repository: when objmc changes, as with the mipmapping and cutout changes of 1 October 2026, every pack needs the matching shaders (RP-Human from commit `621c00c3d`).
+- **The shaders come from [the shader base](docs/shader-base.md)** in `shaderBase/`: objmc's core shaders, their Sodium counterparts, the action bar's `text.vsh` and `fog.glsl`. generateVanilla adds them to the output. It stops if the pack has a copy of its own, or if any shader import in the output doesn't resolve. Change the objmc shaders together with `objmc.py`.
 - **Some folders are rebuilt instead of copied:** every namespace's `blockstates`, `items`, `models`, `textures/block` and `textures/item`. Only what the blockstates and items actually use ends up in the output.
   - `assets/mcme/sml_load_scopes` is left out too, because only Special Model Loader reads it.
   - `modelengine`'s models and items are copied as they are.
