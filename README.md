@@ -141,6 +141,7 @@ Standalone helpers. generateVanilla doesn't use them.
 | `generateVanilla/rotate_obj.py <file.obj> <axis> <angle>` | Rotates an `.obj` **in place** by 90, 180 or 270 degrees around `x`, `y` or `z`. |
 | `finder.py <model>` | Reports which blockstates and parent models use the block model `<model>` (name without `block/`). Read-only. |
 | `sorter.py` | **Moves** every block model and texture that no blockstate uses into `unlinked_models/` and `unlinked_textures/`, without asking. Run it on a copy. |
+| `lavaSignature/sign_fluids.py <pack> [--check]` | Writes the codes the Mordor pack's shaders (`shaders/include/fluid.glsl`) recognise lava, water, ice, the tar pits' powder snow, fog and spray by into their textures in `block/`, **in place**: the lowest 2 bits of each texel's colour. Run it after every edit of those textures, or the shaders show them as plain textures. Textures a pack doesn't have are skipped. `--check` only reports. |
 
 `finder.py` and `sorter.py` don't read a pack. They run in a folder laid out as `blockstates/`, `vanilla_blockstates/`, `models/block/`, `vanilla_models/block/` and `textures/block/`.
 
