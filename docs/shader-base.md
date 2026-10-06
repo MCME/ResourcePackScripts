@@ -45,6 +45,7 @@ Before the hooks, the base defines these, so that a hook doesn't need to know wh
 |---|---|---|
 | `MCME_SODIUM` | not defined | defined |
 | `MCME_MODELVIEW` | `ModelViewMat` | `u_ModelViewMatrix` |
+| `MCME_PROJECTION` | `ProjMat`: with the view bobbing in it, so its centre is where the camera truly is | `u_ProjectionMatrix`: the same |
 | `MCME_SECONDS` (vertex) | Seconds into the day, from `GameTime` | Seconds since the region was built |
 | `MCME_SECONDS` (fragment) | Seconds into the day | The same, from the light map's clock: seamless across regions |
 | `MCME_WORLD_POS` | The vertex's world position | Its position within its region of 128 × 64 × 128 blocks (`MCME_REGION`) |
@@ -76,7 +77,7 @@ A feature every pack should have, such as water, belongs in the base itself. Its
 
 ## Water
 
-The base draws water per pixel, fixed in the world: layered ripples, see-through looking down, the sky's colour at a glance, and foam where it flows, on falls and, with Sodium, along shores. Its settings are in `water_config.glsl`.
+The base draws water per pixel, fixed in the world, with one opacity as its texture had: layered ripples and crests, now and then a wave coming in from the west or north-west with a trail of foam, streaks where it flows and on falls, and, with Sodium, foam along the shores of still water. Its settings are in `water_config.glsl`.
 
 The shaders know water by a code hidden in the lowest bits of `block/water_still.png` and `water_flow.png`. That code changes no colour by more than 3 steps in 255. The build writes it into every pack's water textures (`fluid_signature.py`), so packs don't have to. A pack without its own water textures shows the game's, plain. A texture whose size isn't a multiple of 4, or with fully transparent texels, can't carry the code: the build warns and the water shows plain.
 

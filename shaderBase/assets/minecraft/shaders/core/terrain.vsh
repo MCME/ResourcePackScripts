@@ -48,6 +48,7 @@ out vec4 waterWeights;
 // shared with Sodium's block_layer_opaque.vsh. These say what the hooks need
 // in terms that hold for both.
 #define MCME_MODELVIEW ModelViewMat
+#define MCME_PROJECTION ProjMat
 #define MCME_SECONDS (GameTime * 1200.0)
 #define MCME_WORLD_POS (Position + vec3(ChunkPosition))
 #define MCME_WORLD_POS_64 (Position + vec3(ChunkPosition & 63))

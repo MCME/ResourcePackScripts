@@ -141,14 +141,12 @@ void main() {
     FluidFrame fluidHere = fluidFrame(fluidWorld, Pos, v_TexCoord);
     WaterShore shore = waterShore(waterLights, waterWeights);
     int fluid = isCustom == 0 ? fluidKind(u_BlockTex, v_TexCoord) : -1;
-    // water: its colour and light as ever, its pattern and opacity its own,
-    // taking the sky's colour - the fog's - at a glance, where there is sky
-    // light to see it by; foam along its shores, from smooth lighting
+    // water: its colour and light as ever, its pattern and opacity its own;
+    // foam along its shores, from smooth lighting
     if (fluid == WATER_STILL || fluid == WATER_FLOWING) {
         WaterLook water = waterLook(fluid, fluidHere, MCME_SECONDS, shore);
         vec3 lit = vertexColor.rgb * lightColor.rgb;
-        vec3 rgb = mix(lit * water.shade, u_FogColor.rgb * max(lightColor.r, max(lightColor.g, lightColor.b)), water.sheen);
-        color = vec4(mix(rgb, WATER_FOAM_COLOR * lightColor.rgb, water.foam), water.alpha);
+        color = vec4(mix(lit * water.shade, WATER_FOAM_COLOR * lightColor.rgb, water.foam), water.alpha);
     }
 
 #moj_import <minecraft:mcme_hook_fragment_main.glsl>

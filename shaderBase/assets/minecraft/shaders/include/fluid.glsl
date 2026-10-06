@@ -9,11 +9,12 @@
 // as they did.
 //
 // They are told by their textures, block/lava_still, lava_flow, water_still,
-// water_flow, packed_ice and blue_ice: the lowest two bits of each texel's red, green
-// and blue hold a code, by the texel's place in its 4x4 block of the sprite
-// and by the sprite (fluidCode) - at most 3 steps in 255, which no one sees.
+// water_flow and ice, and a pack's own fluids' textures: the lowest two bits
+// of each texel's red, green and blue hold a code, by the texel's place in
+// its 4x4 block of the sprite and by the sprite (fluidCode) - at most 3 steps
+// in 255, which no one sees.
 // A texel's code is checked, and if it is a fluid's, the codes of its whole
-// 4x4 block. Lava's and ice's texels are opaque, water's needn't be. The
+// 4x4 block. Lava's texels are opaque, the others' needn't be. The
 // build writes the water's codes into every pack's water textures
 // (ResourcePackScripts' generateVanilla/fluid_signature.py); a pack's own it
 // signs with signFluids.py there, again after every edit of the textures.
@@ -30,9 +31,10 @@
 #define FLUID_LAVA_FLOWING 1
 #define FLUID_WATER_STILL 2
 #define FLUID_WATER_FLOWING 3
-#define FLUID_PACKED_ICE 4
-#define FLUID_BLUE_ICE 5
-#define FLUID_KINDS 6
+#define FLUID_ICE 4
+// 5 to 7 are a pack's own, which it names in its hooks: RP-Mordor's fog
+// block, tar pits and waterfall spray (its mordor_fluid.glsl)
+#define FLUID_KINDS 8
 
 uint fluidHash(ivec4 p) {
     uint h = uint(p.x) * 73856093u ^ uint(p.y) * 19349663u ^ uint(p.z) * 83492791u ^ uint(p.w) * 2654435761u;
@@ -52,10 +54,10 @@ int fluidCode(int kind, ivec2 t) {
     return int(fluidHash(ivec4(t & 3, kind, 731)) >> 26u);
 }
 
-// Whether a texel at atlas texel t holds kind's code: opaque, but for water.
+// Whether a texel at atlas texel t holds kind's code: opaque, for lava.
 bool fluidFits(int kind, vec4 texel, ivec2 t) {
     ivec4 c = ivec4(texel * 255.0 + 0.5);
-    return (kind == FLUID_WATER_STILL || kind == FLUID_WATER_FLOWING ? c.a > 0 : c.a == 255)
+    return (kind < FLUID_WATER_STILL ? c.a == 255 : c.a > 0)
         && (((c.r & 3) << 4) | ((c.g & 3) << 2) | (c.b & 3)) == fluidCode(kind, t);
 }
 

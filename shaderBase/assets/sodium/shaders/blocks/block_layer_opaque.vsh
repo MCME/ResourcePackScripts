@@ -69,6 +69,7 @@ out vec4 waterWeights;
 #define MCME_SODIUM
 #define MCME_REGION vec3(128.0, 64.0, 128.0)
 #define MCME_MODELVIEW u_ModelViewMatrix
+#define MCME_PROJECTION u_ProjectionMatrix
 #define MCME_SECONDS (float(u_CurrentTime) / 1000.0)
 #define MCME_WORLD_POS (_vert_position + _get_draw_translation(_draw_id))
 // regions lie on the world's grid of 128 x 64 x 128 blocks, so this matches

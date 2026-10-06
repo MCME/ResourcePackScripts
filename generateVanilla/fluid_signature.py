@@ -2,14 +2,14 @@
 
 The shader base draws water itself, and a pack may draw other fluids (RP-
 Mordor's lava and ice), on whatever shows block/water_still, water_flow,
-lava_still, lava_flow, packed_ice or blue_ice. fluid.glsl tells those apart from every other texture by a code
+lava_still, lava_flow or ice. fluid.glsl tells those apart from every other texture by a code
 in the lowest two bits of each texel's red, green and blue: 6 bits, set by the
 texel's place in its 4x4 block of the sprite and by which sprite it is. That
 changes no colour by more than 3 steps in 255; alpha is left as it is.
 
 Editing one of these textures loses the codes, and the shaders then show it as
 a plain texture. The build signs every pack's water (shader_base.finish); a
-pack's lava is signed in its repository with signFluids.py.
+pack's own fluids are signed in its repository with signFluids.py.
 """
 
 import json
@@ -18,11 +18,12 @@ from pathlib import Path
 from PIL import Image
 
 # fluid.glsl's FLUID_ kinds, by texture
-KINDS = {"lava_still": 0, "lava_flow": 1, "water_still": 2, "water_flow": 3, "packed_ice": 4, "blue_ice": 5}
+# (5 to 7 are a pack's own: RP-Mordor signs its fog, tar and spray itself)
+KINDS = {"lava_still": 0, "lava_flow": 1, "water_still": 2, "water_flow": 3, "ice": 4}
 WATER = ("water_still", "water_flow")
 LAVA = ("lava_still", "lava_flow")
-ICE = ("packed_ice", "blue_ice")
-OPAQUE = set(LAVA) | set(ICE)
+ICE = ("ice",)
+OPAQUE = set(LAVA)
 FOLDER = Path("assets/minecraft/textures/block")
 _M = 0xFFFFFFFF
 
