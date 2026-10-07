@@ -1,0 +1,62 @@
+{
+    "variants": {
+        "east=false,north=false,south=false,west=false": {
+            "model": "block/volume_chimney"
+        },
+        "east=false,north=false,south=false,west=true": {
+            "model": "block/brown_stained_glass_pane_n",
+            "y": 270
+        },
+        "east=false,north=false,south=true,west=false": {
+            "model": "block/brown_stained_glass_pane_n",
+            "y": 180
+        },
+        "east=false,north=false,south=true,west=true": {
+            "model": "mcme:block/rusty_metal_diagonal_block",
+            "y": 180
+        },
+        "east=false,north=true,south=false,west=false": {
+            "model": "block/brown_stained_glass_pane_n"
+        },
+        "east=false,north=true,south=false,west=true": {
+            "model": "mcme:block/rusty_metal_diagonal_block",
+            "y": 270
+        },
+        "east=false,north=true,south=true,west=false": {
+            "model": "block/brown_stained_glass_pane_ns"
+        },
+        "east=false,north=true,south=true,west=true": {
+            "model": "block/brown_stained_glass_pane_nse",
+            "y": 180
+        },
+        "east=true,north=false,south=false,west=false": {
+            "model": "block/brown_stained_glass_pane_n",
+            "y": 90
+        },
+        "east=true,north=false,south=false,west=true": {
+            "model": "block/brown_stained_glass_pane_ns",
+            "y": 90
+        },
+        "east=true,north=false,south=true,west=false": {
+            "model": "mcme:block/rusty_metal_diagonal_block",
+            "y": 90
+        },
+        "east=true,north=false,south=true,west=true": {
+            "model": "block/brown_stained_glass_pane_nse",
+            "y": 90
+        },
+        "east=true,north=true,south=false,west=false": {
+            "model": "mcme:block/rusty_metal_diagonal_block"
+        },
+        "east=true,north=true,south=false,west=true": {
+            "model": "block/brown_stained_glass_pane_nse",
+            "y": 270
+        },
+        "east=true,north=true,south=true,west=false": {
+            "model": "block/brown_stained_glass_pane_nse"
+        },
+        "east=true,north=true,south=true,west=true": {
+            "model": "block/brown_stained_glass_pane_nsew"
+        }
+    }
+}

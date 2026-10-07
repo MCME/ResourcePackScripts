@@ -1,0 +1,215 @@
+"""Builds the MCME-boat-prototype resource pack: the oak boat drawn as a
+longboat, by moving the vanilla boat's own vertices in the entity shader.
+
+How: the boat's texture carries a marker (two texels in its unused top-left
+corner). The vertex shader knows a boat's vertex by its texture coordinate
+and its corner (gl_VertexID & 3), and so where it sits on the vanilla boat and
+which way its face points. A face pointing sideways - a carrier - tells the
+boat's yaw from its normal, and with it where the boat is; its four corners
+are then drawn wherever the new model puts them. Faces pointing up or down
+can't tell the yaw, so they're hidden: the new model has as many faces as the
+boat has sideways ones whose corners' keys are their own, 14. The paddles
+stay as they are."""
+import argparse
+import io
+import os
+import sys
+import zipfile
+import numpy as np
+from PIL import Image
+
+sys.path.insert(0, os.path.dirname(__file__))
+from vanilla_boat import hull, paddle_keys, TEX
+
+parser = argparse.ArgumentParser(description="Build the boat prototype resource pack.")
+parser.add_argument("out", nargs="?", default=os.path.expandvars(r"%APPDATA%/.minecraft/resourcepacks/MCME-boat-prototype"),
+                    help="the pack folder to write (default: MCME-boat-prototype in .minecraft/resourcepacks)")
+parser.add_argument("--jar", default=os.path.expandvars(r"%APPDATA%/.minecraft/versions/26.2/26.2.jar"),
+                    help="Minecraft's client jar, for vanilla's entity shader and oak boat texture")
+args = parser.parse_args()
+OUT = args.out
+JAR = zipfile.ZipFile(args.jar)
+
+
+def vanilla(path):
+    return JAR.read("assets/minecraft/" + path)
+MARKER = [(77, 67, 69, 3), (66, 79, 65, 3)]     # "MCE", "BOA"
+
+faces = hull()
+
+# a vertex is known by its key: texture coordinate and corner. Some sideways
+# faces share a key with another face - nothing tells them apart - so only
+# those whose every corner's key is their own carry the new model
+keys = {}
+for i, (part, name, pts, uvs, n) in enumerate(faces):
+    for k, uv in enumerate(uvs):
+        keys.setdefault((uv[0], uv[1], k), []).append(i)
+paddles = set(paddle_keys())
+carriers = [f for i, f in enumerate(faces) if abs(f[4][1]) < 0.5
+            and all(keys[(uv[0], uv[1], k)] == [i] and (uv[0], uv[1], k) not in paddles for k, uv in enumerate(f[3]))]
+carrier_keys = [(uv[0], uv[1], k) for f in carriers for k, uv in enumerate(f[3])]
+print(len(carriers), "carriers")
+# every other hull vertex is hidden - none of them a paddle's, which stay
+hidden_keys = sorted({key for key in keys if key not in carrier_keys})
+assert not paddles & set(hidden_keys), paddles & set(hidden_keys)
+
+
+# ---- the new model, in the boat's frame: x across, y up, z along (bow at -z)
+def station(z, w, top, bottom_w, bottom_y):
+    return {"top": np.array([w, top, z]), "bot": np.array([bottom_w, bottom_y, z])}
+
+
+def mirror(p):
+    return p * np.array([-1, 1, 1])
+
+
+ST = [  # stern to bow
+    station(1.10, 0.40, 0.42, 0.30, -0.33),
+    station(0.50, 0.62, 0.22, 0.50, -0.375),
+    station(-0.40, 0.62, 0.22, 0.50, -0.375),
+]
+BOW_TOP = np.array([0.0, 0.50, -1.40])
+BOW_BOT = np.array([0.0, -0.22, -1.18])
+
+PLANKS_SIDE = (32, 37, 60, 43)     # the vanilla side's outer planks
+PLANKS_FLOOR = (34, 3, 62, 19)     # the floor's
+PLANKS_END = (22, 21, 40, 27)      # the back's
+PLANKS_SEAT = (2, 37, 30, 43)
+
+quads = []   # (4 corners, uv rect)
+
+
+def quad(a, b, c, d, rect):
+    quads.append(([a, b, c, d], rect))
+
+
+for side in (1, -1):
+    f = (lambda p: p) if side == 1 else mirror
+    for s0, s1 in ((ST[0], ST[1]), (ST[1], ST[2])):
+        quad(f(s0["top"]), f(s1["top"]), f(s1["bot"]), f(s0["bot"]), PLANKS_SIDE)
+    # the bow: the side runs in to the stem
+    quad(f(ST[2]["top"]), BOW_TOP, BOW_BOT, f(ST[2]["bot"]), PLANKS_SIDE)
+# the floor
+for s0, s1 in ((ST[0], ST[1]), (ST[1], ST[2])):
+    quad(mirror(s0["bot"]), s0["bot"], s1["bot"], mirror(s1["bot"]), PLANKS_FLOOR)
+quad(mirror(ST[2]["bot"]), ST[2]["bot"], BOW_BOT, BOW_BOT, PLANKS_FLOOR)
+# the stern's transom
+quad(mirror(ST[0]["top"]), ST[0]["top"], ST[0]["bot"], mirror(ST[0]["bot"]), PLANKS_END)
+# a prow curling up from the stem, and a stern post
+quad(BOW_BOT, BOW_TOP, np.array([0.0, 0.95, -1.62]), np.array([0.0, 0.70, -1.55]), PLANKS_END)
+quad(np.array([0.0, 0.42, 1.10]), np.array([0.0, 0.75, 1.30]), np.array([0.0, 0.62, 1.32]), np.array([0.0, -0.33, 1.10]), PLANKS_END)
+# two thwarts
+for z in (-0.75, 0.35):
+    a, b = np.array([0.6, 0.0, z]), np.array([-0.6, 0.0, z])
+    quad(a, b, b + [0, 0, 0.22], a + [0, 0, 0.22], PLANKS_SEAT)
+assert len(quads) <= len(carriers), len(quads)
+print(len(quads), "faces in the new model")
+
+
+def normal(pts):
+    n = np.cross(pts[1] - pts[0], pts[2] - pts[0])
+    if np.linalg.norm(n) < 1e-6:
+        n = np.cross(pts[2] - pts[0], pts[3] - pts[0])
+    return n / np.linalg.norm(n)
+
+
+def fmt(v):
+    return "vec3(%s)" % ", ".join("%.4f" % x for x in v)
+
+
+# ---- the shader's tables
+lines = []
+lines.append("// Generated by make_boat.py: the vanilla oak boat's sideways faces' corners")
+lines.append("// (carriers), and the longboat drawn in their place. See mcme_boat.glsl.")
+lines.append("const int MCME_BOAT_CORNERS = %d;" % len(carrier_keys))
+lines.append("// texture coordinate (pixels of 128x64) and corner, per carrier corner")
+lines.append("const ivec3 MCME_BOAT_KEY[%d] = ivec3[%d](%s);" % (len(carrier_keys), len(carrier_keys),
+             ",\n    ".join("ivec3(%d, %d, %d)" % k for k in carrier_keys)))
+lines.append("// where it is on the vanilla boat, in the boat's frame (blocks)")
+lines.append("const vec3 MCME_BOAT_FROM[%d] = vec3[%d](%s);" % (len(carrier_keys), len(carrier_keys),
+             ",\n    ".join(fmt(p) for f in carriers for p in f[2])))
+lines.append("// which way its face points there")
+lines.append("const vec3 MCME_BOAT_FACING[%d] = vec3[%d](%s);" % (len(carriers), len(carriers), ",\n    ".join(fmt(f[4]) for f in carriers)))
+pos, uvs, nrm = [], [], []
+for i in range(len(carriers)):
+    if i < len(quads):
+        pts, (u0, v0, u1, v1) = quads[i]
+        pos += pts
+        uvs += [(u0, v0), (u1, v0), (u1, v1), (u0, v1)]
+        nrm.append(normal(pts))
+    else:   # unused: hidden
+        pos += [np.zeros(3)] * 4
+        uvs += [(0, 0)] * 4
+        nrm.append(np.zeros(3))
+lines.append("const int MCME_BOAT_FACES = %d;" % len(quads))
+lines.append("// the new model's corners, its faces' normals and texture coordinates (pixels)")
+lines.append("const vec3 MCME_BOAT_TO[%d] = vec3[%d](%s);" % (len(pos), len(pos), ",\n    ".join(fmt(p) for p in pos)))
+lines.append("const vec3 MCME_BOAT_TO_NORMAL[%d] = vec3[%d](%s);" % (len(nrm), len(nrm), ",\n    ".join(fmt(n) for n in nrm)))
+lines.append("const vec2 MCME_BOAT_TO_UV[%d] = vec2[%d](%s);" % (len(uvs), len(uvs), ",\n    ".join("vec2(%d, %d)" % uv for uv in uvs)))
+lines.append("// every other vertex of the hull, hidden: faces pointing up or down, and those sharing a key")
+lines.append("const ivec3 MCME_BOAT_HIDDEN[%d] = ivec3[%d](%s);" % (len(hidden_keys), len(hidden_keys),
+             ",\n    ".join("ivec3(%d, %d, %d)" % k for k in hidden_keys)))
+tables = "\n".join(lines) + "\n"
+
+include = tables + r'''
+// A boat's vertex, moved to the longboat: vanilla's oak boat, its texture
+// marked (MARKER, texels (0, 0) and (1, 0)). The boat is drawn turned only
+// about y (its yaw) - its rocking when hit is left out - so that a sideways
+// face's normal gives the yaw, and its corner's place on the vanilla boat
+// where the boat is. Returns false for anything else, left as it is.
+bool mcmeBoat(sampler2D tex, int vertex, inout vec3 pos, inout vec3 normal, inout vec2 uv, out bool hide) {
+    hide = false;
+    ivec4 m0 = ivec4(texelFetch(tex, ivec2(0, 0), 0) * 255.0 + 0.5);
+    ivec4 m1 = ivec4(texelFetch(tex, ivec2(1, 0), 0) * 255.0 + 0.5);
+    if (m0 != ivec4(%s) || m1 != ivec4(%s)) return false;
+    ivec3 key = ivec3(ivec2(floor(uv * vec2(%d.0, %d.0) + 0.5)), vertex & 3);
+    for (int i = 0; i < MCME_BOAT_HIDDEN.length(); i++) {
+        if (MCME_BOAT_HIDDEN[i] == key) { hide = true; return true; }
+    }
+    for (int i = 0; i < MCME_BOAT_CORNERS; i++) {
+        if (MCME_BOAT_KEY[i] != key) continue;
+        int face = i / 4;
+        // the yaw, from the face's normal in the world and on the boat
+        vec2 w = normalize(normal.xz);
+        vec2 b = normalize(MCME_BOAT_FACING[face].xz);
+        float c = b.x * w.x + b.y * w.y;
+        float s = b.y * w.x - b.x * w.y;
+        mat3 yaw = mat3(c, 0.0, -s, 0.0, 1.0, 0.0, s, 0.0, c);
+        vec3 origin = pos - yaw * MCME_BOAT_FROM[i];
+        if (face >= MCME_BOAT_FACES) { hide = true; return true; }
+        pos = origin + yaw * MCME_BOAT_TO[i];
+        normal = yaw * MCME_BOAT_TO_NORMAL[face];
+        uv = MCME_BOAT_TO_UV[i] / vec2(%d.0, %d.0);
+        return true;
+    }
+    return false;
+}
+''' % (", ".join(map(str, MARKER[0])), ", ".join(map(str, MARKER[1])), TEX[0], TEX[1], TEX[0], TEX[1])
+
+# ---- the pack
+os.makedirs(os.path.join(OUT, "assets/minecraft/shaders/include"), exist_ok=True)
+os.makedirs(os.path.join(OUT, "assets/minecraft/shaders/core"), exist_ok=True)
+os.makedirs(os.path.join(OUT, "assets/minecraft/textures/entity/boat"), exist_ok=True)
+with open(os.path.join(OUT, "assets/minecraft/shaders/include/mcme_boat.glsl"), "w", newline="\n") as f:
+    f.write(include)
+
+vsh = vanilla("shaders/core/entity.vsh").decode("utf-8")
+vsh = vsh.replace("#moj_import <minecraft:sample_lightmap.glsl>\n",
+                  "#moj_import <minecraft:sample_lightmap.glsl>\n#moj_import <minecraft:mcme_boat.glsl>\n")
+vsh = vsh.replace("out vec2 texCoord0;\n", "out vec2 texCoord0;\n\nuniform sampler2D Sampler0;\n")
+vsh = vsh.replace("void main() {\n    gl_Position = ProjMat * ModelViewMat * vec4(Position, 1.0);\n\n    sphericalVertexDistance = fog_spherical_distance(Position);\n    cylindricalVertexDistance = fog_cylindrical_distance(Position);\n",
+                  "void main() {\n    // MCME's boat prototype: the boat's vertices moved (mcme_boat.glsl)\n    vec3 position = Position;\n    vec3 normal = Normal;\n    vec2 uv0 = UV0;\n    bool hidden;\n    mcmeBoat(Sampler0, gl_VertexID, position, normal, uv0, hidden);\n\n    gl_Position = hidden ? vec4(2.0, 2.0, 2.0, 1.0) : ProjMat * ModelViewMat * vec4(position, 1.0);\n\n    sphericalVertexDistance = fog_spherical_distance(position);\n    cylindricalVertexDistance = fog_cylindrical_distance(position);\n")
+vsh = vsh.replace("Normal, Color)", "normal, Color)").replace(", Normal);", ", normal);")
+vsh = vsh.replace("texCoord0 = UV0;", "texCoord0 = uv0;").replace("vec4(UV0, 0.0, 1.0)", "vec4(uv0, 0.0, 1.0)")
+assert "mcmeBoat" in vsh and "Normal)" not in vsh.split("void main")[1].replace("normal)", ""), vsh
+with open(os.path.join(OUT, "assets/minecraft/shaders/core/entity.vsh"), "w", newline="\n") as f:
+    f.write(vsh)
+
+tex = Image.open(io.BytesIO(vanilla("textures/entity/boat/oak.png"))).convert("RGBA")
+for x, c in enumerate(MARKER):
+    tex.putpixel((x, 0), c)
+tex.save(os.path.join(OUT, "assets/minecraft/textures/entity/boat/oak.png"))
+with open(os.path.join(OUT, "pack.mcmeta"), "w", newline="\n") as f:
+    f.write('{\n  "pack": {\n    "pack_format": 88,\n    "min_format": 88,\n    "max_format": 88,\n'
+            '    "description": "MCME boat prototype: the oak boat as a longboat"\n  }\n}\n')
+print("wrote", OUT)

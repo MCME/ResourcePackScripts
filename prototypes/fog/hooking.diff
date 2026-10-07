@@ -1,0 +1,280 @@
+commit e0508cf2aa88bdd908a10844b0687519b1bc79b4
+Author: Toti Gonzales <dntstudios101@yahoo.com>
+Date:   Sat Oct 3 16:59:53 2026 +0200
+
+    feat(shaders): Fog, waterfall spray, clouds and smoke (experimental)
+    
+    On top of the lava, water, ice and tar shaders:
+    
+    - the fog block (unconnected purple pane): drifting mist, traced through
+      its block
+    - the spray block (unconnected light blue pane): waterfall mist, thin
+      curling strands, grainy as the mist texture, its grains streaming
+      every way
+    - clouds and smoke as whole volumes, one block each, which the vertex
+      shader spreads over the screen and the fragment shader traces once
+      per pixel (fog_volume.glsl): a cloud (grey pane); a 40-wide smoke
+      column, one light grey pane every 16 blocks up it, magenta on top;
+      chimney smoke (brown pane)
+    
+    Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
+
+diff --git a/assets/minecraft/shaders/include/fluid.glsl b/assets/minecraft/shaders/include/fluid.glsl
+index 0ab0b287..683046ea 100644
+--- a/assets/minecraft/shaders/include/fluid.glsl
++++ b/assets/minecraft/shaders/include/fluid.glsl
+@@ -1,5 +1,5 @@
+ // What the lava (lava.glsl), the water (water.glsl), the ice (ice.glsl), the
+-// tar (tar.glsl) share: telling their faces apart from every other, where on such a face a fragment is, and
++// fog and spray (fog_block.glsl) and the tar (tar.glsl) share: telling their faces apart from every other, where on such a face a fragment is, and
+ // patterns fixed to the world that repeat as it does.
+ //
+ // Shared by vanilla's terrain.fsh, Sodium's block_layer_opaque.fsh and
+@@ -8,7 +8,7 @@
+ // as they did.
+ //
+ // They are told by their textures, block/lava_still, lava_flow, water_still,
+-// water_flow, ice and the tar's, powder_snow to powder_snow_4: the lowest two bits of each texel's red, green
++// water_flow, ice, fog, spray and the tar's, powder_snow to powder_snow_4: the lowest two bits of each texel's red, green
+ // and blue hold a code, by the texel's place in its 4x4 block of the sprite
+ // and by the sprite (fluidCode) - at most 3 steps in 255, which no one sees.
+ // A texel's code is checked, and if it is a fluid's, the codes of its whole
+@@ -29,8 +29,10 @@
+ #define FLUID_WATER_STILL 2
+ #define FLUID_WATER_FLOWING 3
+ #define FLUID_ICE 4
+-#define FLUID_TAR 6                  // (5 is kept for the fog block, on its own branch)
+-#define FLUID_KINDS 7
++#define FLUID_FOG 5
++#define FLUID_TAR 6
++#define FLUID_SPRAY 7
++#define FLUID_KINDS 8
+ 
+ uint fluidHash(ivec4 p) {
+     uint h = uint(p.x) * 73856093u ^ uint(p.y) * 19349663u ^ uint(p.z) * 83492791u ^ uint(p.w) * 2654435761u;
+diff --git a/assets/sodium/shaders/blocks/block_layer_opaque.fsh b/assets/sodium/shaders/blocks/block_layer_opaque.fsh
+index dafc0bf7..d8deaad3 100644
+--- a/assets/sodium/shaders/blocks/block_layer_opaque.fsh
++++ b/assets/sodium/shaders/blocks/block_layer_opaque.fsh
+@@ -32,6 +32,11 @@ flat in float fireTime;
+ in vec3 lavaWorld;
+ in vec4 waterLights;
+ in vec4 waterWeights;
++// clouds and smoke (fog_volume.glsl): which, if any, this is, and its
++// block's middle, relative to the camera and in the world mod 64
++flat in int volumeKind;
++flat in vec3 volumeCentre;
++flat in vec3 volumeBlock;
+ 
+ uniform sampler2D u_BlockTex; // The block texture
+ // lava: the light map, for the time of day core/lightmap.fsh hides in it -
+@@ -117,6 +122,9 @@ vec4 sampleRGSS(sampler2D source, vec2 uv, vec2 pixelSize) {
+ #moj_import <minecraft:water.glsl>
+ #moj_import <minecraft:ice_config.glsl>
+ #moj_import <minecraft:ice.glsl>
++#moj_import <minecraft:fog_block_config.glsl>
++#moj_import <minecraft:fog_volume.glsl>
++#moj_import <minecraft:fog_block.glsl>
+ #moj_import <minecraft:tar_config.glsl>
+ #moj_import <minecraft:tar.glsl>
+ 
+@@ -140,7 +148,7 @@ void main() {
+ #define SODIUM
+ #moj_import <minecraft:objmc_light.glsl>
+     // lava: its own light, with only the game's shading of its sides
+-    int fluid = isCustom == 0 && fireLayer < 0 ? fluidKind(u_BlockTex, v_TexCoord) : -1;
++    int fluid = isCustom == 0 && fireLayer < 0 && volumeKind == 0 ? fluidKind(u_BlockTex, v_TexCoord) : -1;
+     if (fluid == LAVA_STILL || fluid == LAVA_FLOWING) {
+         color = vec4(lavaColor(fluid, fluidHere, fireClockSeconds(u_LightTex)) * mix(vec3(1.0), vertexColor.rgb, LAVA_SHADING), 1.0);
+     }
+@@ -158,6 +166,22 @@ void main() {
+         vec3 open = vertexColor.rgb / max(max(vertexColor.r, max(vertexColor.g, vertexColor.b)), 1.0e-3) * shore.open;
+         color = vec4(ice.color * mix(vertexColor.rgb, open, ice.frost) * lightColor.rgb, ice.alpha);
+     }
++    // fog: the mist the view passes through in its block, lit by the
++    // light alone - no shading of its faces, which would show them
++    if (fluid == FOG_BLOCK) {
++        vec4 fog = fogLook(fluidHere, fireClockSeconds(u_LightTex), u_FogColor.rgb);
++        color = vec4(fog.rgb * lightColor.rgb, fog.a);
++    }
++    // spray: the same, rising round waterfalls
++    if (fluid == SPRAY_BLOCK) {
++        vec4 spray = sprayLook(fluidHere, fireClockSeconds(u_LightTex));
++        color = vec4(spray.rgb * lightColor.rgb, spray.a);
++    }
++    // clouds and smoke: their volumes traced, lit by the light alone
++    if (volumeKind > 0) {
++        vec4 volume = volumeLook(volumeKind, volumeCentre, volumeBlock, Pos, fireClockSeconds(u_LightTex));
++        color = vec4(volume.rgb * lightColor.rgb, volume.a);
++    }
+     // tar: lit and shaded as any block
+     if (fluid == TAR) {
+         color = vec4(tarColor(fluidHere, fireClockSeconds(u_LightTex), shore) * vertexColor.rgb * lightColor.rgb, 1.0);
+@@ -174,7 +198,9 @@ void main() {
+     objmcEdges(color, v_TexCoord, 1.0 / u_TexelSize);
+ 
+ #ifdef ALPHA_CUTOUT
+-    if (color.a < ALPHA_CUTOUT) {
++    // (not clouds' and smoke's thin edges: only what's fully clear, which
++    // mustn't hide what is drawn after it)
++    if (color.a < (volumeKind > 0 ? 1.0 / 255.0 : ALPHA_CUTOUT)) {
+         discard;
+     }
+ #endif
+diff --git a/assets/sodium/shaders/blocks/block_layer_opaque.vsh b/assets/sodium/shaders/blocks/block_layer_opaque.vsh
+index c1753617..0c259282 100644
+--- a/assets/sodium/shaders/blocks/block_layer_opaque.vsh
++++ b/assets/sodium/shaders/blocks/block_layer_opaque.vsh
+@@ -56,12 +56,19 @@ out vec3 lavaWorld;
+ // lighting's occlusion - for its shores
+ out vec4 waterLights;
+ out vec4 waterWeights;
++// clouds and smoke (fog_volume.glsl): which, if any, this is, and its
++// block's middle, relative to the camera and in the world mod 64
++flat out int volumeKind;
++flat out vec3 volumeCentre;
++flat out vec3 volumeBlock;
+ 
+ #define Sampler0 u_BlockTex
+ #moj_import <minecraft:objmc_tools.glsl>
+ #moj_import <minecraft:far_terrain.glsl>
+ #moj_import <minecraft:fire_eye_config.glsl>
+ #moj_import <minecraft:water_corner.glsl>
++#moj_import <minecraft:fog_block_config.glsl>
++#moj_import <minecraft:fog_volume.glsl>
+ 
+ uvec3 _get_relative_chunk_coord(uint pos) {
+     // Packing scheme is defined by LocalSectionIndex
+@@ -107,12 +114,17 @@ void main() {
+ #define FIRE_MODELVIEW u_ModelViewMatrix
+ #define FIRE_SECONDS (float(u_CurrentTime) / 1000.0)
+ #moj_import <minecraft:fire_eye_main.glsl>
++    // clouds and smoke: spread over their volumes
++#define VOLUME_MODELVIEW u_ModelViewMatrix
++#moj_import <minecraft:fog_volume_main.glsl>
+ #undef texCoord
+ 
+ #ifdef USE_FOG
+     v_FragDistance = getFragDistance(Pos);
+     // the fire eye is fogged as one thing, at its centre's distance
+     if (fireLayer >= 0) v_FragDistance = getFragDistance(fireCentre);
++    // a volume too, at its block's
++    if (volumeKind > 0) v_FragDistance = getFragDistance(volumeCentre);
+ 
+     int chunkId = int(_draw_id);
+     int chunkFade = texelFetch(u_SectionTimeInfo, int((u_RegionID * 256u) + uint(chunkId))).r;
+diff --git a/vanilla/assets/minecraft/shaders/core/terrain.fsh b/vanilla/assets/minecraft/shaders/core/terrain.fsh
+index f90986f2..c655edcb 100644
+--- a/vanilla/assets/minecraft/shaders/core/terrain.fsh
++++ b/vanilla/assets/minecraft/shaders/core/terrain.fsh
+@@ -31,6 +31,11 @@ flat in float fireTime;
+ in vec3 lavaWorld;
+ in vec4 waterLights;
+ in vec4 waterWeights;
++// clouds and smoke (fog_volume.glsl): which, if any, this is, and its
++// block's middle, relative to the camera and in the world mod 64
++flat in int volumeKind;
++flat in vec3 volumeCentre;
++flat in vec3 volumeBlock;
+ // BEGIN COMMENTED 1.21.4 BLOCK-LIGHTING VARYINGS
+ // flat in float baseBrightness;
+ // flat in float aoIntensity;
+@@ -125,6 +130,9 @@ vec4 sampleRGSS(sampler2D source, vec2 uv, vec2 pixelSize) {
+ #moj_import <water.glsl>
+ #moj_import <ice_config.glsl>
+ #moj_import <ice.glsl>
++#moj_import <fog_block_config.glsl>
++#moj_import <fog_volume.glsl>
++#moj_import <fog_block.glsl>
+ #moj_import <tar_config.glsl>
+ #moj_import <tar.glsl>
+ 
+@@ -148,7 +156,7 @@ void main() {
+     #moj_import<objmc_light.glsl>
+     // lava: its own light, with only the game's shading of its sides;
+     // GameTime is the day's fraction, as for the eye
+-    int fluid = isCustom == 0 && fireLayer < 0 ? fluidKind(Sampler0, texCoord) : -1;
++    int fluid = isCustom == 0 && fireLayer < 0 && volumeKind == 0 ? fluidKind(Sampler0, texCoord) : -1;
+     if (fluid == LAVA_STILL || fluid == LAVA_FLOWING) {
+         color = vec4(lavaColor(fluid, fluidHere, GameTime * 1200.0) * mix(vec3(1.0), vertexColor.rgb, LAVA_SHADING), 1.0);
+     }
+@@ -165,6 +173,22 @@ void main() {
+         vec3 open = vertexColor.rgb / max(max(vertexColor.r, max(vertexColor.g, vertexColor.b)), 1.0e-3) * shore.open;
+         color = vec4(ice.color * mix(vertexColor.rgb, open, ice.frost) * lightColor.rgb, ice.alpha);
+     }
++    // fog: the mist the view passes through in its block, lit by the
++    // light alone - no shading of its faces, which would show them
++    if (fluid == FOG_BLOCK) {
++        vec4 fog = fogLook(fluidHere, GameTime * 1200.0, FogColor.rgb);
++        color = vec4(fog.rgb * lightColor.rgb, fog.a);
++    }
++    // spray: the same, rising round waterfalls
++    if (fluid == SPRAY_BLOCK) {
++        vec4 spray = sprayLook(fluidHere, GameTime * 1200.0);
++        color = vec4(spray.rgb * lightColor.rgb, spray.a);
++    }
++    // clouds and smoke: their volumes traced, lit by the light alone
++    if (volumeKind > 0) {
++        vec4 volume = volumeLook(volumeKind, volumeCentre, volumeBlock, Pos, GameTime * 1200.0);
++        color = vec4(volume.rgb * lightColor.rgb, volume.a);
++    }
+     // tar: lit and shaded as any block
+     if (fluid == TAR) {
+         color = vec4(tarColor(fluidHere, GameTime * 1200.0, shore) * vertexColor.rgb * lightColor.rgb, 1.0);
+@@ -183,7 +207,9 @@ void main() {
+     objmcEdges(color, texCoord, vec2(TextureSize));
+ 
+ #ifdef ALPHA_CUTOUT
+-    if (color.a < ALPHA_CUTOUT) {
++    // (not clouds' and smoke's thin edges: only what's fully clear, which
++    // mustn't hide what is drawn after it)
++    if (color.a < (volumeKind > 0 ? 1.0 / 255.0 : ALPHA_CUTOUT)) {
+         discard;
+     }
+ #endif
+diff --git a/vanilla/assets/minecraft/shaders/core/terrain.vsh b/vanilla/assets/minecraft/shaders/core/terrain.vsh
+index 411eae9f..1d7dfdc5 100644
+--- a/vanilla/assets/minecraft/shaders/core/terrain.vsh
++++ b/vanilla/assets/minecraft/shaders/core/terrain.vsh
+@@ -37,6 +37,11 @@ out vec3 lavaWorld;
+ // water (water.glsl): each corner's brightness, for its shores
+ out vec4 waterLights;
+ out vec4 waterWeights;
++// clouds and smoke (fog_volume.glsl): which, if any, this is, and its
++// block's middle, relative to the camera and in the world mod 64
++flat out int volumeKind;
++flat out vec3 volumeCentre;
++flat out vec3 volumeBlock;
+ // BEGIN COMMENTED 1.21.4 BLOCK-LIGHTING VARYINGS
+ // flat out float baseBrightness;
+ // flat out float aoIntensity;
+@@ -48,6 +53,8 @@ out vec4 waterWeights;
+ #moj_import <far_terrain.glsl>
+ #moj_import <fire_eye_config.glsl>
+ #moj_import <water_corner.glsl>
++#moj_import <fog_block_config.glsl>
++#moj_import <fog_volume.glsl>
+ 
+ vec4 minecraft_sample_lightmap(sampler2D lightMap, ivec2 uv) {
+     return texture(lightMap, clamp(uv / 256.0, vec2(0.5 / 16.0), vec2(15.5 / 16.0)));
+@@ -85,6 +92,10 @@ void main() {
+     #define FIRE_SECONDS (GameTime * 1200.0)
+     #moj_import <fire_eye_main.glsl>
+ 
++    // clouds and smoke: spread over their volumes
++    #define VOLUME_MODELVIEW ModelViewMat
++    #moj_import <fog_volume_main.glsl>
++
+     gl_Position = ProjMat * ModelViewMat * vec4(Pos, 1.0);
+     sphericalVertexDistance = fog_spherical_distance(Pos);
+     cylindricalVertexDistance = fog_cylindrical_distance(Pos);
+@@ -94,4 +105,9 @@ void main() {
+         sphericalVertexDistance = fog_spherical_distance(fireCentre);
+         cylindricalVertexDistance = fog_cylindrical_distance(fireCentre);
+     }
++    // a volume too, at its block's
++    if (volumeKind > 0) {
++        sphericalVertexDistance = fog_spherical_distance(volumeCentre);
++        cylindricalVertexDistance = fog_cylindrical_distance(volumeCentre);
++    }
+ }

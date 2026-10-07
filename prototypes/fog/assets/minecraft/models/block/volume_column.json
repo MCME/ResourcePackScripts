@@ -1,0 +1,41 @@
+{
+    "textures": {
+        "0": "minecraft:block/volume",
+        "particle": "minecraft:block/gray_stained_glass"
+    },
+    "elements": [
+        {
+            "from": [
+                7.5,
+                8,
+                7.5
+            ],
+            "to": [
+                8.5,
+                8,
+                8.5
+            ],
+            "shade": false,
+            "rotation": {
+                "origin": [
+                    8,
+                    8,
+                    8
+                ],
+                "axis": "x",
+                "angle": 22.5
+            },
+            "faces": {
+                "up": {
+                    "uv": [
+                        1.25,
+                        0.25,
+                        1.75,
+                        0.75
+                    ],
+                    "texture": "#0"
+                }
+            }
+        }
+    ]
+}
