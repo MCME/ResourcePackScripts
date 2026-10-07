@@ -8,6 +8,8 @@ The Sodium variant's 3D models are `.obj` files, which only render with the Spec
 - [Developer manual](#developer-manual): work on the code
 - [Other scripts](#other-scripts): small standalone helpers
 
+**How a pack gets from its repository to the players** is in the **[documentation](docs/README.md)**: setting up a pack repository, the release pipeline on the server, the conversion in detail, and troubleshooting.
+
 ## How it works
 
 ```mermaid
@@ -21,7 +23,7 @@ flowchart LR
     chain --> out
 ```
 
-1. **Copy the pack's own files.** These are `pack.mcmeta`, where "Sodium" in the description becomes "Vanilla", plus `pack.png`, `license.txt`, `README.md` and the `assets` folder. A few folders under `assets` are skipped because step 2 rebuilds them. The files in the pack's `vanilla` folder go on top, then the `1_*` version overlays.
+1. **Copy the pack's own files.** These are `pack.mcmeta`, where "Sodium" in the description becomes "Vanilla", plus `pack.png`, `license.txt`, `README.md` and the `assets` folder. A few folders under `assets` are skipped because step 2 rebuilds them. The pack's `vanilla` folder goes on top, apart from the folders that are rebuilt, then the `1_*` version overlays.
 2. **Walk every blockstate and item definition the vanilla client has.** For each one it takes the pack's version if there is one, and handles every model it names:
    - An `mcme:` model is baked by objmc. The entry is then pointed at the baked model.
    - Any other model has its parent chain followed. Every model and texture along the way that the pack overrides is copied.
@@ -33,7 +35,7 @@ flowchart LR
 
 - **Python 3.10 or newer**, with the dependencies installed: `pip install -r requirements.txt`. That gives you PyYAML and Pillow. pytest is only needed for the tests.
 - **The Sodium pack**, for example a checkout of [RP-Human](https://github.com/MCME/RP-Human) `master`.
-- **The vanilla resources** of the Minecraft version the pack targets. Unzip the client jar, `.minecraft/versions/<version>/<version>.jar`, and use the folder that contains `assets/`. The tool reads `assets/minecraft/blockstates`, `items` and `models` from it.
+- **The vanilla resources** of the Minecraft version the pack targets. Unzip the client jar, `.minecraft/versions/<version>/<version>.jar`, and use the folder that contains `assets/`. The tool reads `assets/minecraft/blockstates`, `items` and `models` from it. Only blocks and items in that version's list are converted. The release server uses 26.2's, so use those to see what a release will contain.
 
 ### Generate the vanilla pack
 
@@ -54,7 +56,7 @@ python generateVanilla/generateVanilla.py RP-Human ../RP-Human-vanilla ../minecr
 | Option | What it does |
 |---|---|
 | `--objmc PATH` | The objmc script to bake models with. Default: `objmc.py` in the current folder. |
-| `--limit N` | Keep only the first N models of each blockstate variant's model list. That gives a smaller pack, faster. |
+| `--limit N` | Keep only the first N models of each blockstate variant's model list, and of each multipart `apply` list. That gives a smaller pack, faster. The Lite variant uses `--limit 2`. |
 | `--compress` | Write the generated JSON without indentation. |
 | `--debug` | Print each step as it happens. The same lines go to `debug.log`. |
 | `--noblocks` | Skip the blockstates. |
@@ -73,13 +75,13 @@ python generateVanilla/generateVanilla.py RP-Human ../RP-Human-vanilla ../minecr
 │   ├── mcme/models/…/<name>.objmeta  optional conversion settings, see below
 │   └── mcme/textures/…               the textures the .mtl files name
 ├── vanilla/                       optional: files only the vanilla variant gets
-│   ├── assets/…                      copied on top of the pack's assets
+│   ├── assets/…                      copied on top of the pack's assets, except the rebuilt folders
 │   └── 1_*/                          version overlays
 └── 1_*/                           version overlays ("overlays" in pack.mcmeta), copied as they are
 ```
 
 - **The Sodium model JSON** names its `.obj` in `model`, for example `"model": "mcme:models/block/leaves_parent.obj"`. It reads the `.mtl` with its own name, or the one named in `mtl_override`.
-- **The objmc core shaders are not generated.** The baked models only render with objmc's shaders in the vanilla pack. RP-Human keeps them in `vanilla/assets/minecraft/shaders/` and in its `1_21_1` overlays.
+- **The shaders come from [the shader base](docs/shader-base.md)** in `shaderBase/`: objmc's terrain shaders and their Sodium counterparts, the water they draw, the light map that carries the time of day, the empty hooks, the action bar's `text.vsh` and `fog.glsl`. generateVanilla adds them to the output and writes the water's codes into its water textures. It stops if the pack has a copy of a base file of its own, or if any shader import in the output doesn't resolve. A pack adds features of its own, such as Mordor's lava and fire eye, through the [hooks](docs/shader-base.md#hooks). Change the objmc shaders together with `objmc.py`.
 - **Some folders are rebuilt instead of copied:** every namespace's `blockstates`, `items`, `models`, `textures/block` and `textures/item`. Only what the blockstates and items actually use ends up in the output.
   - `assets/mcme/sml_load_scopes` is left out too, because only Special Model Loader reads it.
   - `modelengine`'s models and items are copied as they are.
@@ -90,7 +92,7 @@ A `.objmeta` is a YAML file next to the model JSON, with the same name. Every ke
 
 | Key | Default | Effect |
 |---|---|---|
-| `texture` | the `.mtl`'s `map_Kd` | Texture to bake from: `mcme:block/x`, or `minecraft:block/x` for a vanilla texture |
+| `texture` | the `.mtl`'s `map_Kd` | Texture to bake from: `mcme:block/x`, or `minecraft:block/x` for one in the pack's own `assets/minecraft/textures/` |
 | `output_texture` | the model's path | Name of the baked texture, under `assets/mcme/textures/` |
 | `offset` | `-0.5 0.0 -0.5` | Moves the model before baking (x y z) |
 | `options` | none | `noshadow` turns off face shading. `flipuv` is for a texture that comes out upside down. |
@@ -103,26 +105,29 @@ The `parent` key is no longer read. Since the parent rework (#4), shared parents
 
 - **`mcme:` models:** every blockstate or item entry that names an `mcme:` model is baked by objmc. The result is `assets/mcme/models/<model>.json` plus a texture under `assets/mcme/textures/`.
 - **Rotations:** an entry's `x`, `y` or `z` rotation is baked into the model. The tool rotates the `.obj` before objmc sees it, and the files get a suffix such as `<model>_y_90`. Only one axis can be baked, so if an entry has several, the first of `x`, `y` and `z` is used and the rest are dropped with a warning.
-- **Shared parents:** an `.obj` named `parent` or `…_parent`, optionally numbered, is shared. For example `leaves_parent.obj` or `parent_2.obj`. Sharing happens when two models read the same one, at the same y-rotation, and bake to textures of the same size. Their geometry is then stored once, in `<name>_parent.json`. Give the source textures the same size if you want models to share.
+- **Shared parents:** an `.obj` named `parent` or `…_parent`, optionally numbered, is shared. For example `leaves_parent.obj` or `parent_2.obj`. Sharing happens when two models read the same one, at the same y-rotation, and bake to textures of the same size. Their geometry is then stored once, in a model named after the `.obj`, such as `leaves_parent.json`. **Give every texture used with one parent `.obj` the same size**: a mismatch can corrupt other models' geometry (see [Shared parents](docs/conversion.md#shared-parents)).
 - **Other models** (`minecraft:` and other namespaces): the tool follows the model's parent chain and copies every model and texture along it that the pack overrides. Models the pack doesn't override are left to the client's own copy.
+- **Animated textures:** a texture with an `animation` `.png.mcmeta` gets one copy of the bake per frame, stacked, so the model stays animated. See [Animated textures](docs/conversion.md#animated-textures).
 - **Where blockstates and item definitions come from:** the pack's `vanilla` folder first, then the pack, then the vanilla resources. The ones that came from the pack are written to the output.
 
 ### Warnings
 
-A problem with one model never stops the run. The tool prints a `WARNING!!!` line, skips that model or file, and carries on, so read the warnings after every run:
+A problem with one model normally doesn't stop the run. The tool prints a `WARNING` line, skips that model or file, and carries on, so read the warnings after every run. A few input errors, such as invalid JSON or a pack that breaks the shader base's rules, do stop it (see [What stops a run](docs/conversion.md#what-stops-a-run-and-what-doesnt)). The most common warnings:
 
 | Warning | Meaning |
 |---|---|
 | `Missing model file: …` | A model is named that neither the pack nor vanilla has. |
 | `Expected model file not found: …` | An `mcme:` model has no model JSON. |
 | `Multiple rotations for …` | Only the first rotation axis was baked. |
-| `… shares parent group … but its baked texture is …` | Same parent `.obj` but a different texture size, so the geometry isn't shared. |
+| `… shares parent group … but its baked texture is …` | Same parent `.obj` but a different texture size. Fix it: it can corrupt other models. |
 | `… leads outside the pack - skipping …` | A path or symlink in the pack points outside it. Fix the pack. |
 | `Rotation … is not a number` | The entry's rotation isn't a number, so the model is skipped. |
 | `Missing assets folder` / `Missing vanilla overrides folder` | The pack has no such folder. The rest is still generated. |
 | `Unrecognised texture value for …` | A model's `textures` entry has a form the tool doesn't know. |
 
 objmc's own errors, such as a model too big to encode, appear after `Error running process script` together with objmc's output. That model is skipped.
+
+A model JSON without a `model` key, or a missing `.obj`, is skipped **without any message**. The full list of messages, with what to do about each, is in [Troubleshooting](docs/troubleshooting.md#generator-warnings).
 
 ### Running it safely
 
@@ -138,6 +143,10 @@ Standalone helpers. generateVanilla doesn't use them.
 
 | Script | What it does |
 |---|---|
+| `generateVanilla/syncShaderBase.py <pack repository> [--force]` | Writes the shader base and the pack's modules into a pack repository, signs its fluids and records them in `.mcme-shaders.lock`. Run it whenever the base changes, then commit. See [the shader base](docs/shader-base.md#getting-it-into-a-pack). |
+| `generateVanilla/checkShaders.py <pack> [--glslang PATH] [--fetch tested\|latest]` | Checks a pack's shaders the ways a driver could refuse them: Mac-safe `#version` and extensions, every shader compiled (glslang) and linked (moderngl), DH overrides against DH's own. Each pack repository runs it on GitHub. See [Checks](docs/shader-base.md#checks). |
+| `generateVanilla/applyShaderBase.py <pack> [<output>]` | Adds the shader base to a pack that generateVanilla doesn't build, such as the Sodium zip, and signs its water. Without an output folder it **changes the pack in place**, so run it on a copy. |
+| `generateVanilla/signFluids.py <pack> lava\|water\|ice\|all [--check]` | Writes the fluids' codes into a pack's fluid textures, which the terrain shaders recognise them by. Run it in the pack's repository after editing one of those textures. `--check` only reports. |
 | `generateVanilla/rotate_obj.py <file.obj> <axis> <angle>` | Rotates an `.obj` **in place** by 90, 180 or 270 degrees around `x`, `y` or `z`. |
 | `finder.py <model>` | Reports which blockstates and parent models use the block model `<model>` (name without `block/`). Read-only. |
 | `sorter.py` | **Moves** every block model and texture that no blockstate uses into `unlinked_models/` and `unlinked_textures/`, without asking. Run it on a copy. |
@@ -165,11 +174,15 @@ pip install -r requirements.txt
 | `generateVanilla/processItem.py` | The same for item definitions. It finds every `model` and `special` node, however deeply nested. |
 | `generateVanilla/processModel.py` | One model entry: `mcme:` models go to objmc, others to the parent-chain copy. Also checks rotations. |
 | `generateVanilla/objmc_conversion.py` | The conversion, in three stages: plan it (settle and check every path), run objmc, then fit its output into the pack and link shared parents. The module docstring explains the split. |
+| `generateVanilla/objmc_merge.py` | After every model is converted, merges the bakes that hold the same texture into one sprite, so the texture is stored once |
 | `generateVanilla/objmc.py` | objmc, bundled: a Python port of the objcubed encoding, for static block models only. It runs as a subprocess under the same Python. |
+| `generateVanilla/shader_base.py` | Adds `shaderBase/` to the output and checks the pack against it: no base files of its own, every shader import resolves |
+| `generateVanilla/applyShaderBase.py` | The same for a pack that isn't built here (see [Other scripts](#other-scripts)) |
+| `generateVanilla/fluid_signature.py` | Reads and writes the fluids' codes in their textures. `signFluids.py` is its command line. |
 | `generateVanilla/rotate_obj.py` | Rotates `.obj` vertices and normals |
 | `generateVanilla/util.py` | Identifier-to-path helpers, `contained_path`, logging |
 | `generateVanilla/constants.py` | Folder names, the folders rebuilt instead of copied, namespaces |
-| `generateVanilla/hardcodedFiles.py` | Files that are always copied: the water and lava flow textures |
+| `generateVanilla/hardcodedFiles.py` | Files that are always copied: the water and lava textures, still and flowing |
 
 ### Tests
 
@@ -182,12 +195,12 @@ Name `tests` on the command line. `--objmc` is defined in `tests/conftest.py`, a
 - **Most tests fake objmc** and check our own logic.
 - **The golden tests** (`tests/test_objmc_golden.py`) run the real objmc over the fixture pack in `tests/fixtures/sodium_pack`, which has [its own README](tests/fixtures/README.md). They compare the output with `tests/goldens/`: model JSON in full, textures as a hash and a size. When an objmc or conversion change is intended, review the diff and rerun with `--update-goldens`. Pass `--objmc` twice to compare two objmc versions.
 - **Tests that need symlinks** are skipped where the OS doesn't allow them, such as Windows without Developer Mode.
-- **Known issue:** the 9 golden tests currently fail. They predate the parent rework (#4) and need regenerating once its output is accepted.
+- **Known issue:** the 9 golden tests currently fail. They predate the parent rework (#4) and the mipmapping and cutout changes (#13, #14), and need regenerating once that output is accepted.
 
 ### Rules the code follows
 
 - **Everything in a pack is input from many hands.** Build file paths from pack content only through `util.contained_path`, and never follow a symlink out of the pack.
-- **A problem with one model or file is skipped** with a `WARNING!!!` line. It never stops the run.
+- **A problem with one model or file is skipped** with a `WARNING!!!` line. It never stops the run. The shader base's checks are the exception: a pack that breaks them would make Minecraft drop every resource pack, so they stop it.
 - **The input pack is only read.** Temporary files go to a temporary folder.
 - **Only stages 2 and 3 of `objmc_conversion.py` know objmc's command line and output format**, so updating objmc touches nothing else.
 
