@@ -80,8 +80,9 @@ def problems(image, path: Path, opaque) -> list[str]:
     return found
 
 
-def sign_pack(pack_path, names, check=False) -> tuple[list[str], bool]:
-    """Sign (or with check, only check) the pack's textures of these names.
+def sign_pack(pack_path, names, check=False, kinds=None) -> tuple[list[str], bool]:
+    """Sign (or with check, only check) the pack's textures of these names -
+    the base's fluids (KINDS), or a pack's own, by kinds (name: 5 to 7).
 
     Returns what was done to each, and whether everything is signed. A texture
     the pack doesn't have is passed over: the game's own then shows, plain.
@@ -92,7 +93,7 @@ def sign_pack(pack_path, names, check=False) -> tuple[list[str], bool]:
         path = Path(pack_path) / FOLDER / f"{name}.png"
         if not path.is_file():
             continue
-        kind = KINDS[name]
+        kind = (kinds or {}).get(name, KINDS.get(name))
         image = Image.open(path)
         if image.mode != "RGBA":
             image = image.convert("RGBA")

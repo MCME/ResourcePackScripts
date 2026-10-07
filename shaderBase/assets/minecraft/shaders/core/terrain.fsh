@@ -27,6 +27,7 @@ flat in vec4 texRect;
 in vec3 fluidWorld;
 in vec4 waterLights;
 in vec4 waterWeights;
+in vec4 waterHeights;
 // BEGIN COMMENTED 1.21.4 BLOCK-LIGHTING VARYINGS
 // flat in float baseBrightness;
 // flat in float aoIntensity;
@@ -112,10 +113,13 @@ vec4 sampleRGSS(sampler2D source, vec2 uv, vec2 pixelSize) {
 
 #moj_import <objmc_fragment.glsl>
 
-// the fluids: the water for every pack, the rest a pack's own
+// the fluids: the water for every pack, the modules the pack turned on
+// (lava, ice), and a pack's own in its hooks
 #moj_import <minecraft:fluid.glsl>
 #moj_import <minecraft:water_config.glsl>
 #moj_import <minecraft:water.glsl>
+#moj_import <minecraft:mcme_modules.glsl>
+#moj_import <minecraft:mcme_lite.glsl>
 
 // The pack's own terrain features (see terrain.vsh)
 #define MCME_SECONDS (GameTime * 1200.0)
@@ -144,15 +148,20 @@ void main() {
     // the fluids: which one this face is, if any, and where on it - taken
     // before branching, as it needs derivatives
     FluidFrame fluidHere = fluidFrame(fluidWorld, Pos, texCoord);
-    WaterShore shore = waterShore(waterLights, waterWeights);
+    WaterShore shore = waterShore(waterLights, waterWeights, waterHeights);
+#ifdef MCME_LITE
+    int fluid = -1;     // the Lite zip: fluids as their textures
+#else
     int fluid = isCustom == 0 ? fluidKind(Sampler0, texCoord) : -1;
+#endif
     // water: its colour and light as ever, its pattern and opacity its own
     if (fluid == WATER_STILL || fluid == WATER_FLOWING) {
         WaterLook water = waterLook(fluid, fluidHere, MCME_SECONDS, shore);
-        vec3 lit = vertexColor.rgb * lightColor.rgb;
-        color = vec4(mix(lit * water.shade, WATER_FOAM_COLOR * lightColor.rgb, water.foam), water.alpha);
+        vec3 lit = waterTint(vertexColor.rgb) * lightColor.rgb;
+        color = vec4(mix(waterMurky(lit, water.murk) * water.shade, WATER_FOAM_COLOR * lightColor.rgb, water.foam), water.alpha);
     }
 
+    #moj_import <minecraft:mcme_modules_main.glsl>
     #moj_import <minecraft:mcme_hook_fragment_main.glsl>
     // A chunk that has just loaded fades in from the fog colour, as in vanilla.
     color = mix(FogColor * vec4(1, 1, 1, color.a), color, ChunkVisibility);

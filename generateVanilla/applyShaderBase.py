@@ -6,7 +6,8 @@ to its copy before zipping it:
     python applyShaderBase.py <pack folder> [<output folder>]
 
 The output defaults to the pack folder itself, so run it on a copy: it also
-signs the water textures there. Exits non-zero if the pack ships a file the
+signs the fluid textures there. A pack whose repository syncShaderBase.py keeps
+up to date has the base already; this only brings it up to the newest. Exits non-zero if the pack ships a file the
 base owns, or if any shader import then still doesn't resolve.
 """
 
@@ -27,8 +28,8 @@ pack_path = Path(args.pack_path)
 output_path = Path(args.output_path) if args.output_path else pack_path
 
 try:
-    shader_base.apply([pack_path], output_path)
-    shader_base.finish(output_path)
+    config = shader_base.apply([pack_path], output_path)
+    shader_base.finish(output_path, config)
 except shader_base.ShaderBaseError as e:
     sys.exit(f"ERROR: {e}")
 print(f"Shader base added to {output_path}")

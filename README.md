@@ -143,6 +143,8 @@ Standalone helpers. generateVanilla doesn't use them.
 
 | Script | What it does |
 |---|---|
+| `generateVanilla/syncShaderBase.py <pack repository> [--force]` | Writes the shader base and the pack's modules into a pack repository, signs its fluids and records them in `.mcme-shaders.lock`. Run it whenever the base changes, then commit. See [the shader base](docs/shader-base.md#getting-it-into-a-pack). |
+| `generateVanilla/checkShaders.py <pack> [--glslang PATH] [--fetch tested\|latest]` | Checks a pack's shaders the ways a driver could refuse them: Mac-safe `#version` and extensions, every shader compiled (glslang) and linked (moderngl), DH overrides against DH's own. Each pack repository runs it on GitHub. See [Checks](docs/shader-base.md#checks). |
 | `generateVanilla/applyShaderBase.py <pack> [<output>]` | Adds the shader base to a pack that generateVanilla doesn't build, such as the Sodium zip, and signs its water. Without an output folder it **changes the pack in place**, so run it on a copy. |
 | `generateVanilla/signFluids.py <pack> lava\|water\|ice\|all [--check]` | Writes the fluids' codes into a pack's fluid textures, which the terrain shaders recognise them by. Run it in the pack's repository after editing one of those textures. `--check` only reports. |
 | `generateVanilla/rotate_obj.py <file.obj> <axis> <angle>` | Rotates an `.obj` **in place** by 90, 180 or 270 degrees around `x`, `y` or `z`. |

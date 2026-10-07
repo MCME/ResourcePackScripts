@@ -161,7 +161,7 @@ These live in `assets/minecraft/blockstates/` and `assets/minecraft/items/`, and
 
 Files only the Vanilla and Lite variants need. They're merged into the converted pack's `assets/`.
 
-- **No objmc shaders, `text.vsh` or `fog.glsl`, here or anywhere in the pack.** They come from [the shader base](shader-base.md), which the build adds, and a pack with its own copy fails to build. The pack's own shader features go into [hooks](shader-base.md#hooks).
+- **No shaders of the base here.** The base's shaders, objmc's, `text.vsh` and `fog.glsl` among them, are in the pack's root `assets/`, written there by [the sync](shader-base.md#getting-it-into-a-pack). Don't change them: a pack with a changed copy fails to build. The pack's own shader features go into [hooks](shader-base.md#hooks).
 - **`blockstates` and `items` here replace the pack's own**, for blocks that should look different without the mod.
 - **`models`, `textures/block` and `textures/item` here are ignored.** Those folders are rebuilt from what the blockstates use. Old pre-baked models in `vanilla/` do nothing.
 - **Everything else is copied on top**: fonts, GUI textures and so on.
@@ -242,7 +242,7 @@ python generateVanilla/generateVanilla.py ../RP-Human ../out-lite ../minecraft-1
 ## Bring a new pack into the pipeline
 
 1. **Create the repository** under the MCME organization, as `RP-<Name>`, with `master` and `development` branches.
-2. **Lay it out** as a [Sodium pack](#layout-of-a-sodium-pack) or a [vanilla-only pack](#layout-of-a-vanilla-only-pack). For a Sodium pack, start from a copy of RP-Human's `pack.mcmeta` and `license.txt`. The shaders come from [the shader base](shader-base.md). **Don't copy RP-Human's `.gitignore`**: it is the stock Visual Studio one. Use the one [above](#gitignore).
+2. **Lay it out** as a [Sodium pack](#layout-of-a-sodium-pack) or a [vanilla-only pack](#layout-of-a-vanilla-only-pack). For a Sodium pack, start from a copy of RP-Human's `pack.mcmeta` and `license.txt`. The shaders come from [the shader base](shader-base.md): run [the sync](shader-base.md#getting-it-into-a-pack) on the new repository and commit what it wrote. **Don't copy RP-Human's `.gitignore`**: it is the stock Visual Studio one. Use the one [above](#gitignore).
 3. **Check the `.gitignore`** (see [above](#gitignore)).
 4. **Try the conversion locally** and fix the warnings.
 5. **Ask a server admin to add the pack**, with:
@@ -264,7 +264,7 @@ python generateVanilla/generateVanilla.py ../RP-Human ../out-lite ../minecraft-1
 For a pack that so far is zipped as it is, and now gets `.obj` models.
 
 1. **Commit the models properly.** Remove `*.obj` and similar rules from `.gitignore`, then add every `.obj`, `.mtl`, `.objmeta` and model JSON under `assets/mcme/models/block/`, and the textures under `assets/mcme/textures/`.
-2. **Delete the pack's own `text.vsh`, `fog.glsl` and any objmc shaders.** The build adds them from [the shader base](shader-base.md).
+2. **Replace the pack's own `text.vsh`, `fog.glsl` and any objmc shaders with the shader base.** Add a `.mcme-shaders.json`, then run [the sync](shader-base.md#getting-it-into-a-pack), with `--force` the first time, and commit what it wrote.
 3. **Update `pack.mcmeta`** to the right pack format. Optionally add `Sodium` to the description.
 4. **List the models in `assets/mcme/sml_load_scopes/`**, like RP-Human does.
 5. **Try the conversion locally.** Check that blocks only your pack has still appear in the Vanilla output. If one is missing, see [Known limits](#known-limits).

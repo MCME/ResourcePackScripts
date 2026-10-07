@@ -229,8 +229,12 @@ for folder in override_folders:
 # ---------------------------------------------
 # Unlike an imperfect pack, a pack with its own copy of a base file stops the
 # run: shipped, the two copies drift apart until one breaks the other.
+# The Lite zip - the one built with --limit - draws its fluids as their
+# textures: only the fire eye and the models' shaders run.
 try:
-    shader_base.apply([input_path, vanilla_override_path], output_path)
+    shader_config = shader_base.apply(
+        [input_path, vanilla_override_path], output_path, lite=max_model_entries is not None
+    )
 except shader_base.ShaderBaseError as e:
     sys.exit(f"ERROR: {e}")
 
@@ -316,10 +320,10 @@ for model in hardcodedFiles.TEXTURES:
 objmc_merge.merge_shared_textures(output_path, compress, debug)
 
 # ---------------------------------------------
-# Sign the water textures for the base's water, and check that every shader
+# Sign the fluid textures for the base's water and modules, and check that every shader
 # import resolves, or the client drops every pack
 # ---------------------------------------------
 try:
-    shader_base.finish(output_path)
+    shader_base.finish(output_path, shader_config)
 except shader_base.ShaderBaseError as e:
     sys.exit(f"ERROR: {e}")

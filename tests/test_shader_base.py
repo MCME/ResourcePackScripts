@@ -4,6 +4,7 @@ The client resolves every #moj_import in every shader of every namespace on
 loading a pack, used or not, and one it can't find drops all resource packs.
 """
 
+import json
 import subprocess
 import sys
 from pathlib import Path
@@ -19,11 +20,18 @@ TERRAIN_VSH = Path("assets/minecraft/shaders/core/terrain.vsh")
 TEXT_VSH = Path("assets/minecraft/shaders/core/text.vsh")
 SODIUM_VSH = Path("assets/sodium/shaders/blocks/block_layer_opaque.vsh")
 HOOK = Path("assets/minecraft/shaders/include/mcme_hook_fragment_main.glsl")
+INCLUDE = Path("assets/minecraft/shaders/include")
+LAVA = INCLUDE / "lava.glsl"
+LAVA_CONFIG = INCLUDE / "lava_config.glsl"
 
 
 def _write(path: Path, text=""):
     path.parent.mkdir(parents=True, exist_ok=True)
     path.write_text(text)
+
+
+def _config(pack: Path, **data):
+    (pack / shader_base.CONFIG_NAME).write_text(json.dumps(data))
 
 
 @pytest.fixture
@@ -49,22 +57,64 @@ def test_the_base_has_a_stub_for_every_hook_it_imports():
     }
 
 
-def test_a_pack_without_objmc_models_or_hooks_gets_only_the_shared_shaders(tmp_path, pack):
-    out = tmp_path / "out"
-    shader_base.apply([pack], out)
-    shipped = {p.relative_to(out) for p in out.rglob("*") if p.is_file()}
-    assert shipped == shader_base.ALWAYS
+def test_every_module_has_its_files_and_their_imports_resolve_when_on(tmp_path):
+    for name, module in shader_base.MODULES.items():
+        files = {p.name for p in shader_base.module_files(name)}
+        assert set(module.imports) <= files
+        pack = tmp_path / name
+        (pack / "assets").mkdir(parents=True)
+        _config(pack, modules=[name])
+        shader_base.sync(pack)
+        assert shader_base.unresolved_imports(pack) == []
 
 
-def test_a_pack_with_objmc_models_gets_the_whole_base(tmp_path, pack):
-    _write(pack / "assets/mcme/models/block/thing.obj")
+def test_every_pack_gets_the_whole_base_and_no_module(tmp_path, pack):
     out = tmp_path / "out"
     shader_base.apply([pack], out)
     for relative in shader_base.base_files():
-        assert (out / relative).read_bytes() == (shader_base.BASE_PATH / relative).read_bytes()
+        if relative != shader_base.MODULES_FILE:
+            assert (out / relative).read_bytes() == (shader_base.BASE_PATH / relative).read_bytes()
+    assert not (out / LAVA).exists()
+    assert "#define" not in (out / shader_base.MODULES_FILE).read_text()
 
 
-def test_a_pack_hook_is_kept_and_brings_the_terrain_shaders(tmp_path, pack):
+def test_only_the_lite_zip_defines_mcme_lite(tmp_path, pack):
+    _config(pack, modules=["lava"])
+    shader_base.apply([pack], tmp_path / "full")
+    shader_base.apply([pack], tmp_path / "lite", lite=True)
+    assert "#define MCME_LITE" not in (tmp_path / "full" / shader_base.LITE_FILE).read_text().splitlines()
+    assert "#define MCME_LITE" in (tmp_path / "lite" / shader_base.LITE_FILE).read_text().splitlines()
+    # its fluids' files still ship: the pack's own shaders may import them
+    assert (tmp_path / "lite" / LAVA).is_file()
+
+
+def test_the_terrain_shaders_skip_fluids_in_lite():
+    for shader in ("assets/minecraft/shaders/core/terrain.fsh", "assets/sodium/shaders/blocks/block_layer_opaque.fsh"):
+        text = (shader_base.BASE_PATH / shader).read_text()
+        assert "#moj_import <minecraft:mcme_lite.glsl>" in text
+        lite = text.index("#ifdef MCME_LITE")
+        assert text.index("int fluid = -1;", lite) < text.index("#else", lite) < text.index("fluidKind(", lite)
+
+
+def test_a_pack_gets_the_modules_it_turns_on(tmp_path, pack):
+    _config(pack, modules=["lava"])
+    out = tmp_path / "out"
+    shader_base.apply([pack], out)
+    assert (out / LAVA).is_file()
+    assert not (out / INCLUDE / "ice.glsl").exists()
+    modules = (out / shader_base.MODULES_FILE).read_text()
+    assert "#define MCME_MODULE_LAVA" in modules
+    assert "#moj_import <minecraft:lava.glsl>" in modules
+    assert shader_base.unresolved_imports(out) == []
+
+
+def test_an_unknown_module_is_refused(tmp_path, pack):
+    _config(pack, modules=["lavva"])
+    with pytest.raises(shader_base.ShaderBaseError, match="no such module lavva"):
+        shader_base.apply([pack], tmp_path / "out")
+
+
+def test_a_pack_hook_is_kept(tmp_path, pack):
     _write(pack / HOOK, "color.rgb *= 0.5;\n")
     out = tmp_path / "out"
     _write(out / HOOK, "color.rgb *= 0.5;\n")  # copied over with the pack's assets
@@ -74,11 +124,125 @@ def test_a_pack_hook_is_kept_and_brings_the_terrain_shaders(tmp_path, pack):
     assert (out / SODIUM_VSH).is_file()
 
 
+def test_a_module_setting_the_pack_keeps_its_own_of_is_kept(tmp_path, pack):
+    _config(pack, modules=["lava"], own=[LAVA_CONFIG.as_posix()])
+    _write(pack / LAVA_CONFIG, "#define LAVA_HEAT 2.0\n")
+    out = tmp_path / "out"
+    _write(out / LAVA_CONFIG, "#define LAVA_HEAT 2.0\n")
+    shader_base.apply([pack], out)
+    assert (out / LAVA_CONFIG).read_text() == "#define LAVA_HEAT 2.0\n"
+
+
 @pytest.mark.parametrize("owned", [TERRAIN_VSH, TEXT_VSH, SODIUM_VSH])
-def test_a_pack_shipping_a_base_file_is_refused(tmp_path, pack, owned):
-    _write(pack / "vanilla" / owned)
-    with pytest.raises(shader_base.ShaderBaseError, match="owns"):
+def test_a_pack_with_a_base_file_changed_by_hand_is_refused(tmp_path, pack, owned):
+    _write(pack / "vanilla" / owned, "// changed\n")
+    with pytest.raises(shader_base.ShaderBaseError, match="changed by hand"):
         shader_base.apply([pack, pack / "vanilla"], tmp_path / "out")
+
+
+def test_an_unchanged_copy_of_the_base_is_fine_whatever_its_line_endings(tmp_path, pack):
+    content = (shader_base.BASE_PATH / TERRAIN_VSH).read_bytes().replace(b"\r\n", b"\n").replace(b"\n", b"\r\n")
+    (pack / TERRAIN_VSH).parent.mkdir(parents=True)
+    (pack / TERRAIN_VSH).write_bytes(content)
+    shader_base.apply([pack], tmp_path / "out")
+
+
+def test_sync_writes_the_base_into_the_pack_and_records_it(pack):
+    _config(pack, modules=["lava"])
+    shader_base.sync(pack)
+    assert (pack / TERRAIN_VSH).is_file()
+    assert (pack / LAVA).is_file()
+    assert (pack / HOOK).is_file()
+    lock = json.loads((pack / shader_base.LOCK_NAME).read_text())
+    assert lock["modules"] == ["lava"]
+    assert LAVA.as_posix() in lock["files"]
+    assert HOOK.as_posix() not in lock["files"]  # the pack's own to fill
+    assert shader_base.sync(pack) == []  # nothing more to do
+
+
+def test_an_outdated_but_unchanged_synced_copy_is_replaced_by_the_build(tmp_path, pack):
+    shader_base.sync(pack)
+    old = "// the base as it was\n"
+    _write(pack / TERRAIN_VSH, old)
+    lock_path = pack / shader_base.LOCK_NAME
+    lock = json.loads(lock_path.read_text())
+    lock["files"][TERRAIN_VSH.as_posix()] = shader_base._digest(old.encode())
+    lock_path.write_text(json.dumps(lock))
+    out = tmp_path / "out"
+    shader_base.apply([pack], out)
+    assert (out / TERRAIN_VSH).read_bytes() == (shader_base.BASE_PATH / TERRAIN_VSH).read_bytes()
+
+
+def test_sync_refuses_a_copy_changed_by_hand_unless_forced(pack):
+    shader_base.sync(pack)
+    _write(pack / TERRAIN_VSH, "// changed\n")
+    with pytest.raises(shader_base.ShaderBaseError, match="changed by hand"):
+        shader_base.sync(pack)
+    shader_base.sync(pack, force=True)
+    assert (pack / TERRAIN_VSH).read_bytes() == (shader_base.BASE_PATH / TERRAIN_VSH).read_bytes()
+
+
+def test_sync_deletes_a_module_turned_off_but_keeps_the_hooks(pack):
+    _config(pack, modules=["lava"])
+    shader_base.sync(pack)
+    _write(pack / HOOK, "color.rgb *= 0.5;\n")
+    _config(pack, modules=[])
+    shader_base.sync(pack)
+    assert not (pack / LAVA).exists()
+    assert (pack / HOOK).read_text() == "color.rgb *= 0.5;\n"
+
+
+def _texture(path: Path, size=(16, 32), alpha=180):
+    path.parent.mkdir(parents=True, exist_ok=True)
+    Image.new("RGBA", size, (40, 90, 200, alpha)).save(path)
+
+
+def test_finishing_a_pack_signs_its_water_and_only_the_fluids_it_has_on(tmp_path, pack):
+    out = tmp_path / "out"
+    textures = out / fluid_signature.FOLDER
+    _texture(textures / "water_still.png")
+    _texture(textures / "lava_still.png", alpha=255)
+    config = shader_base.apply([pack], out)
+    shader_base.finish(out, config)
+    assert fluid_signature.is_signed(Image.open(textures / "water_still.png"), 2)
+    assert not fluid_signature.is_signed(Image.open(textures / "lava_still.png"), 0)
+
+
+def test_sync_signs_the_modules_and_the_packs_own_fluids(pack):
+    textures = pack / fluid_signature.FOLDER
+    _texture(textures / "lava_still.png", alpha=255)
+    _texture(textures / "powder_snow.png", alpha=255)
+    _config(pack, modules=["lava"], fluids={"powder_snow": 6})
+    shader_base.sync(pack)
+    assert fluid_signature.is_signed(Image.open(textures / "lava_still.png"), 0)
+    assert fluid_signature.is_signed(Image.open(textures / "powder_snow.png"), 6)
+
+
+def test_a_packs_own_fluid_must_be_kind_5_to_7(tmp_path, pack):
+    _config(pack, fluids={"powder_snow": 2})
+    with pytest.raises(shader_base.ShaderBaseError, match="kinds 5 to 7"):
+        shader_base.apply([pack], tmp_path / "out")
+
+
+def test_signing_changes_no_colour_by_more_than_3_and_no_alpha(tmp_path):
+    path = tmp_path / "water.png"
+    _texture(path)
+    before = Image.open(path).convert("RGBA")
+    after = before.copy()
+    fluid_signature.sign(after, 3)
+    assert fluid_signature.is_signed(after, 3)
+    assert not fluid_signature.is_signed(after, 2)  # each sprite its own code
+    for old, new in zip(before.getdata(), after.getdata()):
+        assert all(abs(o - n) <= 3 for o, n in zip(old[:3], new[:3]))
+        assert old[3] == new[3]
+
+
+def test_a_water_texture_that_cant_carry_codes_warns_but_builds(tmp_path, pack, capsys):
+    out = tmp_path / "out"
+    _texture(out / fluid_signature.FOLDER / "water_still.png", size=(10, 16))
+    config = shader_base.apply([pack], out)
+    shader_base.finish(out, config)
+    assert "10 wide, not a multiple of 4" in capsys.readouterr().out
 
 
 def test_an_import_nothing_provides_is_reported(pack):
@@ -107,45 +271,6 @@ def test_an_import_resolves_in_its_own_namespace_beside_or_by_default(pack):
     assert shader_base.unresolved_imports(pack) == []
 
 
-def _texture(path: Path, size=(16, 32), alpha=180):
-    path.parent.mkdir(parents=True, exist_ok=True)
-    Image.new("RGBA", size, (40, 90, 200, alpha)).save(path)
-
-
-def test_finishing_a_pack_with_the_base_signs_its_water_and_only_its_water(tmp_path, pack):
-    _write(pack / "assets/mcme/models/block/thing.obj")
-    out = tmp_path / "out"
-    textures = out / fluid_signature.FOLDER
-    _texture(textures / "water_still.png")
-    _texture(textures / "lava_still.png", alpha=255)
-    shader_base.apply([pack], out)
-    shader_base.finish(out)
-    assert fluid_signature.is_signed(Image.open(textures / "water_still.png"), 2)
-    assert not fluid_signature.is_signed(Image.open(textures / "lava_still.png"), 0)
-
-
-def test_signing_changes_no_colour_by_more_than_3_and_no_alpha(tmp_path):
-    path = tmp_path / "water.png"
-    _texture(path)
-    before = Image.open(path).convert("RGBA")
-    after = before.copy()
-    fluid_signature.sign(after, 3)
-    assert fluid_signature.is_signed(after, 3)
-    assert not fluid_signature.is_signed(after, 2)  # each sprite its own code
-    for old, new in zip(before.getdata(), after.getdata()):
-        assert all(abs(o - n) <= 3 for o, n in zip(old[:3], new[:3]))
-        assert old[3] == new[3]
-
-
-def test_a_water_texture_that_cant_carry_codes_warns_but_builds(tmp_path, pack, capsys):
-    _write(pack / "assets/mcme/models/block/thing.obj")
-    out = tmp_path / "out"
-    _texture(out / fluid_signature.FOLDER / "water_still.png", size=(10, 16))
-    shader_base.apply([pack], out)
-    shader_base.finish(out)
-    assert "10 wide, not a multiple of 4" in capsys.readouterr().out
-
-
 def _generate(tmp_path, pack):
     return subprocess.run(
         [sys.executable, str(SCRIPT), str(pack), str(tmp_path / "out"), str(tmp_path / "rp")],
@@ -162,15 +287,52 @@ def test_generate_vanilla_adds_the_base(tmp_path, pack):
     assert (tmp_path / "out" / TERRAIN_VSH).is_file()
 
 
-def test_generate_vanilla_stops_on_a_pack_with_its_own_base_file(tmp_path, pack):
-    _write(pack / "vanilla" / TERRAIN_VSH)
+def test_generate_vanilla_builds_a_synced_pack(tmp_path, pack):
+    _config(pack, modules=["lava"])
+    shader_base.sync(pack)
+    result = _generate(tmp_path, pack)
+    assert result.returncode == 0, result.stdout + result.stderr
+    assert (tmp_path / "out" / LAVA).is_file()
+    assert not (tmp_path / "out" / shader_base.LOCK_NAME).exists()
+    assert not (tmp_path / "out" / shader_base.CONFIG_NAME).exists()
+
+
+def test_generate_vanilla_stops_on_a_pack_with_a_base_file_changed_by_hand(tmp_path, pack):
+    _write(pack / "vanilla" / TERRAIN_VSH, "// changed\n")
     result = _generate(tmp_path, pack)
     assert result.returncode != 0
     assert "terrain.vsh" in result.stderr
 
 
 def test_generate_vanilla_stops_on_an_import_that_does_not_resolve(tmp_path, pack):
-    _write(pack / "assets/mcme/shaders/core/thing.fsh", "#moj_import <sodium:fog.glsl>\n")
+    _write(pack / "assets/mcme/shaders/core/thing.fsh", "#moj_import <sodium:missing.glsl>\n")
     result = _generate(tmp_path, pack)
     assert result.returncode != 0
-    assert "mcme/shaders/core/thing.fsh:1: sodium:fog.glsl" in result.stderr
+    assert "mcme/shaders/core/thing.fsh:1: sodium:missing.glsl" in result.stderr
+
+
+def test_mark_for_sodium_lists_the_shaders_sodium_warns_about(pack):
+    (pack / "pack.mcmeta").write_text('{\n  "pack": {"pack_format": 88, "description": "x"}\n}\n')
+    _write(pack / TERRAIN_VSH)
+    _write(pack / "assets/minecraft/shaders/include/fog.glsl")
+    _write(pack / TEXT_VSH)
+    assert shader_base.mark_for_sodium(pack)
+    data = json.loads((pack / "pack.mcmeta").read_text())
+    assert data["sodium"]["ignored_shaders"] == ["fog.glsl", "terrain.vsh"]
+    assert data["pack"]["pack_format"] == 88
+    assert (pack / "pack.mcmeta").read_text().startswith('{\n  "pack"')
+    assert not shader_base.mark_for_sodium(pack)
+
+
+def test_mark_for_sodium_keeps_what_the_pack_listed(pack):
+    (pack / "pack.mcmeta").write_text(json.dumps({"pack": {}, "sodium": {"ignored_shaders": ["light.glsl"]}}))
+    _write(pack / TERRAIN_VSH)
+    shader_base.mark_for_sodium(pack)
+    assert json.loads((pack / "pack.mcmeta").read_text())["sodium"]["ignored_shaders"] == ["light.glsl", "terrain.vsh"]
+
+
+def test_mark_for_sodium_leaves_a_pack_without_terrain_shaders(pack):
+    (pack / "pack.mcmeta").write_text('{"pack": {}}')
+    _write(pack / TEXT_VSH)
+    assert not shader_base.mark_for_sodium(pack)
+    assert (pack / "pack.mcmeta").read_text() == '{"pack": {}}'
