@@ -90,7 +90,7 @@ python generateVanilla/checkShaders.py <pack> [--glslang PATH] [--fetch tested|l
 
 The shaders a pack doesn't have, and the includes it imports from the game, come from the game's, Sodium's and DH's jars. Locally those are the ones installed in `.minecraft`. `--fetch tested` downloads the versions in `generateVanilla/shader_versions.json`, the ones the shaders were tested on in game. `--fetch latest` downloads the newest Sodium and DH for that Minecraft version, and notes every newer version of the game, Sodium, DH and Iris.
 
-Each pack repository runs it on GitHub (`.github/workflows/check-shaders.yml`, copied from `ci/check-shaders.yml`): on every push and pull request that touches shaders, against the tested versions; and weekly against the newest ones as well, a heads-up that never fails the repository. After testing a new version in game, raise it in `shader_versions.json`.
+Each pack repository runs it on GitHub (`.github/workflows/check-shaders.yml`, copied from `ci/check-shaders.yml`, with the checks from this repository's `development`): on every push and pull request that touches shaders, against the tested versions; and weekly against the newest ones as well, a heads-up that never fails the repository. After testing a new version in game, raise it in `shader_versions.json`.
 
 ## Hooks
 
