@@ -4,7 +4,8 @@
 # glslang and linked on Mesa against the game, Sodium and DH versions they
 # were tested on. Weekly it runs against the newest Sodium and DH too, and
 # notes which are newer than the tested ones - that run doesn't fail the
-# repository, it's a heads-up.
+# repository, it's a heads-up. A pack with a 26.3 overlay (mc26_3/) is checked
+# for 26.3 as well, as 26.3 compiles it.
 #
 # The same file in every pack repository, as .github/workflows/check-shaders.yml;
 # its master copy is ResourcePackScripts/ci/check-shaders.yml.
@@ -12,9 +13,9 @@ name: Check shaders
 
 on:
   push:
-    paths: ["assets/*/shaders/**", ".mcme-shaders.*", ".github/workflows/check-shaders.yml"]
+    paths: ["assets/*/shaders/**", "mc26_3/**", ".mcme-shaders.*", ".github/workflows/check-shaders.yml"]
   pull_request:
-    paths: ["assets/*/shaders/**", ".mcme-shaders.*", ".github/workflows/check-shaders.yml"]
+    paths: ["assets/*/shaders/**", "mc26_3/**", ".mcme-shaders.*", ".github/workflows/check-shaders.yml"]
   schedule:
     - cron: "17 6 * * 1"
   workflow_dispatch:
@@ -61,3 +62,7 @@ jobs:
         env:
           MCME_GL_BACKEND: egl
         run: python scripts/generateVanilla/checkShaders.py pack --fetch ${{ matrix.versions }} --require-compiler
+
+      - name: Check for 26.3
+        if: hashFiles('pack/mc26_3/**') != ''
+        run: python scripts/generateVanilla/checkShaders.py pack --fetch tested --minecraft 26.3 --require-compiler

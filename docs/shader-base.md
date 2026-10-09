@@ -92,6 +92,35 @@ The shaders a pack doesn't have, and the includes it imports from the game, come
 
 Each pack repository runs it on GitHub (`.github/workflows/check-shaders.yml`, copied from `ci/check-shaders.yml`, with the checks from this repository's `development`): on every push and pull request that touches shaders, against the tested versions; and weekly against the newest ones as well, a heads-up that never fails the repository. After testing a new version in game, raise it in `shader_versions.json`.
 
+## 26.3
+
+26.3 compiles every shader to SPIR-V through shaderc, for Vulkan 1.2. The shaders must be written differently:
+
+- `#include`, not `#moj_import`;
+- no `#version` in an include;
+- a `layout(location = N)` on every input and output.
+
+It also draws translucent terrain, particles and text three more times when it sorts transparency itself (`OIT_DEPTH_BOUNDS`, `OIT_TRANSMITTANCE`, `OIT_ACCUMULATE`). The first two are for alpha only and have no lightmap and no `fragColor`.
+
+So that one zip serves 26.2 and 26.3, a pack keeps 26.3's copies in an overlay, `mc26_3/`, which `pack.mcmeta` points 26.3 at (format 97). The game reads it over `assets/`. Only the terrain shaders are written by hand, in `shaderBase/mc26_3/`: vanilla's `terrain.vsh`/`.fsh`, and Sodium's `block_layer_opaque.vsh`/`.fsh` with its `chunk_vertex.glsl`. That's because of the transparency passes, which Sodium 26.3 draws through vanilla's too. Water must come out with the same alpha in every pass. Sodium binds its light map in every pass, so the Sodium copies keep it, along with the clock it carries. The sync and the build (`shader_base.translate`) write the rest from the 26.2 files:
+
+- every core shader the pack has that the overlay doesn't, such as Mordor's sky and particles, and every Distant Horizons Blaze3D shader of the pack's that imports. Shaderc compiles those on 26.3 too. Each gets the extension line, `#include`, and its inputs and outputs numbered in the order declared, as vanilla's are. A fragment shader's inputs take its vertex shader's locations, matched by name.
+- every include those shaders reach, hooks and modules included. Each gets `#include`, no `#version`, and an include guard. The hooks' varyings are numbered after the base terrain's last location.
+
+Each translated file says so on its first line (a core shader's second). Don't edit one: change the 26.2 file and sync. A file in a pack's `mc26_3/` without that line is the pack's own, written by hand, and the sync leaves it alone. Translated files that are no longer needed are deleted.
+
+In 26.3's alpha-only passes, a hook's `minecraft_sample_lightmap(Sampler2, ...)` reads white. A hook that samples `Sampler2` some other way won't compile there.
+
+`checkShaders.py --minecraft 26.3` checks a pack as 26.3 runs it:
+
+- the overlay over `assets/`;
+- every terrain, particle and text program in all its passes, multidraw included;
+- each fragment shader's inputs against its vertex shader's outputs, and the vertex attributes against vanilla's locations. With SPIR-V, both meet by location alone.
+
+CI runs it on every pack with an overlay. Sodium and DH are checked for 26.3 once `shader_versions.json` has versions for it. Until then, pass their 26.3 jars with `--jar`.
+
+**Distant Horizons on 26.3.** DH 3.3.4's shaders are the same as 3.3.3's. A pack's DH OpenGL shaders are loaded by the MCME mod, which fills in `#moj_import` and `#include` alike. On 26.3, the `minecraft:` includes it pulls in come from the overlay.
+
 ## Hooks
 
 The terrain shaders import five hook files, after the water and the modules. The base's are empty. A pack overrides one by shipping its own, in its root `assets/minecraft/shaders/include/`, so that both the Sodium and the Vanilla zip get it. The same hook file serves vanilla's `terrain.*` and Sodium's `block_layer_opaque.*`.
@@ -148,7 +177,11 @@ The base draws water per pixel, fixed in the world, with one opacity as its text
 
 The shaders know water by a code hidden in the lowest bits of `block/water_still.png` and `water_flow.png`. That code changes no colour by more than 3 steps in 255. The sync and the build write it into the pack's water textures (`fluid_signature.py`), and its modules' and its own fluids' the same way. A pack without its own water textures shows the game's, plain. A texture whose size isn't a multiple of 4, or with fully transparent texels, can't carry the code: the build warns and the water shows plain.
 
+**Still water's wind is worked out partly per vertex.** Its broad fields (how the waves bend, the gusts) change slowly over several blocks. So the terrain vertex shaders work them out at the corners of still water within 96 blocks, in the translucent pass only, and pass them on. Water further off, other blocks, and shader packs (through MCME's mod) work them out per pixel, as before. That is why the vertex shaders import `fluid.glsl`, `water_config.glsl` and `water.glsl` with `FLUID_VERTEX` defined: anything in those files that takes derivatives must stay inside `#ifndef FLUID_VERTEX`.
+
 **Editing a fluid texture loses the code.** Run the sync again afterwards, or sign it by hand with `python generateVanilla/signFluids.py <pack> water` (or `lava`, `ice`).
+
+**A copy of a signed texture would be drawn as that fluid.** This applies to any texture, such as a Special Model Loader model's. The shaders check every other texel of each 4x4 block, so a texture that still holds those codes counts as the fluid. The build stops with `Textures the terrain shaders would draw over as a fluid` and names each one. Edit a few texels of each, even by one step, and build again.
 
 ## Working on shaders without building
 

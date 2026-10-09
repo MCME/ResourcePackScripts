@@ -114,6 +114,7 @@ def skip_links_leading_outside_pack(directory, contents):
 # Bring over top level files
 # ----------------------------------------
 input_pack_mcmeta = input_path / constants.PACK_MCMETA
+data = {}
 if input_pack_mcmeta.exists() and not leads_outside_pack(input_pack_mcmeta):
     with open(input_pack_mcmeta, "r", encoding="utf-8-sig") as f:
         data = json.load(f)
@@ -205,6 +206,20 @@ for folder in input_path.iterdir():
         shutil.copytree(
             folder,
             output_path / folder.name,
+            ignore=skip_links_leading_outside_pack,
+            dirs_exist_ok=True,
+        )
+# and the overlays pack.mcmeta declares (e.g. mc26_3, for a newer game version)
+overlay_names = {
+    entry.get("directory")
+    for entry in data.get("overlays", {}).get("entries", [])
+}
+for name in sorted(n for n in overlay_names if n and not n.startswith("1_")):
+    folder = input_path / name
+    if folder.is_dir() and not leads_outside_pack(folder):
+        shutil.copytree(
+            folder,
+            output_path / name,
             ignore=skip_links_leading_outside_pack,
             dirs_exist_ok=True,
         )

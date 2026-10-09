@@ -1,6 +1,6 @@
 """Check a pack's shaders before players get them (shader_check, docs/shader-base.md).
 
-    python checkShaders.py <pack> [--glslang PATH] [--fetch tested|latest] [--jar PATH ...]
+    python checkShaders.py <pack> [--glslang PATH] [--fetch tested|latest] [--jar PATH ...] [--minecraft 26.3]
 
 It always checks the rules (#version, #extension). With the game's and the
 mods' jars - the ones installed in .minecraft, or downloaded with --fetch - it
@@ -11,6 +11,11 @@ the pack has. --require-compiler fails when it couldn't compile, as CI wants.
 --fetch tested takes the versions the shaders were tested on
 (shader_versions.json); --fetch latest the newest of each mod for that
 Minecraft version, and says which are newer than the tested ones.
+
+--minecraft checks for another game version than the tested one: for 26.3,
+the pack's mc26_3 overlay over its assets/, compiled as 26.3 compiles - to
+SPIR-V, in every transparency pass - and each program's stages checked to
+meet at the same locations.
 """
 
 import argparse
@@ -28,15 +33,19 @@ parser.add_argument("--fetch", choices=("tested", "latest"), help="Download the 
 parser.add_argument("--cache", default=str(Path.home() / ".cache" / "mcme-shaders"), help="Where --fetch keeps them.")
 parser.add_argument("--no-driver", action="store_true", help="Don't link on an OpenGL driver even with moderngl.")
 parser.add_argument("--require-compiler", action="store_true", help="Fail when glslang isn't there.")
+parser.add_argument("--minecraft", help="The game version to check for (26.3: its overlay, compiled to SPIR-V), in place of the tested one.")
 parser.add_argument("--verbose", action="store_true", help="List every program that passed.")
 args = parser.parse_args()
 
 github = os.environ.get("GITHUB_ACTIONS") == "true"
 tested = shader_check.tested_versions()
 versions = dict(tested)
+if args.minecraft and args.minecraft != tested["minecraft"]:
+    # the mods were tested on the tested game version only
+    versions = {"minecraft": args.minecraft}
 
 if args.fetch == "latest":
-    latest = shader_check.latest_versions(tested["minecraft"])
+    latest = shader_check.latest_versions(versions["minecraft"])
     for jar_id, version in latest.items():
         if version != tested.get(jar_id):
             message = (f"{shader_check.NAMES[jar_id]} {version} is out; the shaders were tested on {tested.get(jar_id)}"
@@ -45,7 +54,7 @@ if args.fetch == "latest":
             if jar_id != "minecraft":
                 versions[jar_id] = version
 
-jars = shader_check.fetch_jars(versions, Path(args.cache)) if args.fetch else shader_check.find_jars(tested["minecraft"])
+jars = shader_check.fetch_jars(versions, Path(args.cache)) if args.fetch else shader_check.find_jars(versions["minecraft"])
 for path in args.jar:
     jar_id = shader_check._jar_id(Path(path))
     if jar_id:
@@ -61,7 +70,7 @@ context = None if args.no_driver else shader_check.driver_context()
 print(f"glslang: {glslang or 'not found'}")
 print(f"OpenGL: {context.info['GL_RENDERER'] + ' ' + context.info['GL_VERSION'] if context else 'none'}")
 
-report = shader_check.check(args.pack_path, jars, glslang, context)
+report = shader_check.check(args.pack_path, jars, glslang, context, versions["minecraft"])
 if args.verbose:
     print("\n".join(report.notes))
 if not glslang and args.require_compiler:

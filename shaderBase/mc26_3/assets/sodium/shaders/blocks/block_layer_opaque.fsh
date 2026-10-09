@@ -1,37 +1,42 @@
 #version 330 core
+#extension GL_ARB_separate_shader_objects : require
 
-// Sodium 0.9.2's chunk fragment shader with objmc added (see
-// block_layer_opaque.vsh). Sodium's own work is unchanged: its v_Color, the
-// vertex colour times the light, is objmc_light.glsl's vertexColor and
-// lightColor multiplied in for every face that isn't objmc's.
+// 26.3's copy of the shader base's block_layer_opaque.fsh (see
+// block_layer_opaque.vsh). In 26.3 translucent terrain is drawn three times
+// when the game sorts transparency itself (OIT_*): twice for its alpha only,
+// then for its colour, as in Sodium's own. Water has to come out with the same
+// alpha in all three, so it is worked out in full each time - the light map,
+// which carries the clock its pattern runs by, is bound in every pass. Keep it
+// in step with the 26.2 one in assets/.
 
-#moj_import <sodium:globals.glsl>
-#moj_import <sodium:fog.glsl>
-#moj_import <sodium:chunk_material.glsl>
+#include <sodium:globals.glsl>
+#include <sodium:fog.glsl>
+#include <sodium:chunk_material.glsl>
+#include <minecraft:oit.glsl>
 
-in vec2 v_TexCoord; // The interpolated block texture coordinates
-in vec2 v_FragDistance; // The fragment's distance from the camera (cylindrical and spherical)
-in float fadeFactor;
+layout(location = 1) in vec2 v_TexCoord; // The interpolated block texture coordinates
+layout(location = 2) in vec2 v_FragDistance; // The fragment's distance from the camera (cylindrical and spherical)
+layout(location = 3) in float fadeFactor;
 
 // objmc
-in vec4 vertexColor;
-in vec4 lightColor;
-in vec2 texCoord2;
-in vec3 Pos;
-in float transition;
-flat in int isCustom;
-flat in int noshadow;
-flat in int maxLod;
-flat in int blendTexture;
-flat in vec4 texRect;
+layout(location = 4) in vec4 vertexColor;
+layout(location = 5) in vec4 lightColor;
+layout(location = 6) in vec2 texCoord2;
+layout(location = 7) in vec3 Pos;
+layout(location = 8) in float transition;
+layout(location = 9) flat in int isCustom;
+layout(location = 10) flat in int noshadow;
+layout(location = 11) flat in int maxLod;
+layout(location = 12) flat in int blendTexture;
+layout(location = 13) flat in vec4 texRect;
 // the fluids (fluid.glsl)
-in vec3 fluidWorld;
-in vec4 waterLights;
-in vec4 waterWeights;
-in vec4 waterHeights;
-in vec4 waterWarps;
-in vec4 waterGusts;
-in float waterWindSet;
+layout(location = 14) in vec3 fluidWorld;
+layout(location = 15) in vec4 waterLights;
+layout(location = 16) in vec4 waterWeights;
+layout(location = 17) in vec4 waterHeights;
+layout(location = 18) in vec4 waterWarps;
+layout(location = 19) in vec4 waterGusts;
+layout(location = 20) in float waterWindSet;
 
 uniform sampler2D u_BlockTex; // The block texture
 // the light map, for the time of day core/lightmap.fsh hides in it
@@ -39,7 +44,9 @@ uniform sampler2D u_BlockTex; // The block texture
 // would part whatever moves at their edges
 uniform sampler2D u_LightTex;
 
-out vec4 fragColor; // The output fragment for the color framebuffer
+#ifndef OIT_ALPHA_ONLY
+layout(location = 0) out vec4 fragColor; // The output fragment for the color framebuffer
+#endif
 
 vec4 sampleNearest(sampler2D source, vec2 uv, vec2 pixelSize, vec2 du, vec2 dv, vec2 texelScreenSize) {
     // Convert our UV back up to texel coordinates and find out how far over we are from the center of each pixel
@@ -105,16 +112,16 @@ vec4 sampleRGSS(sampler2D source, vec2 uv, vec2 pixelSize) {
 }
 
 #define Sampler0 u_BlockTex
-#moj_import <minecraft:objmc_fragment.glsl>
+#include <minecraft:objmc_fragment.glsl>
 
 // the fluids: the water for every pack, the modules the pack turned on
 // (lava, ice), and a pack's own in its hooks
-#moj_import <minecraft:mcme_clock.glsl>
-#moj_import <minecraft:fluid.glsl>
-#moj_import <minecraft:water_config.glsl>
-#moj_import <minecraft:water.glsl>
-#moj_import <minecraft:mcme_modules.glsl>
-#moj_import <minecraft:mcme_lite.glsl>
+#include <minecraft:mcme_clock.glsl>
+#include <minecraft:fluid.glsl>
+#include <minecraft:water_config.glsl>
+#include <minecraft:water.glsl>
+#include <minecraft:mcme_modules.glsl>
+#include <minecraft:mcme_lite.glsl>
 
 // The pack's own terrain features (see block_layer_opaque.vsh)
 #define MCME_SODIUM
@@ -124,7 +131,7 @@ vec4 sampleRGSS(sampler2D source, vec2 uv, vec2 pixelSize) {
 #define MCME_ATLAS_SIZE (1.0 / u_TexelSize)
 #define MCME_FOG_START u_RenderFog.x
 #define MCME_FOG_COLOR u_FogColor
-#moj_import <minecraft:mcme_hook_fragment_globals.glsl>
+#include <minecraft:mcme_hook_fragment_globals.glsl>
 
 vec4 sampleColor(vec2 uv) {
     // Taken before branching: derivatives are undefined in divergent control flow.
@@ -135,13 +142,23 @@ vec4 sampleColor(vec2 uv) {
     return u_UseRGSS ? sampleRGSS(u_BlockTex, uv, u_TexelSize) : sampleNearest(u_BlockTex, uv, u_TexelSize);
 }
 
+vec4 calculateFinalColor(vec4 color) {
+    #ifdef OIT_ACCUMULATE
+    color = sampleColorForAccumulation(color);
+    vec4 fogColor = vec4(u_FogColor.rgb * color.a, u_FogColor.a);
+    #else
+    vec4 fogColor = u_FogColor;
+    #endif
+    return _linearFog(color, v_FragDistance, fogColor, u_EnvironmentFog, u_RenderFog, fadeFactor);
+}
+
 void main() {
     vec4 color = mix(sampleColor(v_TexCoord), sampleColor(texCoord2), transition);
 
     // Apply per-vertex color modulator - objmc's lighting for its models
 #define BLOCK
 #define SODIUM
-#moj_import <minecraft:objmc_light.glsl>
+#include <minecraft:objmc_light.glsl>
 
     // the fluids: which one this face is, if any, and where on it - taken
     // before branching, as it needs derivatives
@@ -161,8 +178,8 @@ void main() {
         color = vec4(mix(waterMurky(lit, water.murk) * water.shade, WATER_FOAM_COLOR * lightColor.rgb, water.foam), water.alpha);
     }
 
-#moj_import <minecraft:mcme_modules_main.glsl>
-#moj_import <minecraft:mcme_hook_fragment_main.glsl>
+#include <minecraft:mcme_modules_main.glsl>
+#include <minecraft:mcme_hook_fragment_main.glsl>
 
     objmcEdges(color, v_TexCoord, 1.0 / u_TexelSize);
 
@@ -172,5 +189,9 @@ void main() {
     }
 #endif
 
-    fragColor = _linearFog(color, v_FragDistance, u_FogColor, u_EnvironmentFog, u_RenderFog, fadeFactor);
+    #ifdef OIT_ALPHA_ONLY
+    executeAlphaOnlyPhase(gl_FragCoord.z, color.a);
+    #else
+    fragColor = calculateFinalColor(color);
+    #endif
 }

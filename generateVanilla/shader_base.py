@@ -16,6 +16,14 @@ release scripts on the server don't add it. And the build adds it again
 a pack whose copy of a base file was changed by hand: .mcme-shaders.lock,
 written by the sync, records each file as it wrote it.
 
+From 26.3 the game compiles its shaders to SPIR-V, which takes them written
+otherwise (#include, a location on every input and output). The packs carry
+26.3's copies in an overlay, mc26_3/, that pack.mcmeta points 26.3 at, over
+assets/ - so one zip serves 26.2 and 26.3. The base's own hand-written ones
+are in shaderBase/mc26_3; every include the game's shaders take - the base's,
+its modules', the hooks and a pack's own - the sync and the build translate
+(to_26_3), and a pack's own core shaders too.
+
 shaderBase/ is a resource pack too, so it can be loaded below a pack checkout
 to work on that pack's shaders without building it. See docs/shader-base.md.
 """
@@ -84,6 +92,22 @@ SODIUM_FLAGGED = {
 # As vanilla's GlslPreprocessor reads it: <namespace:path>, <path> (minecraft)
 # or "path" (beside the importing file)
 MOJ_IMPORT = re.compile(r'#\s*moj_import\s*(?:"([^"\n]*)"|<([^>\n]*)>)')
+# and 26.3's, through shaderc
+INCLUDE = re.compile(r'#\s*include\s*(?:"([^"\n]*)"|<([^>\n]*)>)')
+
+# 26.3's copies, and the resource pack formats 26.2 and 26.3 have
+OVERLAY = Path(shader_check.OVERLAYS["26.3"])
+OVERLAY_FORMAT = 97
+OLDEST_FORMAT = 88
+SHADERS_PATH = Path("assets/minecraft/shaders")
+# The includes vanilla 26.3 adds, for its transparency passes and terrain
+VANILLA_INCLUDES_26_3 = VANILLA_INCLUDES | {
+    "oit.glsl", "oit_add_transmittance.glsl", "oit_common.glsl", "oit_depth_bounds.glsl",
+    "oit_depth_sample.glsl", "oit_sample.glsl", "terrainglobals.glsl", "texture_sampling.glsl",
+}
+# An input or output declared without a location, as hooks declare theirs
+VARYING = re.compile(r"^([ \t]*)((?:(?:flat|smooth|noperspective|centroid)[ \t]+)*)(in|out)"
+                     r"([ \t]+\w+[ \t]+(\w+)[ \t]*(?:\[[^\]\n]*\])?[ \t]*;)", re.M)
 
 
 class ShaderBaseError(Exception):
@@ -127,8 +151,9 @@ def _files(root: Path) -> list[Path]:
 
 
 def base_files() -> list[Path]:
-    """Every file the base owns, relative to its folder - hooks included."""
-    return _files(BASE_PATH)
+    """Every file the base owns, relative to its folder - hooks and its
+    hand-written 26.3 copies included."""
+    return _files(BASE_PATH) + [OVERLAY / p for p in _files(BASE_PATH / OVERLAY)]
 
 
 def module_files(name) -> list[Path]:
@@ -158,6 +183,210 @@ def modules_glsl(modules) -> str:
         lines.append(f"#define {module.define}")
         lines += [f"#moj_import <minecraft:{i}>" for i in module.imports]
     return "\n".join(lines) + "\n"
+
+
+# --- 26.3's copies ---------------------------------------------------------------
+
+# The mark of every copy the sync and the build translate, on its first line
+# (a shader stage's second, after its #version): one in a pack's overlay
+# without it is the pack's own, written by hand, and left alone
+TRANSLATED = "// 26.3's copy of assets/{path}, translated by ResourcePackScripts' shader_base.py: don't edit it."
+# What 26.3's own core shaders all have, after their #version
+SEPARATE_SHADERS = "#extension GL_ARB_separate_shader_objects : require"
+VERSION_LINE = re.compile(r"^[ \t]*#[ \t]*version\b[^\n]*\n", re.M)
+STAGE_SUFFIXES = (".vsh", ".fsh", ".vert", ".frag")
+
+
+def _include(match) -> str:
+    relative, identifier = match.groups()
+    if relative is not None:
+        return f'#include "{relative}"'
+    namespace, _, path = identifier.strip().rpartition(":")
+    return f"#include <{namespace or 'minecraft'}:{path}>"
+
+
+def to_26_3(text: str, path: str, locations: dict = None) -> str:
+    """The shader at assets/`path` as 26.3 takes it: #include for each
+    #moj_import, and the inputs and outputs named in `locations` (name ->
+    location) given theirs. An include loses its #version - shaderc refuses
+    one past a shader's first line - and is guarded, as 26.3's are. A stage
+    keeps it, gains the extension 26.3's have, and has its other inputs and
+    outputs numbered in the order declared, inputs and outputs each after the
+    last it gives itself (from 0, as vanilla's are); a fragment shader's
+    inputs take `locations`, its vertex shader's outputs."""
+    stage = path.endswith(STAGE_SUFFIXES)
+    locations = locations or {}
+    counters = {kind: 1 + max((int(l) for l, k, _, _ in shader_check.LOCATED.findall(_strip_comments(text)) if k == kind), default=-1)
+                for kind in ("in", "out")}
+
+    def place(match):
+        indent, qualifiers, kind, rest, name = match.groups()
+        location = locations.get(name) if kind == "in" or not stage else None
+        if location is None:
+            if not stage:
+                return match.group(0)
+            location = counters[kind]
+            counters[kind] += 1
+        return f"{indent}layout(location = {location}) {qualifiers}{kind}{rest}"
+
+    text = VARYING.sub(place, MOJ_IMPORT.sub(_include, text))
+    mark = TRANSLATED.format(path=path) + "\n"
+    if not stage:
+        guard = "MCME_" + re.sub(r"\W", "_", Path(path).name).upper()
+        body = VERSION_LINE.sub("", text)
+        return f"{mark}#ifndef {guard}\n#define {guard}\n{body}{'' if body.endswith(chr(10)) else chr(10)}#endif\n"
+    version = VERSION_LINE.search(text)
+    extra = mark + ("" if SEPARATE_SHADERS in text else SEPARATE_SHADERS + "\n")
+    return text[:version.end()] + extra + text[version.end():] if version else extra + text
+
+
+def _imported(text: str) -> list[str]:
+    """The minecraft includes a shader imports, by file name."""
+    text = _strip_comments(text)
+    names = []
+    for relative, identifier in MOJ_IMPORT.findall(text) + INCLUDE.findall(text):
+        if relative:
+            names.append(Path(relative).name)
+        else:
+            namespace, _, path = identifier.strip().rpartition(":")
+            if (namespace or "minecraft") == "minecraft":
+                names.append(path)
+    return names
+
+
+def _read(path: Path) -> str:
+    return path.read_text(encoding="utf-8-sig", errors="replace")
+
+
+def is_translated(path: Path) -> bool:
+    return path.is_file() and TRANSLATED.split("{")[0] in "\n".join(_read(path).splitlines()[:2])
+
+
+def _outputs(text: str) -> dict:
+    return {name: int(location) for location, kind, _, name in shader_check.LOCATED.findall(_strip_comments(text)) if kind == "out"}
+
+
+def overlay_files(pack_path) -> dict[Path, bytes]:
+    """26.3's copies, by path from the pack, translated from assets/ in the
+    pack at `pack_path` as it is on disk with the base in it - but where its
+    overlay has the base's or its own hand-written one: of its core shaders,
+    of its Distant Horizons Blaze3D shaders that import (which 26.3's shaderc
+    compiles, as it does Sodium's), and of the minecraft includes those and
+    Sodium's take. The hooks' inputs and outputs are numbered after the base
+    terrain's last."""
+    pack_path = Path(pack_path)
+    assets, overlay_assets = pack_path / "assets", pack_path / OVERLAY / "assets"
+    shaders, overlay = pack_path / SHADERS_PATH, pack_path / OVERLAY / SHADERS_PATH
+
+    def winning(relative):
+        hand = overlay_assets / relative
+        return hand if hand.is_file() and not is_translated(hand) else assets / relative
+
+    # the stages: each vertex shader before its fragment shader, whose inputs
+    # take its outputs' locations
+    stages = sorted({p.relative_to(root) for root in (assets, overlay_assets)
+                     for folder in ("minecraft/shaders/core", "distanthorizons/shaders")
+                     for p in ((root / folder).rglob("*") if (root / folder).is_dir() else [])
+                     if p.suffix in STAGE_SUFFIXES and (folder.endswith("core") or "blaze" in p.parts)},
+                    key=lambda p: (p.parent.as_posix(), p.stem if p.parts[0] == "minecraft" else "", p.suffix in (".fsh", ".frag")))
+    translated, outputs = {}, {}
+    for relative in stages:
+        source = winning(relative)
+        key = (relative.parent, relative.stem if relative.parts[0] == "minecraft" else "")
+        fragment = relative.suffix in (".fsh", ".frag")
+        if source.is_relative_to(overlay_assets):
+            if not fragment:
+                outputs[key] = _outputs(_read(source))
+            continue
+        text = _read(source)
+        copy = to_26_3(text, relative.as_posix(), outputs.get(key) if fragment else None)
+        if not fragment:
+            outputs[key] = _outputs(copy)
+        # DH's: only those that need it, the rest as they are
+        if relative.parts[0] == "minecraft" or MOJ_IMPORT.search(_strip_comments(text)) or VARYING.search(_strip_comments(text)):
+            translated[OVERLAY / "assets" / relative] = copy.encode("utf-8")
+
+    # what they reach, and Sodium's chunk shaders, through the overlay's
+    # includes where it has them
+    sodium = [Path("sodium/shaders/blocks") / p.name for p in sorted((assets / "sodium/shaders/blocks").glob("*"))]
+    seeds = [winning(r) for r in stages + sodium]
+    reached, queue = set(), [n for seed in seeds for n in _imported(_read(seed))]
+    while queue:
+        name = queue.pop()
+        source = winning(Path("minecraft/shaders/include") / name)
+        if name in reached or not source.is_file():
+            continue
+        reached.add(name)
+        queue += _imported(_read(source))
+
+    # the hooks' outputs and those of what they import, in order, after the base terrain's
+    taken = outputs.get((Path("minecraft/shaders/core"), "terrain"), {}).values()
+    names, seen, queue = [], set(), ["mcme_hook_vertex_globals.glsl"]
+    while queue:
+        name = queue.pop(0)
+        source = shaders / "include" / name
+        if name in seen or not source.is_file():
+            continue
+        seen.add(name)
+        text = _strip_comments(_read(source))
+        names += [m.group(5) for m in VARYING.finditer(text) if m.group(3) == "out" and m.group(5) not in names]
+        queue += _imported(text)
+    locations = {name: max(taken, default=-1) + 1 + i for i, name in enumerate(names)}
+
+    for name in sorted(reached):
+        relative = Path("minecraft/shaders/include") / name
+        if winning(relative) == assets / relative:
+            translated[OVERLAY / "assets" / relative] = to_26_3(_read(assets / relative), relative.as_posix(), locations).encode("utf-8")
+    return translated
+
+
+def mark_overlay(pack_root) -> bool:
+    """Point 26.3 at the pack's overlay in pack.mcmeta, and give the pack the
+    formats from 26.2's to 26.3's. Whether it changed the file."""
+    path = Path(pack_root) / PACK_MCMETA
+    if not path.is_file() or not (Path(pack_root) / OVERLAY).is_dir():
+        return False
+    text = path.read_text(encoding="utf-8-sig")
+    data = json.loads(text)
+    before = json.dumps(data, sort_keys=True)
+    pack = data.setdefault("pack", {})
+    pack.setdefault("min_format", min(pack.get("pack_format", OLDEST_FORMAT), OLDEST_FORMAT))
+    if not isinstance(pack.get("max_format"), int) or pack["max_format"] < OVERLAY_FORMAT:
+        pack["max_format"] = OVERLAY_FORMAT
+    entries = data.setdefault("overlays", {}).setdefault("entries", [])
+    entry = next((e for e in entries if e.get("directory") == OVERLAY.name), None)
+    if entry is None:
+        entries.append({"min_format": OVERLAY_FORMAT, "max_format": OVERLAY_FORMAT, "directory": OVERLAY.name})
+    if json.dumps(data, sort_keys=True) == before:
+        return False
+    _write_mcmeta(path, text, data)
+    return True
+
+
+def _write_mcmeta(path: Path, text: str, data: dict):
+    indent = re.match(r"\{\s*\n([ \t]+)", text)
+    path.write_text(json.dumps(data, indent=indent.group(1) if indent else 4) + "\n", encoding="utf-8")
+
+
+def translate(pack_path) -> list[str]:
+    """Write 26.3's translated copies into the pack (overlay_files), and
+    delete those an earlier one wrote that it no longer takes; what it did."""
+    done = []
+    translated = overlay_files(pack_path)
+    for relative, content in translated.items():
+        target = Path(pack_path) / relative
+        if target.is_file() and _same(target.read_bytes(), content):
+            continue
+        target.parent.mkdir(parents=True, exist_ok=True)
+        target.write_bytes(content)
+        done.append(f"wrote {relative.as_posix()}")
+    folder = Path(pack_path) / OVERLAY / "assets"
+    for old in sorted(folder.rglob("*")) if folder.is_dir() else []:
+        relative = old.relative_to(pack_path)
+        if old.suffix in (*SHADER_SUFFIXES, *STAGE_SUFFIXES) and is_translated(old) and relative not in translated:
+            old.unlink()
+            done.append(f"deleted {relative.as_posix()}")
+    return done
 
 
 def shipped(config: Config) -> dict[Path, bytes]:
@@ -305,6 +534,7 @@ def sync(pack_root, force=False) -> list[str]:
             target.parent.mkdir(parents=True, exist_ok=True)
             shutil.copyfile(BASE_PATH / relative, target)
             done.append(f"wrote {relative.as_posix()} (an empty hook)")
+    done += translate(pack_root)
     # what an earlier sync wrote that the pack no longer gets, such as a
     # module turned off - unless changed since
     for name, digest in lock.items():
@@ -333,6 +563,8 @@ def sync(pack_root, force=False) -> list[str]:
     (pack_root / LOCK_NAME).write_text(json.dumps(record, indent=2) + "\n", encoding="utf-8")
     if mark_for_sodium(pack_root):
         done.append(f"wrote {PACK_MCMETA}'s sodium.ignored_shaders")
+    if mark_overlay(pack_root):
+        done.append(f"wrote {PACK_MCMETA}'s overlay for 26.3")
     check_imports(pack_root)
     return done
 
@@ -356,8 +588,7 @@ def mark_for_sodium(pack_root) -> bool:
     if not missing:
         return False
     section["ignored_shaders"] = listed + missing
-    indent = re.match(r"\{\s*\n([ \t]+)", text)
-    path.write_text(json.dumps(data, indent=indent.group(1) if indent else 4) + "\n", encoding="utf-8")
+    _write_mcmeta(path, text, data)
     return True
 
 
@@ -411,9 +642,11 @@ def unresolved_imports(pack_path) -> list[str]:
 
 def finish(pack_path, config: Config = None):
     """Once the pack is complete: sign its fluids (its water, and its modules'
-    and its own, by its config) and check that every shader import resolves."""
+    and its own, by its config), check that no other texture would be drawn
+    as one, and that every shader import resolves."""
     pack_path = Path(pack_path)
-    messages, ok = sign(pack_path, config or Config())
+    config = config or Config()
+    messages, ok = sign(pack_path, config)
     if not ok:
         print(
             "WARNING!!! Fluid textures that can't carry the codes the shaders "
@@ -421,7 +654,16 @@ def finish(pack_path, config: Config = None):
             + "\n".join(f"  {m}" for m in messages if not m.endswith(("signed", "now"))),
             flush=True,
         )
+    strays = fluid_signature.strays(pack_path, config.fluids)
+    if strays:
+        raise ShaderBaseError(
+            "Textures the terrain shaders would draw over as a fluid (water, lava...), "
+            "though they aren't one - edit a few texels of each:\n" + "\n".join(f"  {s}" for s in strays)
+        )
     mark_for_sodium(pack_path)
+    if (pack_path / OVERLAY).is_dir():
+        translate(pack_path)
+        mark_overlay(pack_path)
     check_imports(pack_path)
     check_rules(pack_path)
 
@@ -436,8 +678,33 @@ def check_rules(pack_path):
         )
 
 
+def unresolved_includes(pack_path) -> list[str]:
+    """In the pack's 26.3 overlay, every #include of a minecraft include that
+    neither it, the pack's assets/ nor vanilla 26.3 has, and every #moj_import
+    left - 26.3 has none."""
+    pack_path = Path(pack_path)
+    overlay = pack_path / OVERLAY / SHADERS_PATH
+    missing = []
+    for shader in sorted(overlay.rglob("*")) if overlay.is_dir() else []:
+        if shader.suffix not in SHADER_SUFFIXES or not shader.is_file():
+            continue
+        text = _strip_comments(_read(shader))
+        where = shader.relative_to(pack_path).as_posix()
+        for match in MOJ_IMPORT.finditer(text):
+            missing.append(f"{where}:{text.count(chr(10), 0, match.start()) + 1}: #moj_import, which 26.3 doesn't have")
+        for match in INCLUDE.finditer(text):
+            relative, identifier = match.groups()
+            namespace, _, name = (identifier or "").strip().rpartition(":")
+            if relative is not None or (namespace or "minecraft") != "minecraft":
+                continue
+            if not ((overlay / "include" / name).is_file() or (pack_path / SHADERS_PATH / "include" / name).is_file()
+                    or name in VANILLA_INCLUDES_26_3):
+                missing.append(f"{where}:{text.count(chr(10), 0, match.start()) + 1}: minecraft:{name}")
+    return missing
+
+
 def check_imports(pack_path):
-    missing = unresolved_imports(pack_path)
+    missing = unresolved_imports(pack_path) + unresolved_includes(pack_path)
     if missing:
         raise ShaderBaseError(
             "Shader imports that don't resolve - the client would drop every "
