@@ -9,6 +9,7 @@ How MCME's resource packs get from a Git repository to the players, and what thi
 | Understand exactly how a Sodium pack becomes a vanilla pack | [How generateVanilla converts a pack](conversion.md) |
 | Fix a failed release, a warning, or a pack players don't get | [Troubleshooting](troubleshooting.md) |
 | Add a pack to the automation on the server (admins) | [Add a pack to the automation](server-setup.md) |
+| Know what we plan to change about the release process (maintainers) | [Reworking the release process](release-process-rework.md) |
 | Run the converter on my own computer, or work on its code | The [README](../README.md) |
 
 ## The short version
