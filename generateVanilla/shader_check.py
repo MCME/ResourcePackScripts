@@ -54,12 +54,38 @@ DEFINES = {
         ["USE_VERTEX_COMPRESSION"],
     ],
 }
+# 26.3 compiles every shader to SPIR-V through shaderc, for Vulkan 1.2, with
+# uniforms bound for it but no input or output given a location
+# (GlslCompiler): so #include, not #moj_import, and a location on each.
+# Translucent terrain, particles and text are drawn three more times when the
+# game sorts transparency itself (OIT, RenderPipelines): twice for alpha
+# only, then for colour.
+SPIRV_FROM = (26, 3)
+_OIT = ["OIT", "OIT_WAVELET_RANK 2", "OIT_COEFF_COUNT 8", "OIT_COEFF_ATTACHMENT_COUNT 2"]
+OIT_PASSES = [_OIT + ["OIT_ALPHA_ONLY", "OIT_DEPTH_BOUNDS"], _OIT + ["OIT_ALPHA_ONLY", "OIT_TRANSMITTANCE"], _OIT + ["OIT_ACCUMULATE"]]
+_TERRAIN = [[], ["ALPHA_CUTOUT 0.5"]] + [["ALPHA_CUTOUT 0.1"] + p for p in OIT_PASSES]
+SPIRV_DEFINES = {
+    ("minecraft", "core/terrain"): _TERRAIN + [d + ["MULTIDRAW_TERRAIN"] for d in _TERRAIN],
+    ("minecraft", "core/particle"): [[]] + OIT_PASSES,
+    ("minecraft", "core/text"): [[]] + OIT_PASSES,
+    # Sodium's, through vanilla's transparency passes (ShaderChunkRenderer)
+    ("sodium", "blocks/block_layer_opaque"): [
+        base + cutout
+        for base in (["USE_VERTEX_COMPRESSION", "USE_FOG"], ["USE_VERTEX_COMPRESSION"])
+        for cutout in ([], ["ALPHA_CUTOUT 0.5"], *(["ALPHA_CUTOUT 0.01"] + p for p in OIT_PASSES))
+    ],
+}
+# The overlay a pack keeps a game version's own copies in, over its assets/
+OVERLAYS = {"26.3": "mc26_3"}
+
 # DH's post-processing programs (OpenGL renderer) without a vertex shader of their own
 DH_SHARED_VERTEX = "shared/gl/quad_apply.vert"
 # The game's full-screen programs (lightmap, blit_screen) without one either
 MINECRAFT_SHARED_VERTEX = "core/screenquad.vsh"
 
 MOJ_IMPORT = re.compile(r'^[ \t]*#[ \t]*moj_import[ \t]*(?:"([^"\n]*)"|<([^>\n]*)>)', re.M)
+INCLUDE = re.compile(r'^[ \t]*#[ \t]*include[ \t]*(?:"([^"\n]*)"|<([^>\n]*)>)', re.M)
+LOCATED = re.compile(r"layout\s*\(\s*location\s*=\s*(\d+)\s*\)\s*(?:(?:flat|smooth|noperspective|centroid)\s+)*(in|out)\s+(\w+)\s+(\w+)")
 VERSION = re.compile(r"^[ \t]*#[ \t]*version[ \t]+(\d+)([ \t]+\w+)?", re.M)
 EXTENSION = re.compile(r"^[ \t]*#[ \t]*extension[ \t]+(\w+)", re.M)
 
@@ -115,6 +141,9 @@ def find_jars(minecraft_version: str) -> dict:
     for folder in (root / "iris-reserved" / minecraft_version, root / "mods"):
         for jar in sorted(folder.glob("*.jar")) if folder.is_dir() else []:
             jar_id = _jar_id(jar)
+            built_for = re.search(r"\+mc([\d.]+?)(?:\.jar|[-+])", jar.name)    # sodium-fabric-0.9.2+mc26.2.jar
+            if built_for and built_for.group(1) != minecraft_version:
+                continue
             if jar_id in JAR_IDS and jar_id not in found:
                 found[jar_id] = jar
     return found
@@ -161,7 +190,9 @@ def fetch_jars(versions: dict, cache: Path) -> dict:
         target.write_bytes(_get(json.loads(_get(url))["downloads"]["client"]["url"]))
     found["minecraft"] = target
     for jar_id in ("sodium", "distanthorizons"):
-        version = versions[jar_id]
+        version = versions.get(jar_id)
+        if not version:     # none tested for this game version yet
+            continue
         target = cache / f"{jar_id}-{version}-{minecraft_version}.jar"
         if not target.is_file():
             entry = next((v for v in _modrinth_versions(MODRINTH[jar_id], minecraft_version) if _is_version(v, version)), None)
@@ -173,11 +204,30 @@ def fetch_jars(versions: dict, cache: Path) -> dict:
     return found
 
 
-class Sources:
-    """Shaders by namespace and path, from the pack first, then the jars."""
+def is_spirv(minecraft_version) -> bool:
+    return bool(minecraft_version) and tuple(int(p) for p in re.findall(r"\d+", minecraft_version)[:2]) >= SPIRV_FROM
 
-    def __init__(self, pack_path, jars: dict):
-        self.assets = Path(pack_path) / "assets"
+
+def shader_roots(pack_path, minecraft_version=None) -> list:
+    """The pack's assets/ folders the game reads for that version, the first winning."""
+    roots = [Path(pack_path) / "assets"]
+    overlay = OVERLAYS.get(minecraft_version)
+    if overlay:
+        roots.insert(0, Path(pack_path) / overlay / "assets")
+    return roots
+
+
+class Sources:
+    """Shaders by namespace and path, from the pack first - its overlay for
+    the game version, then its assets/ - then the jars. From 26.3 (spirv)
+    the game's and Sodium's shaders' imports are #include, and a #moj_import
+    left is an #error; DH compiles its own itself, as before."""
+
+    def __init__(self, pack_path, jars: dict, minecraft_version: str = None):
+        self.version = minecraft_version
+        self.roots = shader_roots(pack_path, minecraft_version)
+        self.assets = self.roots[-1]
+        self.spirv = is_spirv(minecraft_version)
         self.jars = {jar_id: zipfile.ZipFile(path) for jar_id, path in jars.items()}
 
     def original(self, namespace: str, path: str):
@@ -191,9 +241,10 @@ class Sources:
 
     def read(self, namespace: str, path: str):
         """(text, where from), or (None, None) where nothing has it."""
-        local = self.assets / namespace / "shaders" / path
-        if local.is_file():
-            return local.read_text(encoding="utf-8-sig", errors="replace"), "pack"
+        for root in self.roots:
+            local = root / namespace / "shaders" / path
+            if local.is_file():
+                return local.read_text(encoding="utf-8-sig", errors="replace"), "pack"
         text = self.original(namespace, path)
         return (text, "jar") if text is not None else (None, None)
 
@@ -203,25 +254,31 @@ class Sources:
     def listing(self, namespace: str, folder: str) -> set:
         """The file names in a shaders/ folder, the pack's and the jars'."""
         names = set()
-        local = self.assets / namespace / "shaders" / folder
-        if local.is_dir():
-            names.update(p.name for p in local.iterdir() if p.is_file())
+        for root in self.roots:
+            local = root / namespace / "shaders" / folder
+            if local.is_dir():
+                names.update(p.name for p in local.iterdir() if p.is_file())
         prefix = f"assets/{namespace}/shaders/{folder}/"
         for z in self.jars.values():
             names.update(n[len(prefix):] for n in z.namelist() if n.startswith(prefix) and "/" not in n[len(prefix):] and n != prefix)
         return names
 
+    def spirv_for(self, namespace: str, path: str = "") -> bool:
+        """Whether 26.3's shaderc compiles the shader: the game's, Sodium's and
+        Distant Horizons' Blaze3D ones - DH's OpenGL ones it compiles itself."""
+        return self.spirv and (namespace in ("minecraft", "sodium") or "/blaze/" in f"/{path}")
+
     def expand(self, namespace: str, path: str, defines=()) -> str:
         """The shader as the driver gets it: its imports filled in, as the
         game's preprocessor does, and the defines after its #version."""
         text, _ = self.read(namespace, path)
-        body = self._imports(text, namespace, path, [])
+        body = self._imports(text, namespace, path, [], self.spirv_for(namespace, path))
         lines = body.split("\n")
         at = next((i for i, line in enumerate(lines) if VERSION.match(line)), -1)
         lines[at + 1:at + 1] = [f"#define {d}" for d in defines] + [f"#line {at + 2}"]
         return "\n".join(lines)
 
-    def _imports(self, text: str, namespace: str, path: str, stack: list) -> str:
+    def _imports(self, text: str, namespace: str, path: str, stack: list, spirv: bool) -> str:
         def fill(match):
             relative, identifier = match.groups()
             if relative is not None:
@@ -234,28 +291,39 @@ class Sources:
             included, _ = self.read(ns, target)
             if included is None:
                 raise FileNotFoundError(f"{ns}:{target}")
-            included = VERSION.sub("", included)
-            return self._imports(included, ns, target, stack + [(ns, target)])
+            if not spirv:     # the game drops it; shaderc refuses it
+                included = VERSION.sub("", included)
+            return self._imports(included, ns, target, stack + [(ns, target)], spirv)
 
+        if spirv:
+            text = MOJ_IMPORT.sub(lambda m: f"#error {path} uses #moj_import, gone since 26.3: #include", text)
+            return INCLUDE.sub(fill, text)
+        if self.spirv:      # DH's OpenGL shaders on 26.3: the MCME mod fills in either (DhShaders)
+            text = INCLUDE.sub(fill, text)
         return MOJ_IMPORT.sub(fill, text)
 
 
 # --- rules ---------------------------------------------------------------------
 
-def pack_shaders(pack_path):
-    """(namespace, path in shaders/, file) for every shader file the pack has."""
-    assets = Path(pack_path) / "assets"
-    for shader in sorted(assets.glob("*/shaders/**/*")):
-        if shader.is_file() and shader.suffix in SHADER_SUFFIXES:
-            namespace = shader.relative_to(assets).parts[0]
-            yield namespace, shader.relative_to(assets / namespace / "shaders").as_posix(), shader
+def pack_shaders(pack_path, minecraft_version=None):
+    """(namespace, path in shaders/, file) for every shader file the pack has
+    for that game version: its overlay's, then those of assets/ it leaves."""
+    seen = set()
+    for assets in shader_roots(pack_path, minecraft_version):
+        for shader in sorted(assets.glob("*/shaders/**/*")):
+            if shader.is_file() and shader.suffix in SHADER_SUFFIXES:
+                namespace = shader.relative_to(assets).parts[0]
+                path = shader.relative_to(assets / namespace / "shaders").as_posix()
+                if (namespace, path) not in seen:
+                    seen.add((namespace, path))
+                    yield namespace, path, shader
 
 
-def check_rules(pack_path) -> list:
+def check_rules(pack_path, minecraft_version=None) -> list:
     """Every #version above MAX_VERSION, every ES shader and every #extension
     not allowed, in every shader file the pack has."""
     problems = []
-    for namespace, path, shader in pack_shaders(pack_path):
+    for namespace, path, shader in pack_shaders(pack_path, minecraft_version):
         text = strip_comments(shader.read_text(encoding="utf-8-sig", errors="replace"))
         where = f"{namespace}:{path}"
         for match in VERSION.finditer(text):
@@ -304,7 +372,7 @@ def check_dh_overrides(pack_path, sources: Sources) -> list:
     if "distanthorizons" not in sources.jars:
         return []
     problems = []
-    for namespace, path, shader in pack_shaders(pack_path):
+    for namespace, path, shader in pack_shaders(pack_path, sources.version):
         if namespace != "distanthorizons" or shader.suffix not in STAGES:
             continue
         original = sources.original(namespace, path)
@@ -328,7 +396,7 @@ def programs(pack_path, sources: Sources) -> list:
     pack runs in, each stage the pack's or the original; None where a stage
     has no partner to be found."""
     found = []
-    for namespace, path, shader in pack_shaders(pack_path):
+    for namespace, path, shader in pack_shaders(pack_path, sources.version):
         stage = STAGES.get(shader.suffix)
         if stage is None or "/include/" in f"/{path}":
             continue
@@ -379,12 +447,19 @@ def driver_context():
         return None
 
 
-def _glslang(glslang: str, text: str, stage: str):
-    """glslang's complaint, or None if it compiles."""
+def _glslang(glslang: str, text: str, stage: str, spirv=False, preprocess=False):
+    """glslang's complaint, or None if it compiles - or with preprocess, the
+    text after the preprocessor (an empty one if that fails). spirv compiles
+    as 26.3 does: for Vulkan 1.2, uniforms bound automatically, locations not."""
     with tempfile.TemporaryDirectory() as folder:
         source = Path(folder) / f"shader.{stage}"
         source.write_text(text, encoding="utf-8")
-        result = subprocess.run([glslang, "-S", stage, str(source)], capture_output=True, text=True)
+        flags = ["-V", "--target-env", "vulkan1.2", "--amb", "-o", str(Path(folder) / "out.spv")] if spirv else []
+        if preprocess:
+            flags = ["-E"] + [f for f in flags if f != "-o"][:4]
+        result = subprocess.run([glslang, *flags, "-S", stage, str(source)], capture_output=True, text=True)
+    if preprocess:
+        return result.stdout if result.returncode == 0 else ""
     if result.returncode == 0:
         return None
     lines = [line for line in (result.stdout + result.stderr).splitlines()
@@ -392,12 +467,44 @@ def _glslang(glslang: str, text: str, stage: str):
     return "\n      ".join(lines[:12])
 
 
+def located(glslang: str, text: str, stage: str, qualifier: str) -> dict:
+    """A stage's inputs or outputs by location: location -> (type, name), as
+    it compiles - its #ifdefs settled."""
+    found = {}
+    for location, kind, type_, name in LOCATED.findall(_glslang(glslang, text, stage, spirv=True, preprocess=True)):
+        if kind == qualifier:
+            found[int(location)] = (type_, name)
+    return found
+
+
+def check_interface(glslang: str, texts: dict, vanilla_vertex: str = None) -> list:
+    """Where the fragment shader reads a location the vertex shader doesn't
+    write as that same variable - with SPIR-V, stages meet by location alone -
+    and where the vertex shader takes an attribute at another location than
+    vanilla's of the same name, which the game feeds."""
+    outs, ins = located(glslang, texts["vert"], "vert", "out"), located(glslang, texts["frag"], "frag", "in")
+    problems = []
+    if vanilla_vertex is not None:
+        theirs = {name: int(l) for l, kind, _, name in LOCATED.findall(strip_comments(vanilla_vertex)) if kind == "in"}
+        for location, (type_, name) in sorted(located(glslang, texts["vert"], "vert", "in").items()):
+            if name in theirs and theirs[name] != location:
+                problems.append(f"attribute {name} is at location {location}, vanilla's at {theirs[name]}")
+    for location, (type_, name) in sorted(ins.items()):
+        if location not in outs:
+            problems.append(f"location {location} ({type_} {name}) isn't written by the vertex shader")
+        elif outs[location] != (type_, name):
+            problems.append(f"location {location} is {type_} {name} here but {' '.join(outs[location])} in the vertex shader")
+    return problems
+
+
 def compile_pack(pack_path, sources: Sources, glslang=None, context=None) -> Report:
     report = Report()
     seen = {}
     for namespace, vertex, fragment in programs(pack_path, sources):
+        spirv = sources.spirv_for(namespace, vertex or fragment)
+        table = SPIRV_DEFINES if spirv else DEFINES
         key = (vertex or fragment).rsplit(".", 1)[0]
-        variants = DEFINES.get((namespace, key)) or DEFINES.get((namespace, (fragment or vertex).rsplit(".", 1)[0])) or [[]]
+        variants = table.get((namespace, key)) or table.get((namespace, (fragment or vertex).rsplit(".", 1)[0])) or [[]]
         for defines in variants:
             label = f"{namespace}:{vertex or '-'} + {fragment or '-'}" + (f" [{', '.join(defines)}]" if defines else "")
             texts = {}
@@ -412,7 +519,7 @@ def compile_pack(pack_path, sources: Sources, glslang=None, context=None) -> Rep
                     failed = True
                     continue
                 if glslang and (namespace, path, tuple(defines)) not in seen:
-                    error = _glslang(glslang, texts[stage], stage)
+                    error = _glslang(glslang, texts[stage], stage, spirv=spirv)
                     seen[(namespace, path, tuple(defines))] = error
                     if error:
                         report.problems.append(f"{namespace}:{path}" + (f" [{', '.join(defines)}]" if defines else "")
@@ -420,7 +527,12 @@ def compile_pack(pack_path, sources: Sources, glslang=None, context=None) -> Rep
                         failed = True
                 elif seen.get((namespace, path, tuple(defines))):
                     failed = True
-            if context is not None and not failed and len(texts) == 2:
+            if spirv and glslang and not failed and len(texts) == 2:
+                for problem in check_interface(glslang, texts, sources.original(namespace, vertex)):
+                    report.problems.append(f"{label}: {problem}")
+                    failed = True
+            # SPIR-V: no driver of ours takes it as the game hands it over
+            if context is not None and not spirv and not failed and len(texts) == 2:
                 try:
                     context.program(vertex_shader=texts["vert"], fragment_shader=texts["frag"]).release()
                 except Exception as e:
@@ -432,11 +544,12 @@ def compile_pack(pack_path, sources: Sources, glslang=None, context=None) -> Rep
     return report
 
 
-def check(pack_path, jars: dict, glslang=None, context=None) -> Report:
+def check(pack_path, jars: dict, glslang=None, context=None, minecraft_version=None) -> Report:
     """Every check there is the means for: rules always, Distant Horizons'
-    originals with DH's jar, compiling with glslang or a driver context."""
-    sources = Sources(pack_path, jars)
-    report = Report(problems=check_rules(pack_path))
+    originals with DH's jar, compiling with glslang or a driver context - for
+    the game version's overlay, if it has one, and its way of compiling."""
+    sources = Sources(pack_path, jars, minecraft_version)
+    report = Report(problems=check_rules(pack_path, minecraft_version))
     report.problems += check_dh_overrides(pack_path, sources)
     if glslang or context:
         compiled = compile_pack(pack_path, sources, glslang, context)

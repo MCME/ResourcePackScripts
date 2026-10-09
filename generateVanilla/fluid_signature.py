@@ -12,10 +12,11 @@ a plain texture. The build signs every pack's water (shader_base.finish); a
 pack's own fluids are signed in its repository with signFluids.py.
 """
 
+import functools
 import json
 from pathlib import Path
 
-from PIL import Image
+from PIL import Image, ImageChops
 
 # fluid.glsl's FLUID_ kinds, by texture
 # (5 to 7 are a pack's own: RP-Mordor signs its fog, tar and spray itself)
@@ -61,6 +62,64 @@ def is_signed(image, kind):
         for y in range(image.height)
         for x in range(image.width)
     )
+
+
+@functools.lru_cache(maxsize=256)
+def _tiled(cell, width, height):
+    """An image of the 4x4 cell (16 bytes, row by row) repeated."""
+    rows = [cell[4 * y:4 * y + 4] * (width // 4) for y in range(4)]
+    return Image.frombytes("L", (width, height), b"".join(rows[y & 3] for y in range(height)))
+
+
+def fluid_kinds(image) -> set[int]:
+    """The kinds fluid.glsl's fluidKind takes some 4x4 block of the texture
+    for - its sprite starting on one, as the atlas places it: those whose
+    codes every other texel of the block holds, as a chequerboard, opaque for
+    lava. A fluid's own texture is its kind; any other should be none."""
+    image = image.convert("RGBA")
+    width, height = image.width - image.width % 4, image.height - image.height % 4
+    if not width or not height:
+        return set()
+    r, g, b, a = image.crop((0, 0, width, height)).split()
+    code = ImageChops.add(
+        ImageChops.add(r.point(lambda v: (v & 3) << 4), g.point(lambda v: (v & 3) << 2)), b.point(lambda v: v & 3)
+    )
+    # (x + y) even: the texels fluidKind checks of each block
+    chequer = _tiled(bytes(255 * ((x + y + 1) % 2) for y in range(4) for x in range(4)), width, height)
+    # where a texel can't hold a code: transparent, or for lava not opaque
+    unseen = {False: a.point(lambda v: 0 if v > 0 else 255), True: a.point(lambda v: 0 if v == 255 else 255)}
+    kinds = set()
+    for kind in range(8):
+        expected = _tiled(bytes(fluid_code(kind, x, y) for y in range(4) for x in range(4)), width, height)
+        wrong = ImageChops.lighter(
+            ImageChops.difference(code, expected).point(lambda v: 255 if v else 0),
+            unseen[kind in (KINDS[n] for n in OPAQUE)],
+        )
+        # a block's average of its chequer's misses: 0 where it holds them all
+        if ImageChops.multiply(wrong, chequer).reduce(4).getextrema()[0] == 0:
+            kinds.add(kind)
+    return kinds
+
+
+def strays(pack_path, own=None) -> list[str]:
+    """Every texture of the pack, in any namespace, that the terrain shaders
+    would take for a fluid but isn't that fluid's own (KINDS, or the pack's
+    own, by own: name -> kind) - such as a Special Model Loader model's, which
+    would then be drawn over as water. Unreadable files are left to the game."""
+    pack_path = Path(pack_path)
+    mine = {**KINDS, **(own or {})}
+    found = []
+    for path in sorted(pack_path.glob("assets/*/textures/**/*.png")):
+        try:
+            kinds = fluid_kinds(Image.open(path))
+        except OSError:
+            continue
+        relative = path.relative_to(pack_path)
+        if relative.parent == FOLDER and kinds <= {mine.get(path.stem)}:
+            continue
+        if kinds:
+            found.append(f"{relative.as_posix()} is taken for fluid kind {', '.join(map(str, sorted(kinds)))}")
+    return found
 
 
 def problems(image, path: Path, opaque) -> list[str]:

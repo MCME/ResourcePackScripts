@@ -1,26 +1,22 @@
-#version 330 core
+#version 330
+#extension GL_ARB_separate_shader_objects : require
 
-// Sodium 0.9.2's chunk vertex shader with objmc added, so that the vanilla
-// pack's objmc models show with Sodium too. Sodium's own work is unchanged;
-// objmc_main.glsl is shared with vanilla's terrain.vsh, Sodium's names mapped
-// onto vanilla's below. Sodium's shaders are internal to it: compare against
-// the jar's assets/sodium/shaders on every Sodium update.
-//
-// Sodium's includes are copied beside these (shaders/include) and must be
-// re-copied with them: vanilla resolves every #moj_import in every pack shader
-// whether or not Sodium is there, and one it can't find fails the whole pack.
-// Never #include them instead: Sodium compiles through vanilla's preprocessor,
-// which only expands #moj_import.
+// 26.3's copy of the shader base's block_layer_opaque.vsh (the pack's overlay
+// mc26_3, see pack.mcmeta), on Sodium 0.9.2 for 26.3: Sodium compiles through
+// 26.3's shaderc to SPIR-V too, so #include, not #moj_import, a location on
+// every in and out, and gl_VertexIndex. It's also compiled for 26.3's
+// transparency passes (OIT_*), as vanilla's terrain is. Keep it in step with
+// the 26.2 one in assets/.
 
-#moj_import <sodium:globals.glsl>
-#moj_import <sodium:fog.glsl>
-#moj_import <sodium:chunk_vertex.glsl>
+#include <sodium:globals.glsl>
+#include <sodium:fog.glsl>
+#include <sodium:chunk_vertex.glsl>
 
-out vec2 v_TexCoord;
+layout(location = 1) out vec2 v_TexCoord;
 
 #ifdef USE_FOG
-out vec2 v_FragDistance;
-out float fadeFactor;
+layout(location = 2) out vec2 v_FragDistance;
+layout(location = 3) out float fadeFactor;
 #endif
 
 uniform isamplerBuffer u_SectionTimeInfo;
@@ -37,45 +33,49 @@ uniform int u_CurrentTime;
 uniform uint u_RegionID;
 #endif
 
-uniform sampler2D u_LightTex; // The light map texture sampler
+// The light map texture sampler. Sodium binds it in every pass, so it's kept
+// in the alpha-only ones too, where Sodium's own shader leaves it out.
+uniform sampler2D u_LightTex;
 
 // objmc: the block atlas, which holds each model's geometry. Sodium's v_Color
 // is split into its colour and light, as objmc lights its models itself.
 uniform sampler2D u_BlockTex;
-out vec4 vertexColor;
-out vec4 lightColor;
-out vec2 texCoord2;
-out vec3 Pos;
-out float transition;
-flat out int isCustom;
-flat out int noshadow;
-flat out int maxLod;
-flat out int blendTexture;
-flat out vec4 texRect;
+layout(location = 4) out vec4 vertexColor;
+layout(location = 5) out vec4 lightColor;
+layout(location = 6) out vec2 texCoord2;
+layout(location = 7) out vec3 Pos;
+layout(location = 8) out float transition;
+layout(location = 9) flat out int isCustom;
+layout(location = 10) flat out int noshadow;
+layout(location = 11) flat out int maxLod;
+layout(location = 12) flat out int blendTexture;
+layout(location = 13) flat out vec4 texRect;
 // the fluids (fluid.glsl): the position, mod 64 blocks
-out vec3 fluidWorld;
+layout(location = 14) out vec3 fluidWorld;
 // water (water.glsl): each corner's brightness - with its smooth lighting's
 // occlusion - for its shores
-out vec4 waterLights;
-out vec4 waterWeights;
-out vec4 waterHeights;
+layout(location = 15) out vec4 waterLights;
+layout(location = 16) out vec4 waterWeights;
+layout(location = 17) out vec4 waterHeights;
 // still water's wind (water.glsl): its broad fields at this corner, and 1
 // where they were worked out
-out vec4 waterWarps;
-out vec4 waterGusts;
-out float waterWindSet;
+layout(location = 18) out vec4 waterWarps;
+layout(location = 19) out vec4 waterGusts;
+layout(location = 20) out float waterWindSet;
+// a pack's hooks' own (mcme_hook_vertex_globals.glsl) are numbered from 18, as
+// in vanilla's terrain.vsh
 
 #define Sampler0 u_BlockTex
-#moj_import <minecraft:objmc_tools.glsl>
-#moj_import <minecraft:water_corner.glsl>
+#include <minecraft:objmc_tools.glsl>
+#include <minecraft:water_corner.glsl>
 // the water's, for its wind (waterWindHere), without what needs derivatives;
 // its clock the fragment shader's, the light map's (mcme_clock.glsl)
 #define FLUID_VERTEX
-#moj_import <minecraft:mcme_lite.glsl>
-#moj_import <minecraft:mcme_clock.glsl>
-#moj_import <minecraft:fluid.glsl>
-#moj_import <minecraft:water_config.glsl>
-#moj_import <minecraft:water.glsl>
+#include <minecraft:mcme_lite.glsl>
+#include <minecraft:mcme_clock.glsl>
+#include <minecraft:fluid.glsl>
+#include <minecraft:water_config.glsl>
+#include <minecraft:water.glsl>
 
 // The pack's own terrain features, as in vanilla's terrain.vsh. Sodium knows
 // positions only within a region of 128 x 64 x 128 blocks, and its clock is
@@ -95,7 +95,7 @@ out float waterWindSet;
 #else
 #define MCME_FOG_DISTANCE(p)
 #endif
-#moj_import <minecraft:mcme_hook_vertex_globals.glsl>
+#include <minecraft:mcme_hook_vertex_globals.glsl>
 
 uvec3 _get_relative_chunk_coord(uint pos) {
     // Packing scheme is defined by LocalSectionIndex
@@ -113,7 +113,7 @@ void main() {
     vec3 translation = u_RegionOffset + _get_draw_translation(_draw_id);
     Pos = _vert_position + translation;
     fluidWorld = MCME_WORLD_POS_64;
-    waterCorner(gl_VertexID, _vert_color.rgb, _vert_position.y, waterLights, waterWeights, waterHeights);
+    waterCorner(gl_VertexIndex, _vert_color.rgb, _vert_position.y, waterLights, waterWeights, waterHeights);
     waterWarps = vec4(0.0);
     waterGusts = vec4(0.0);
     waterWindSet = 0.0;
@@ -140,8 +140,8 @@ void main() {
 #define texCoord v_TexCoord
 #define GameTime 0.0
 #define BLOCK
-#moj_import <minecraft:objmc_main.glsl>
-#moj_import <minecraft:mcme_hook_vertex_main.glsl>
+#include <minecraft:objmc_main.glsl>
+#include <minecraft:mcme_hook_vertex_main.glsl>
 #undef texCoord
 
 #ifdef USE_FOG
@@ -157,5 +157,5 @@ void main() {
 
     // Transform the vertex position into model-view-projection space
     gl_Position = u_ProjectionMatrix * u_ModelViewMatrix * vec4(Pos, 1.0);
-#moj_import <minecraft:mcme_hook_vertex_end.glsl>
+#include <minecraft:mcme_hook_vertex_end.glsl>
 }

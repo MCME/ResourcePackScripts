@@ -208,6 +208,64 @@ def test_finishing_a_pack_signs_its_water_and_only_the_fluids_it_has_on(tmp_path
     assert not fluid_signature.is_signed(Image.open(textures / "lava_still.png"), 0)
 
 
+def _signed(kind, size=(16, 16), alpha=180):
+    image = Image.new("RGBA", size, (40, 90, 200, alpha))
+    fluid_signature.sign(image, kind)
+    return image
+
+
+def _flip(image, x, y):
+    """Change the texel's code, not its look."""
+    r, g, b, a = image.getpixel((x, y))
+    image.putpixel((x, y), (r ^ 1, g, b, a))
+
+
+def test_fluid_kinds_checks_a_blocks_chequerboard_as_fluid_glsl_does():
+    water = _signed(2)
+    assert fluid_signature.fluid_kinds(water) == {2}
+    # every block of the sprite is broken on a texel fluidKind checks, x + y even...
+    broken = water.copy()
+    for y in range(0, 16, 4):
+        for x in range(0, 16, 4):
+            _flip(broken, x + 1, y + 1)
+    assert fluid_signature.fluid_kinds(broken) == set()
+    # ...or only on one it doesn't, x + y odd: still water
+    odd = water.copy()
+    for y in range(0, 16, 4):
+        for x in range(0, 16, 4):
+            _flip(odd, x + 1, y)
+    assert fluid_signature.fluid_kinds(odd) == {2}
+
+
+def test_fluid_kinds_wants_lava_opaque():
+    assert fluid_signature.fluid_kinds(_signed(0, alpha=255)) == {0}
+    assert fluid_signature.fluid_kinds(_signed(0, alpha=254)) == set()
+    assert fluid_signature.fluid_kinds(Image.new("RGBA", (16, 16), (90, 90, 90, 255))) == set()
+
+
+def test_finishing_refuses_a_texture_that_would_be_drawn_as_a_fluid(tmp_path, pack):
+    out = tmp_path / "out"
+    _texture(out / fluid_signature.FOLDER / "water_still.png")
+    # a Special Model Loader model's texture copied from the signed water
+    copy = out / "assets/mcme/textures/block/fountain.png"
+    copy.parent.mkdir(parents=True)
+    _signed(2).save(copy)
+    config = shader_base.apply([pack], out)
+    with pytest.raises(shader_base.ShaderBaseError, match="mcme/textures/block/fountain.png is taken for fluid kind 2"):
+        shader_base.finish(out, config)
+    copy.unlink()
+    shader_base.finish(out, config)
+
+
+def test_a_packs_own_fluid_textures_are_not_strays(pack):
+    textures = pack / fluid_signature.FOLDER
+    textures.mkdir(parents=True)
+    _signed(6, alpha=255).save(textures / "powder_snow.png")
+    assert fluid_signature.strays(pack, {"powder_snow": 6}) == []
+    assert fluid_signature.strays(pack) == ["assets/minecraft/textures/block/powder_snow.png is taken for fluid kind 6"]
+    assert fluid_signature.strays(pack, {"powder_snow": 7}) != []
+
+
 def test_sync_signs_the_modules_and_the_packs_own_fluids(pack):
     textures = pack / fluid_signature.FOLDER
     _texture(textures / "lava_still.png", alpha=255)
@@ -336,3 +394,60 @@ def test_mark_for_sodium_leaves_a_pack_without_terrain_shaders(pack):
     _write(pack / TEXT_VSH)
     assert not shader_base.mark_for_sodium(pack)
     assert (pack / "pack.mcmeta").read_text() == '{"pack": {}}'
+
+
+# --- 26.3 ----------------------------------------------------------------------
+
+OVERLAY_SHADERS = shader_base.OVERLAY / shader_base.SHADERS_PATH
+
+
+def test_an_include_for_26_3_loses_its_version_and_imports_by_include():
+    text = shader_base.to_26_3("#version 330\n#moj_import <fog.glsl>\n#moj_import <minecraft:water.glsl>\nfloat x;\n", "minecraft/shaders/include/a.glsl")
+    lines = text.splitlines()
+    assert shader_base.TRANSLATED.split("{")[0] in lines[0]
+    assert lines[1:] == ["#ifndef MCME_A_GLSL", "#define MCME_A_GLSL",
+                         "#include <minecraft:fog.glsl>", "#include <minecraft:water.glsl>", "float x;", "#endif"]
+
+
+def test_a_core_shader_for_26_3_keeps_its_version_and_numbers_its_inputs_and_outputs():
+    vertex = shader_base.to_26_3("#version 330\nin vec3 Position;\nout float a;\nflat out vec3 b;\n", "minecraft/shaders/core/sky.vsh")
+    assert vertex.splitlines()[0] == "#version 330"
+    assert shader_base.SEPARATE_SHADERS in vertex
+    assert "layout(location = 0) in vec3 Position;" in vertex
+    assert "layout(location = 1) flat out vec3 b;" in vertex
+    # the fragment shader's inputs at its vertex shader's outputs, by name
+    fragment = shader_base.to_26_3("#version 330\nflat in vec3 b;\nin float a;\nout vec4 fragColor;\n", "minecraft/shaders/core/sky.fsh", {"a": 0, "b": 1})
+    assert "layout(location = 1) flat in vec3 b;" in fragment
+    assert "layout(location = 0) in float a;" in fragment
+    assert "layout(location = 0) out vec4 fragColor;" in fragment
+
+
+def test_sync_writes_26_3_copies_and_points_26_3_at_them(pack):
+    (pack / "pack.mcmeta").write_text(json.dumps({"pack": {"pack_format": 88, "description": "x"}}))
+    _write(pack / INCLUDE / "mcme_hook_vertex_globals.glsl", "#version 330\nflat out vec3 eye;\n")
+    _write(pack / INCLUDE / "mcme_hook_fragment_globals.glsl", "#version 330\nflat in vec3 eye;\n")
+    _write(pack / "assets/minecraft/shaders/core/sky.vsh", "#version 330\n#moj_import <minecraft:fog.glsl>\nin vec3 Position;\nout float a;\n")
+    shader_base.sync(pack)
+    terrain = (shader_base.BASE_PATH / shader_base.OVERLAY / TERRAIN_VSH).read_text()
+    first = max(int(l) for l, kind, _, _ in shader_base.shader_check.LOCATED.findall(terrain) if kind == "out") + 1
+    assert (pack / shader_base.OVERLAY / TERRAIN_VSH).read_text() == terrain
+    assert f"layout(location = {first}) flat out vec3 eye;" in (pack / OVERLAY_SHADERS / "include/mcme_hook_vertex_globals.glsl").read_text()
+    assert f"layout(location = {first}) flat in vec3 eye;" in (pack / OVERLAY_SHADERS / "include/mcme_hook_fragment_globals.glsl").read_text()
+    sky = (pack / OVERLAY_SHADERS / "core/sky.vsh").read_text()
+    assert "#include <minecraft:fog.glsl>" in sky and "layout(location = 0) out float a;" in sky
+    mcmeta = json.loads((pack / "pack.mcmeta").read_text())
+    assert mcmeta["pack"]["max_format"] == shader_base.OVERLAY_FORMAT
+    assert {"min_format": shader_base.OVERLAY_FORMAT, "max_format": shader_base.OVERLAY_FORMAT,
+            "directory": shader_base.OVERLAY.name} in mcmeta["overlays"]["entries"]
+    assert shader_base.unresolved_includes(pack) == []
+
+
+def test_sync_keeps_a_26_3_copy_written_by_hand_and_drops_one_no_longer_taken(pack):
+    _write(pack / "assets/minecraft/shaders/core/sky.vsh", "#version 330\nin vec3 Position;\n")
+    hand = pack / OVERLAY_SHADERS / "core/sky.vsh"
+    _write(hand, "#version 330\n// by hand\n")
+    stale = pack / OVERLAY_SHADERS / "include/gone.glsl"
+    _write(stale, shader_base.TRANSLATED.format(path="minecraft/shaders/include/gone.glsl") + "\n")
+    shader_base.sync(pack)
+    assert hand.read_text() == "#version 330\n// by hand\n"
+    assert not stale.exists()
