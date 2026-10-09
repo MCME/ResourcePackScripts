@@ -151,7 +151,7 @@ Used by Human and Mordor. `<Pack>` is the pack's name in the config, for example
 | Step (console line) | What happens | Output |
 |---|---|---|
 | `compiling <Pack> RP zips` | Start | |
-| `<Pack>-Sodium` | `git pull` in `<Pack>-Sodium`, then `git pull` in ResourcePackScripts. The pack is copied to `release/` and zipped as it is, **without** its `vanilla/` folder. | `<Pack>-Sodium.zip` |
+| `<Pack>-Sodium` | `git pull` in `<Pack>-Sodium`, then `git pull` in ResourcePackScripts. The pack is copied to `release/` and zipped as it is, **without** its `vanilla/` folder. The shader base is already in the repository, written by [the sync](shader-base.md#getting-it-into-a-pack). | `<Pack>-Sodium.zip` |
 | `<Pack>-Sodium-Footprints` | The footprints texture is copied over `activator_rail.png` and the folder is zipped again. | `<Pack>-Sodium-Footprints.zip` |
 | `<Pack>-Vanilla` | `release/` is emptied, then generateVanilla converts the Sodium pack into it. | `<Pack>-Vanilla.zip` |
 | `<Pack>-Vanilla-Footprints` | Both footprints textures (`activator_rail.png`, `activator_rail_on.png`) are copied in and the folder is zipped again. | `<Pack>-Vanilla-Footprints.zip` |

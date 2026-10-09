@@ -2,6 +2,7 @@ import argparse
 import json
 import os
 import shutil
+import sys
 from pathlib import Path
 
 import constants
@@ -10,6 +11,7 @@ import objmc_conversion
 import objmc_merge
 import processBlockstate
 import processItem
+import shader_base
 import util
 
 
@@ -112,6 +114,7 @@ def skip_links_leading_outside_pack(directory, contents):
 # Bring over top level files
 # ----------------------------------------
 input_pack_mcmeta = input_path / constants.PACK_MCMETA
+data = {}
 if input_pack_mcmeta.exists() and not leads_outside_pack(input_pack_mcmeta):
     with open(input_pack_mcmeta, "r", encoding="utf-8-sig") as f:
         data = json.load(f)
@@ -206,6 +209,20 @@ for folder in input_path.iterdir():
             ignore=skip_links_leading_outside_pack,
             dirs_exist_ok=True,
         )
+# and the overlays pack.mcmeta declares (e.g. mc26_3, for a newer game version)
+overlay_names = {
+    entry.get("directory")
+    for entry in data.get("overlays", {}).get("entries", [])
+}
+for name in sorted(n for n in overlay_names if n and not n.startswith("1_")):
+    folder = input_path / name
+    if folder.is_dir() and not leads_outside_pack(folder):
+        shutil.copytree(
+            folder,
+            output_path / name,
+            ignore=skip_links_leading_outside_pack,
+            dirs_exist_ok=True,
+        )
 override_folders = (
     vanilla_override_path.iterdir() if vanilla_override_path.is_dir() else []
 )
@@ -221,6 +238,20 @@ for folder in override_folders:
             ignore=skip_links_leading_outside_pack,
             dirs_exist_ok=True,
         )
+
+# ---------------------------------------------
+# The shader base (docs/shader-base.md)
+# ---------------------------------------------
+# Unlike an imperfect pack, a pack with its own copy of a base file stops the
+# run: shipped, the two copies drift apart until one breaks the other.
+# The Lite zip - the one built with --limit - draws its fluids as their
+# textures: only the fire eye and the models' shaders run.
+try:
+    shader_config = shader_base.apply(
+        [input_path, vanilla_override_path], output_path, lite=max_model_entries is not None
+    )
+except shader_base.ShaderBaseError as e:
+    sys.exit(f"ERROR: {e}")
 
 # ---------------------------------------------
 # Process vanilla blockstates and item models
@@ -302,3 +333,12 @@ for model in hardcodedFiles.TEXTURES:
 # Store each objmc bake's texture once
 # ---------------------------------------------
 objmc_merge.merge_shared_textures(output_path, compress, debug)
+
+# ---------------------------------------------
+# Sign the fluid textures for the base's water and modules, and check that every shader
+# import resolves, or the client drops every pack
+# ---------------------------------------------
+try:
+    shader_base.finish(output_path, shader_config)
+except shader_base.ShaderBaseError as e:
+    sys.exit(f"ERROR: {e}")

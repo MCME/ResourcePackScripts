@@ -35,7 +35,7 @@ flowchart LR
 
 - **Python 3.10 or newer**, with the dependencies installed: `pip install -r requirements.txt`. That gives you PyYAML and Pillow. pytest is only needed for the tests.
 - **The Sodium pack**, for example a checkout of [RP-Human](https://github.com/MCME/RP-Human) `master`.
-- **The vanilla resources** of the Minecraft version the pack targets. Unzip the client jar, `.minecraft/versions/<version>/<version>.jar`, and use the folder that contains `assets/`. The tool reads `assets/minecraft/blockstates`, `items` and `models` from it. Only blocks and items in that version's list are converted. The release server uses 1.21.4's, so use those to see what a release will contain.
+- **The vanilla resources** of the Minecraft version the pack targets. Unzip the client jar, `.minecraft/versions/<version>/<version>.jar`, and use the folder that contains `assets/`. The tool reads `assets/minecraft/blockstates`, `items` and `models` from it. Only blocks and items in that version's list are converted. The release server uses 26.2's, so use those to see what a release will contain.
 
 ### Generate the vanilla pack
 
@@ -81,7 +81,7 @@ python generateVanilla/generateVanilla.py RP-Human ../RP-Human-vanilla ../minecr
 ```
 
 - **The Sodium model JSON** names its `.obj` in `model`, for example `"model": "mcme:models/block/leaves_parent.obj"`. It reads the `.mtl` with its own name, or the one named in `mtl_override`.
-- **The objmc core shaders are not generated.** The baked models only render with objmc's shaders in the vanilla pack. RP-Human keeps them in `vanilla/assets/minecraft/shaders/`. They must match the objmc in this repository: when objmc changes, as with the mipmapping and cutout changes of 1 October 2026, every pack needs the matching shaders (RP-Human from commit `621c00c3d`).
+- **The shaders come from [the shader base](docs/shader-base.md)** in `shaderBase/`: objmc's terrain shaders and their Sodium counterparts, the water they draw, the light map that carries the time of day, the empty hooks, the action bar's `text.vsh` and `fog.glsl`. generateVanilla adds them to the output and writes the water's codes into its water textures. It stops if the pack has a copy of a base file of its own, or if any shader import in the output doesn't resolve. A pack adds features of its own, such as Mordor's lava and fire eye, through the [hooks](docs/shader-base.md#hooks). Change the objmc shaders together with `objmc.py`.
 - **Some folders are rebuilt instead of copied:** every namespace's `blockstates`, `items`, `models`, `textures/block` and `textures/item`. Only what the blockstates and items actually use ends up in the output.
   - `assets/mcme/sml_load_scopes` is left out too, because only Special Model Loader reads it.
   - `modelengine`'s models and items are copied as they are.
@@ -112,7 +112,7 @@ The `parent` key is no longer read. Since the parent rework (#4), shared parents
 
 ### Warnings
 
-A problem with one model normally doesn't stop the run. The tool prints a `WARNING` line, skips that model or file, and carries on, so read the warnings after every run. A few input errors, such as invalid JSON, do stop it (see [What stops a run](docs/conversion.md#what-stops-a-run-and-what-doesnt)). The most common warnings:
+A problem with one model normally doesn't stop the run. The tool prints a `WARNING` line, skips that model or file, and carries on, so read the warnings after every run. A few input errors, such as invalid JSON or a pack that breaks the shader base's rules, do stop it (see [What stops a run](docs/conversion.md#what-stops-a-run-and-what-doesnt)). The most common warnings:
 
 | Warning | Meaning |
 |---|---|
@@ -143,6 +143,10 @@ Standalone helpers. generateVanilla doesn't use them.
 
 | Script | What it does |
 |---|---|
+| `generateVanilla/syncShaderBase.py <pack repository> [--force]` | Writes the shader base and the pack's modules into a pack repository, signs its fluids and records them in `.mcme-shaders.lock`. Run it whenever the base changes, then commit. See [the shader base](docs/shader-base.md#getting-it-into-a-pack). |
+| `generateVanilla/checkShaders.py <pack> [--glslang PATH] [--fetch tested\|latest]` | Checks a pack's shaders the ways a driver could refuse them: Mac-safe `#version` and extensions, every shader compiled (glslang) and linked (moderngl), DH overrides against DH's own. Each pack repository runs it on GitHub. See [Checks](docs/shader-base.md#checks). |
+| `generateVanilla/applyShaderBase.py <pack> [<output>]` | Adds the shader base to a pack that generateVanilla doesn't build, such as the Sodium zip, and signs its water. Without an output folder it **changes the pack in place**, so run it on a copy. |
+| `generateVanilla/signFluids.py <pack> lava\|water\|ice\|all [--check]` | Writes the fluids' codes into a pack's fluid textures, which the terrain shaders recognise them by. Run it in the pack's repository after editing one of those textures. `--check` only reports. |
 | `generateVanilla/rotate_obj.py <file.obj> <axis> <angle>` | Rotates an `.obj` **in place** by 90, 180 or 270 degrees around `x`, `y` or `z`. |
 | `finder.py <model>` | Reports which blockstates and parent models use the block model `<model>` (name without `block/`). Read-only. |
 | `sorter.py` | **Moves** every block model and texture that no blockstate uses into `unlinked_models/` and `unlinked_textures/`, without asking. Run it on a copy. |
@@ -170,11 +174,15 @@ pip install -r requirements.txt
 | `generateVanilla/processItem.py` | The same for item definitions. It finds every `model` and `special` node, however deeply nested. |
 | `generateVanilla/processModel.py` | One model entry: `mcme:` models go to objmc, others to the parent-chain copy. Also checks rotations. |
 | `generateVanilla/objmc_conversion.py` | The conversion, in three stages: plan it (settle and check every path), run objmc, then fit its output into the pack and link shared parents. The module docstring explains the split. |
+| `generateVanilla/objmc_merge.py` | After every model is converted, merges the bakes that hold the same texture into one sprite, so the texture is stored once |
 | `generateVanilla/objmc.py` | objmc, bundled: a Python port of the objcubed encoding, for static block models only. It runs as a subprocess under the same Python. |
+| `generateVanilla/shader_base.py` | Adds `shaderBase/` to the output and checks the pack against it: no base files of its own, every shader import resolves |
+| `generateVanilla/applyShaderBase.py` | The same for a pack that isn't built here (see [Other scripts](#other-scripts)) |
+| `generateVanilla/fluid_signature.py` | Reads and writes the fluids' codes in their textures. `signFluids.py` is its command line. |
 | `generateVanilla/rotate_obj.py` | Rotates `.obj` vertices and normals |
 | `generateVanilla/util.py` | Identifier-to-path helpers, `contained_path`, logging |
 | `generateVanilla/constants.py` | Folder names, the folders rebuilt instead of copied, namespaces |
-| `generateVanilla/hardcodedFiles.py` | Files that are always copied: the water and lava flow textures |
+| `generateVanilla/hardcodedFiles.py` | Files that are always copied: the water and lava textures, still and flowing |
 
 ### Tests
 
@@ -192,7 +200,7 @@ Name `tests` on the command line. `--objmc` is defined in `tests/conftest.py`, a
 ### Rules the code follows
 
 - **Everything in a pack is input from many hands.** Build file paths from pack content only through `util.contained_path`, and never follow a symlink out of the pack.
-- **A problem with one model or file is skipped** with a `WARNING!!!` line. It never stops the run.
+- **A problem with one model or file is skipped** with a `WARNING!!!` line. It never stops the run. The shader base's checks are the exception: a pack that breaks them would make Minecraft drop every resource pack, so they stop it.
 - **The input pack is only read.** Temporary files go to a temporary folder.
 - **Only stages 2 and 3 of `objmc_conversion.py` know objmc's command line and output format**, so updating objmc touches nothing else.
 

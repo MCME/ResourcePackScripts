@@ -110,7 +110,7 @@ A model whose JSON has no `model` key, or whose `.obj` is missing, is skipped **
 **What the baked texture looks like:**
 - **Width:** the same as the source texture's. It must be at least 8 pixels.
 - **Height:** rounded up to a power of two. It is always taller than the source, because the geometry data is stored in the texture along with the picture. A simple model with a 16×16 texture bakes to 16×128, and one with a 512×512 texture to 512×1024. More faces make it taller.
-- **Mipmapping:** the picture starts on a 16-row boundary, padded with repeated edge rows. This needs the matching shaders: RP-Human's from commit `621c00c3d` (1 October 2026) or later.
+- **Mipmapping:** the picture starts on a 16-row boundary, padded with repeated edge rows. This needs the matching shaders, which [the shader base](shader-base.md) has.
 - **Transparent pixels** get the colour of their nearest visible neighbour (with alpha still 0), so edges don't turn dark at a distance.
 - **Edges:** if every pixel is fully transparent or fully opaque, the shader draws crisp cut-out edges. One pixel with partial transparency makes the whole texture render with soft edges.
 
