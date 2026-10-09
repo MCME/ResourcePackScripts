@@ -115,7 +115,7 @@ comparison. The only cure found was a restart.
 **D3. A slot can be written without a checksum.** Assigning a release to a slot writes the URL and leaves the
 checksum empty until a separate command is run. Between the two, the slot is unusable, and nothing warns.
 
-### E. Production and test have drifted
+### E. The two systems drift, and are kept in step by hand
 
 **E1. Production has no wrapper**, so it has no lock, no log, no summary and no dashboard page. Two releases at the
 same time still spoil each other, and the documentation can only ask the team to coordinate by hand.
@@ -123,6 +123,36 @@ same time still spoil each other, and the documentation can only ask the team to
 **E2. There is no promotion step.** Moving a tested release to production means repeating the work against different
 repositories and slots by hand. The two sides are currently serving different builds of the same pack, with no
 mechanism that would have shown the divergence.
+
+**E3. The release scripts are not in version control, and the two copies have drifted in behaviour.** Each automation
+folder holds its own hand-edited copy of every release script. They are not in any repository, so there is no history,
+no review and no way to tell an intentional difference from an accident. Two of the current differences change what a
+release does, not where it goes:
+
+| Script | Production | Test |
+|---|---|---|
+| the Sodium/Vanilla release script | runs the converter without `--debug` | runs it with `--debug` |
+| the general release script | `gh release upload …` | the same, plus `--clobber` |
+
+The first means a production release produces none of the detailed converter log — and the pipeline's full log is
+built from exactly those lines, so installing the wrapper on production without this flag would give an empty log.
+The second means re-uploading to an existing tag overwrites the asset on test and fails on production.
+
+Nothing else in those scripts is environment-specific: the owner, repository, tag and title all arrive as arguments
+from the plugin's per-pack configuration. **The two copies could be byte-identical** apart from the wrapper hand-over,
+which both should have. That makes this drift avoidable rather than inherent.
+
+**E4. A pack can be releasable from one side only.** One release script exists in the test automation folder and not in
+the production one, so that pack cannot be released to production at all until somebody notices and copies the file.
+
+**E5. There is a third, orphaned automation folder.** A decommissioned server still has one, with release scripts but
+no converter checkout and no wrapper. It cannot work, and nothing says so.
+
+**E6. The two sides deliberately track different branches, and the gap is invisible.** The test folder's converter
+checkout follows `development`; the production one follows `master`. That is the right design — test proves
+`development` before it reaches players — but there is no view of how far apart they are. At the time of writing
+`master` is **9 commits** behind `development`, including a Minecraft version update and the shared shader base. The
+only way to learn that is to run `git log` in two directories on the server.
 
 ## Principles for the rework
 
@@ -161,9 +191,14 @@ Sized by where it lives, because that decides who can do it and when.
 | 5 | Allow console and dashboard to start a release and assign slots | plugin | Removes B1; makes 7 possible. |
 | 6 | One atomic publish action | plugin + wrapper | Removes B2, D3. |
 | 7 | Resolution robustness: skip unknown keys instead of stopping; re-read an implausible cached protocol; name the level that failed; let a player clear their own state | plugin | Removes C3, D1, D2. |
-| 8 | Install the wrapper on production; add an explicit promotion step | wrapper | Removes E1, E2. |
+| 8 | Install the wrapper on production; add an explicit promotion step | wrapper | Removes E1, E2. Needs 9 first. |
+| 9 | Put the release scripts in this repository and install them to every automation folder from one source | **this repository** | Removes E3–E6. The root cause of the drift. |
 
-Items 1, 2 and 8 need no plugin change. Items 3–7 are plugin work.
+Items 1, 2, 8 and 9 need no plugin change. Items 3–7 are plugin work.
+
+Item 9 is the one piece of this that belongs in **this** repository, and it is a prerequisite for 8: the
+wrapper cannot be installed on production correctly while the script it has to hook into is a hand-edited
+copy that differs from the tested one.
 
 ## Open questions
 

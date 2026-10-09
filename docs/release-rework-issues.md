@@ -1,15 +1,16 @@
 # Release process rework — issues
 
 > [!NOTE]
-> Eight issue-ready entries for the work breakdown in
+> Nine issue-ready entries for the work breakdown in
 > [Reworking the release process](release-process-rework.md). Each is written to be copied into a GitHub issue as it
 > stands. The letters in **Problem** refer to that document's sections.
 >
 > Nothing here is built. No issue has been opened yet.
 
-**Order.** 1 and 2 are self-contained and make the existing signal trustworthy; do them first. 8 is the only item that
-fixes a correctness risk rather than a usability one, because production has no release lock today. 3 unblocks 6.
-4 needs the verdict contract from 1. 5 unblocks a dashboard-driven release. 7 is independent and can go any time.
+**Order.** 1 and 2 are self-contained and make the existing signal trustworthy; do them first. **9 is the prerequisite
+for 8**, and together they are the only items that fix a correctness risk rather than a usability one: production has
+no release lock today, and its release scripts are hand-edited copies that already differ in behaviour from the tested
+ones. 3 unblocks 6. 4 needs the verdict contract from 1. 5 unblocks a dashboard-driven release. 7 is independent.
 
 ```mermaid
 flowchart LR
@@ -19,7 +20,7 @@ flowchart LR
     i2 --> i6
     i4 --> i6
     i5["5 Console + dashboard"] --> i6
-    i8["8 Production parity"]
+    i9["9 Scripts in one place"] --> i8["8 Production parity"]
     i7["7 Resolution robustness"]
 ```
 
@@ -188,7 +189,7 @@ comparison — curable only by a restart. In both cases the message names a miss
 
 ## 8. Give production the same pipeline, and a promotion step
 
-**Lives in:** the pipeline wrapper · **Problem:** E1, E2 · **Size:** M
+**Lives in:** the pipeline wrapper · **Problem:** E1, E2 · **Size:** M · **Needs:** 9
 
 Production releases have no wrapper, so no lock, no log, no summary and no dashboard page. Every release script builds
 in the same folder, so two production releases at once still spoil each other and the documentation can only ask the
@@ -204,3 +205,44 @@ different builds of the same pack with nothing that would show it.
 - [ ] A promotion records what was promoted, by whom and when.
 - [ ] A pack whose test and production slots point at different builds is visible without reading both configs by hand.
 - [ ] The note in the pipeline documentation asking the team to coordinate releases by hand can be removed.
+
+---
+
+## 9. Keep one copy of the release scripts, in this repository
+
+**Lives in:** this repository · **Problem:** E3, E4, E5, E6 · **Size:** M · **Blocks:** 8
+
+Every automation folder holds its own hand-edited copy of every release script. They are in no repository, so there is
+no history, no review, and no way to tell an intentional difference from an accident. The copies have already drifted
+in ways that change what a release does rather than where it goes: one runs the converter without the debug flag the
+pipeline's log is built from, and one lacks the flag that lets a re-upload replace an existing asset. One pack's
+release script exists in only one folder, so that pack cannot be released on the other side at all. A
+decommissioned server still has a third folder that cannot work. And the two converter checkouts deliberately follow
+different branches, with no way to see how far apart they are.
+
+Nothing in these scripts is environment-specific — owner, repository, tag and title all arrive as arguments from the
+plugin's per-pack configuration — so the copies could be identical apart from the wrapper hand-over, which both should
+have.
+
+**Scope**
+- Move the release scripts into this repository as the single source.
+- Install them into an automation folder from that source, including the wrapper hand-over, the same way on both sides.
+- Make the difference between the two sides data, not edited code: whichever converter branch a folder follows should
+  be stated in one place, not implied by which directory you happen to be in.
+- Report the gap between the two sides so it is visible without logging in.
+- Remove the orphaned folder, or mark it clearly as dead.
+
+**Acceptance criteria**
+- [ ] The release scripts live in this repository and are installed from it; no automation folder carries an edited copy.
+- [ ] Both automation folders end up with byte-identical scripts, the wrapper hand-over included.
+- [ ] The two behavioural differences are resolved deliberately and the choice recorded: the converter's debug output,
+      and whether a re-upload may replace an existing asset.
+- [ ] Every pack that can be released on one side can be released on the other.
+- [ ] Which converter branch a folder follows is declared in one place, and changing it needs no script edit.
+- [ ] The gap between the two sides — converter commits, and which release each pack is serving — is visible without
+      reading two directories on the server by hand.
+- [ ] The orphaned automation folder is gone, or is unmistakably marked as not in use.
+- [ ] Installing over an existing folder does not disturb a release in progress, and leaves the packs' own checkouts
+      and built zips alone.
+
+**Out of scope:** installing the wrapper on production (issue 8) — this issue only makes that safe to do.
