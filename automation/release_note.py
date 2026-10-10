@@ -3,10 +3,15 @@
 The versions come from the zips themselves - each zip's pack.mcmeta declares
 the pack formats it supports - translated through generateVanilla's
 pack_formats.json. A note names only versions that every zip of the release
-supports, and never guesses: formats the map doesn't know are left out, and a
-range with no known format at all is named by its numbers.
+supports, and never guesses: formats the map doesn't know are left out, a
+range with no known format at all is named by its numbers, and zips with no
+format in common get a note without versions.
 
     python3 release_note.py <tag> <zip> [<zip>...]
+
+prints the note, and nothing else, on stdout. Warnings and errors go to stderr,
+each line starting "release_note:". Exit status: 0 note printed; 1 a zip or the
+map couldn't be read, and stdout stays empty; 2 usage.
 """
 
 import json
