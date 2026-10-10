@@ -89,3 +89,56 @@ def note(tag, ranges, formats):
     if versions:
         return f"Version {tag} for Minecraft {_join(versions)}", warnings
     return f"Version {tag} for pack format {_span(lowest, highest)}", warnings
+
+
+def load_formats(path=FORMATS_PATH):
+    """pack format -> Minecraft version, with the formats as numbers."""
+    with open(path, encoding="utf-8") as f:
+        return {int(pack_format): version for pack_format, version in json.load(f).items()}
+
+
+def read_pack(zip_path):
+    """The "pack" section of the zip's pack.mcmeta: the one at its root, else the shallowest."""
+    try:
+        with zipfile.ZipFile(zip_path) as archive:
+            names = [n for n in archive.namelist() if PurePosixPath(n).name == "pack.mcmeta"]
+            if not names:
+                raise ReleaseNoteError(f"{zip_path}: no pack.mcmeta in the zip")
+            name = min(names, key=lambda n: (n.count("/"), n))
+            data = json.loads(archive.read(name).decode("utf-8-sig"))
+    except (OSError, zipfile.BadZipFile, ValueError) as e:
+        raise ReleaseNoteError(f"{zip_path}: {e}") from e
+    pack = data.get("pack") if isinstance(data, dict) else None
+    if not isinstance(pack, dict):
+        raise ReleaseNoteError(f'{zip_path}: pack.mcmeta has no "pack" section')
+    return pack
+
+
+def zip_range(zip_path):
+    """The pack format range a zip declares."""
+    pack = read_pack(zip_path)
+    try:
+        return format_range(pack)
+    except ReleaseNoteError as e:
+        raise ReleaseNoteError(f"{zip_path}: {e}") from e
+
+
+def main(argv=None):
+    args = sys.argv[1:] if argv is None else argv
+    if len(args) < 2:
+        print("usage: release_note.py <tag> <zip> [<zip>...]", file=sys.stderr)
+        return 2
+    tag, zips = args[0], args[1:]
+    try:
+        text, warnings = note(tag, [zip_range(z) for z in zips], load_formats())
+    except (ReleaseNoteError, OSError, ValueError) as e:
+        print(f"release_note: {e}", file=sys.stderr)
+        return 1
+    for warning in warnings:
+        print(f"release_note: warning: {warning}", file=sys.stderr)
+    print(text)
+    return 0
+
+
+if __name__ == "__main__":
+    sys.exit(main())

@@ -128,5 +128,87 @@ class Note(unittest.TestCase):
         self.assertIn("no pack format is supported by every zip (88, 97)", warnings[0])
 
 
+def make_zip(folder, name, mcmeta, member="pack.mcmeta", bom=False):
+    """A zip holding mcmeta as its pack.mcmeta, plus one asset."""
+    path = Path(folder) / name
+    data = json.dumps(mcmeta).encode("utf-8")
+    with zipfile.ZipFile(path, "w") as archive:
+        archive.writestr(member, (b"\xef\xbb\xbf" if bom else b"") + data)
+        archive.writestr("assets/minecraft/textures/block/stone.png", b"png")
+    return path
+
+
+class ReadPack(unittest.TestCase):
+    def setUp(self):
+        self.tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(self.tmp.cleanup)
+
+    def test_reads_the_pack_section_at_the_root(self):
+        archive = make_zip(self.tmp.name, "a.zip", {"pack": {"pack_format": 88, "description": "x"}})
+        self.assertEqual(release_note.read_pack(archive)["pack_format"], 88)
+
+    def test_reads_a_file_that_starts_with_a_byte_order_mark(self):
+        archive = make_zip(self.tmp.name, "a.zip", {"pack": {"pack_format": 88}}, bom=True)
+        self.assertEqual(release_note.read_pack(archive)["pack_format"], 88)
+
+    def test_finds_a_pack_mcmeta_one_folder_down(self):
+        archive = make_zip(self.tmp.name, "a.zip", {"pack": {"pack_format": 97}}, member="Human/pack.mcmeta")
+        self.assertEqual(release_note.read_pack(archive)["pack_format"], 97)
+
+    def test_refuses_a_zip_without_pack_mcmeta(self):
+        archive = Path(self.tmp.name) / "empty.zip"
+        with zipfile.ZipFile(archive, "w") as z:
+            z.writestr("readme.txt", "hi")
+        with self.assertRaises(release_note.ReleaseNoteError):
+            release_note.read_pack(archive)
+
+    def test_refuses_a_file_that_is_not_a_zip(self):
+        bad = Path(self.tmp.name) / "bad.zip"
+        bad.write_bytes(b"not a zip")
+        with self.assertRaises(release_note.ReleaseNoteError):
+            release_note.read_pack(bad)
+
+
+class CommandLine(unittest.TestCase):
+    def setUp(self):
+        self.tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(self.tmp.cleanup)
+
+    def run_main(self, *args):
+        out, err = io.StringIO(), io.StringIO()
+        with redirect_stdout(out), redirect_stderr(err):
+            code = release_note.main(list(args))
+        return code, out.getvalue(), err.getvalue()
+
+    def test_prints_the_note_using_the_real_map(self):
+        # RP-Human's own Sodium declaration, and a Vanilla zip from the shader base
+        sodium = make_zip(
+            self.tmp.name,
+            "Human-Sodium.zip",
+            {"pack": {"pack_format": 15, "supported_formats": [15, 255], "min_format": 15, "max_format": 255}},
+        )
+        vanilla = make_zip(self.tmp.name, "Human-Vanilla.zip", {"pack": {"min_format": 88, "max_format": 97}})
+        code, out, err = self.run_main("v4.1.3", str(sodium), str(vanilla))
+        # No warning: both ranges name 26.2 and 26.3
+        self.assertEqual((code, out, err), (0, "Version v4.1.3 for Minecraft 26.2 and 26.3\n", ""))
+
+    def test_warnings_go_to_stderr(self):
+        a = make_zip(self.tmp.name, "a.zip", {"pack": {"min_format": 88, "max_format": 97}})
+        b = make_zip(self.tmp.name, "b.zip", {"pack": {"pack_format": 88}})
+        code, out, err = self.run_main("v1", str(a), str(b))
+        self.assertEqual((code, out), (0, "Version v1 for Minecraft 26.2\n"))
+        self.assertIn("warning", err)
+
+    def test_usage_without_a_zip(self):
+        code, out, err = self.run_main("v1")
+        self.assertEqual(code, 2)
+        self.assertIn("usage", err)
+
+    def test_an_unreadable_zip_fails_with_its_name(self):
+        code, out, err = self.run_main("v1", str(Path(self.tmp.name) / "missing.zip"))
+        self.assertEqual((code, out), (1, ""))
+        self.assertIn("missing.zip", err)
+
+
 if __name__ == "__main__":
     unittest.main()
