@@ -115,10 +115,13 @@ comparison. The only cure found was a restart.
 **D3. A slot can be written without a checksum.** Assigning a release to a slot writes the URL and leaves the
 checksum empty until a separate command is run. Between the two, the slot is unusable, and nothing warns.
 
-### E. The two systems drift, and are kept in step by hand
+### E. The two release systems drift, and are kept in step by hand
 
-**E1. Production has no wrapper**, so it has no lock, no log, no summary and no dashboard page. Two releases at the
-same time still spoil each other, and the documentation can only ask the team to coordinate by hand.
+**E1. Production has no wrapper, and a dozen servers can start one.** Production releases have no lock, no log, no
+summary and no dashboard page. Worse than "two people might clash": every server except the test one is configured to
+release into the *same* production folder, and every release script builds in the same directory inside it. So there
+are twelve entry points into one unsynchronised build directory, and the documentation can only ask the team to
+coordinate by hand.
 
 **E2. There is no promotion step.** Moving a tested release to production means repeating the work against different
 repositories and slots by hand. The two sides are currently serving different builds of the same pack, with no
@@ -145,17 +148,15 @@ which both should have. That makes this drift avoidable rather than inherent.
 **E4. A pack can be releasable from one side only.** One release script exists in the test automation folder and not in
 the production one, so that pack cannot be released to production at all until somebody notices and copies the file.
 
-**E5. A third automation folder runs a much older generation of the tooling, and will wake up once a year.** A server
-that is switched on only for an occasional event has its own folder, holding one pack's checkout and a single release
-script. It needs no converter checkout, because that script only zips the pack folder and uploads it — so it is not
-broken, which is the problem: the next time that event comes round it will publish from tooling last touched in
-July 2025, and nobody is watching it. Two concrete differences from the current script:
+**E5. A leftover automation folder that nothing uses.** One server has its own automation folder — a pack checkout, a
+stale build directory, two published zips and a single release script, all last touched in July 2025. Nothing refers
+to it: that server's release configuration points at the production folder like every other server's, and the pack
+in the folder appears in no release configuration and no slot anywhere.
 
-- it builds from the pack folder's old name, which the current script no longer uses;
-- it produces its Footprints zip with a plain copy of the ordinary one, so both published files are byte-for-byte
-  identical. The current script swaps the two activator-rail textures and builds a real second zip.
-
-A seasonal server is a *reason* for one source of truth, not an exception to it.
+It is worth stating the rule it breaks, because it is the simple one: **a server that only hosts packs needs slots,
+not scripts.** Building a release is the job of the release server; hosting it is a URL and a checksum in a slot.
+Any automation folder outside the two release systems is leftover by definition, and 109 MB of it has sat there for
+fifteen months looking like a third system.
 
 **E6. Every release script writes the wrong Minecraft version into every release.** All of them, on both sides,
 hardcode the release note as `Version <tag> for MC 1.21.4`. Every release published since the network moved to a newer

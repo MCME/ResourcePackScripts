@@ -217,8 +217,7 @@ no history, no review, and no way to tell an intentional difference from an acci
 in ways that change what a release does rather than where it goes: one runs the converter without the debug flag the
 pipeline's log is built from, and one lacks the flag that lets a re-upload replace an existing asset. One pack's
 release script exists in only one folder, so that pack cannot be released on the other side at all. A third folder,
-belonging to a server that wakes up for an occasional event, still runs a 2025 generation of the script whose
-Footprints zip is a byte-identical copy of the ordinary one. Every script on every side hardcodes the release note as
+belonging to a server that only hosts packs, is referenced by nothing at all and has sat untouched since July 2025. Every script on every side hardcodes the release note as
 "for MC 1.21.4", so every release published since the network moved on says the wrong Minecraft version on GitHub. And
 the two converter checkouts deliberately follow different branches, with no way to see how far apart they are.
 
@@ -232,8 +231,7 @@ have.
 - Make the difference between the two sides data, not edited code: whichever converter branch a folder follows should
   be stated in one place, not implied by which directory you happen to be in.
 - Report the gap between the two sides so it is visible without logging in.
-- Bring the seasonal server's folder onto the same scripts, so an event a year from now does not release from
-  2025 tooling.
+- Remove the leftover folder: a server that only hosts packs needs slots, not scripts.
 - Generate the release note from the version being released instead of hardcoding it.
 
 **Acceptance criteria**
@@ -245,9 +243,10 @@ have.
 - [ ] Which converter branch a folder follows is declared in one place, and changing it needs no script edit.
 - [ ] The gap between the two sides — converter commits, and which release each pack is serving — is visible without
       reading two directories on the server by hand.
-- [ ] The seasonal server's folder runs the same scripts as the others, so the next event releases from current tooling.
+- [ ] Only the two release systems have an automation folder; the leftover one is gone.
 - [ ] A release note states the Minecraft version actually being released, and is not hardcoded in a script.
 - [ ] Where a variant is meant to differ, it differs: no published zip is a byte-identical copy of another.
+- [ ] Installing is refused, or does nothing, for a server that only hosts packs.
 - [ ] Installing over an existing folder does not disturb a release in progress, and leaves the packs' own checkouts
       and built zips alone.
 
