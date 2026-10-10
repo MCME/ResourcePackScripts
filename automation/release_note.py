@@ -65,7 +65,7 @@ def _join(items):
 
 
 def _span(lowest, highest):
-    return str(lowest) if lowest == highest else f"{lowest}–{highest}"
+    return str(lowest) if lowest == highest else f"{lowest}-{highest}"
 
 
 def note(tag, ranges, formats):

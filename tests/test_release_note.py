@@ -98,7 +98,7 @@ class Note(unittest.TestCase):
         )
 
     def test_a_range_with_no_known_format_is_named_by_its_numbers(self):
-        self.assertEqual(release_note.note("v4.1.3", [(90, 96)], FORMATS)[0], "Version v4.1.3 for pack format 90–96")
+        self.assertEqual(release_note.note("v4.1.3", [(90, 96)], FORMATS)[0], "Version v4.1.3 for pack format 90-96")
         self.assertEqual(release_note.note("v4.1.3", [(99, 99)], FORMATS)[0], "Version v4.1.3 for pack format 99")
 
     def test_zips_that_agree_do_not_warn(self):
@@ -119,7 +119,7 @@ class Note(unittest.TestCase):
         text, warnings = release_note.note("v4.1.3", [(88, 97), (88, 97), (88, 88)], FORMATS)
         self.assertEqual(text, "Version v4.1.3 for Minecraft 26.2")
         self.assertEqual(len(warnings), 1)
-        self.assertIn("different Minecraft versions (pack formats 88, 88–97)", warnings[0])
+        self.assertIn("different Minecraft versions (pack formats 88, 88-97)", warnings[0])
 
     def test_zips_with_nothing_in_common_name_no_version(self):
         text, warnings = release_note.note("v4.1.3", [(88, 88), (97, 97)], FORMATS)
