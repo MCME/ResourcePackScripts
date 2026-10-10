@@ -210,15 +210,17 @@ different builds of the same pack with nothing that would show it.
 
 ## 9. Keep one copy of the release scripts, in this repository
 
-**Lives in:** this repository · **Problem:** E3, E4, E5, E6 · **Size:** M · **Blocks:** 8
+**Lives in:** this repository · **Problem:** E3–E7 · **Size:** M · **Blocks:** 8
 
 Every automation folder holds its own hand-edited copy of every release script. They are in no repository, so there is
 no history, no review, and no way to tell an intentional difference from an accident. The copies have already drifted
 in ways that change what a release does rather than where it goes: one runs the converter without the debug flag the
 pipeline's log is built from, and one lacks the flag that lets a re-upload replace an existing asset. One pack's
-release script exists in only one folder, so that pack cannot be released on the other side at all. A
-decommissioned server still has a third folder that cannot work. And the two converter checkouts deliberately follow
-different branches, with no way to see how far apart they are.
+release script exists in only one folder, so that pack cannot be released on the other side at all. A third folder,
+belonging to a server that wakes up for an occasional event, still runs a 2025 generation of the script whose
+Footprints zip is a byte-identical copy of the ordinary one. Every script on every side hardcodes the release note as
+"for MC 1.21.4", so every release published since the network moved on says the wrong Minecraft version on GitHub. And
+the two converter checkouts deliberately follow different branches, with no way to see how far apart they are.
 
 Nothing in these scripts is environment-specific — owner, repository, tag and title all arrive as arguments from the
 plugin's per-pack configuration — so the copies could be identical apart from the wrapper hand-over, which both should
@@ -230,7 +232,9 @@ have.
 - Make the difference between the two sides data, not edited code: whichever converter branch a folder follows should
   be stated in one place, not implied by which directory you happen to be in.
 - Report the gap between the two sides so it is visible without logging in.
-- Remove the orphaned folder, or mark it clearly as dead.
+- Bring the seasonal server's folder onto the same scripts, so an event a year from now does not release from
+  2025 tooling.
+- Generate the release note from the version being released instead of hardcoding it.
 
 **Acceptance criteria**
 - [ ] The release scripts live in this repository and are installed from it; no automation folder carries an edited copy.
@@ -241,7 +245,9 @@ have.
 - [ ] Which converter branch a folder follows is declared in one place, and changing it needs no script edit.
 - [ ] The gap between the two sides — converter commits, and which release each pack is serving — is visible without
       reading two directories on the server by hand.
-- [ ] The orphaned automation folder is gone, or is unmistakably marked as not in use.
+- [ ] The seasonal server's folder runs the same scripts as the others, so the next event releases from current tooling.
+- [ ] A release note states the Minecraft version actually being released, and is not hardcoded in a script.
+- [ ] Where a variant is meant to differ, it differs: no published zip is a byte-identical copy of another.
 - [ ] Installing over an existing folder does not disturb a release in progress, and leaves the packs' own checkouts
       and built zips alone.
 

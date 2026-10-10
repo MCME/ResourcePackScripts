@@ -145,10 +145,24 @@ which both should have. That makes this drift avoidable rather than inherent.
 **E4. A pack can be releasable from one side only.** One release script exists in the test automation folder and not in
 the production one, so that pack cannot be released to production at all until somebody notices and copies the file.
 
-**E5. There is a third, orphaned automation folder.** A decommissioned server still has one, with release scripts but
-no converter checkout and no wrapper. It cannot work, and nothing says so.
+**E5. A third automation folder runs a much older generation of the tooling, and will wake up once a year.** A server
+that is switched on only for an occasional event has its own folder, holding one pack's checkout and a single release
+script. It needs no converter checkout, because that script only zips the pack folder and uploads it — so it is not
+broken, which is the problem: the next time that event comes round it will publish from tooling last touched in
+July 2025, and nobody is watching it. Two concrete differences from the current script:
 
-**E6. The two sides deliberately track different branches, and the gap is invisible.** The test folder's converter
+- it builds from the pack folder's old name, which the current script no longer uses;
+- it produces its Footprints zip with a plain copy of the ordinary one, so both published files are byte-for-byte
+  identical. The current script swaps the two activator-rail textures and builds a real second zip.
+
+A seasonal server is a *reason* for one source of truth, not an exception to it.
+
+**E6. Every release script writes the wrong Minecraft version into every release.** All of them, on both sides,
+hardcode the release note as `Version <tag> for MC 1.21.4`. Every release published since the network moved to a newer
+Minecraft version carries that text on GitHub, where pack authors and players read it. Nothing generates it from the
+version actually being released.
+
+**E7. The two sides deliberately track different branches, and the gap is invisible.** The test folder's converter
 checkout follows `development`; the production one follows `master`. That is the right design — test proves
 `development` before it reaches players — but there is no view of how far apart they are. At the time of writing
 `master` is **9 commits** behind `development`, including a Minecraft version update and the shared shader base. The
@@ -192,7 +206,7 @@ Sized by where it lives, because that decides who can do it and when.
 | 6 | One atomic publish action | plugin + wrapper | Removes B2, D3. |
 | 7 | Resolution robustness: skip unknown keys instead of stopping; re-read an implausible cached protocol; name the level that failed; let a player clear their own state | plugin | Removes C3, D1, D2. |
 | 8 | Install the wrapper on production; add an explicit promotion step | wrapper | Removes E1, E2. Needs 9 first. |
-| 9 | Put the release scripts in this repository and install them to every automation folder from one source | **this repository** | Removes E3–E6. The root cause of the drift. |
+| 9 | Put the release scripts in this repository and install them to every automation folder from one source | **this repository** | Removes E3–E7. The root cause of the drift. |
 
 Items 1, 2, 8 and 9 need no plugin change. Items 3–7 are plugin work.
 
