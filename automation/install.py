@@ -218,3 +218,80 @@ def install(folder, side, branch=None, force=False, locker=lock_release):
     _note_kept_conf(kept, settings)
     _note_branch_mismatch(folder, final["branch"])
     return 0
+
+
+def check(folder, which=shutil.which, locker=lock_release):
+    """Say whether folder is ready for releases: 0 if it is, 1 if not. Changes nothing."""
+    folder = Path(folder).resolve()
+    problems = []
+
+    def report(ok, text):
+        print(("ok      " if ok else "PROBLEM ") + text)
+        if not ok:
+            problems.append(text)
+
+    try:
+        packs = check_folder(folder)
+    except Refused as e:
+        report(False, str(e))
+        print("Not ready: 1 problem(s).")
+        return 1
+    report(True, f"automation folder with {len(packs)} pack checkout(s): {', '.join(packs)}")
+
+    settings = None
+    try:
+        settings = automation_conf.read(folder / "automation.conf")
+        report(True, "automation.conf: " + ", ".join(f"{k}={v}" for k, v in settings.items()))
+    except automation_conf.ConfError as e:
+        report(False, f"automation.conf: {e}")
+
+    checkout = folder / "ResourcePackScripts"
+    # As the launcher reads it: the full name, so a tag can't confuse it
+    head = git(checkout, "symbolic-ref", "--quiet", "HEAD") or ""
+    current = head[len("refs/heads/"):] if head.startswith("refs/heads/") else "no branch"
+    if settings:
+        branch = settings["branch"]
+        report(current == branch, f"ResourcePackScripts is on {current} (automation.conf: {branch})")
+        # What the launcher refuses: commits made here that GitHub doesn't have. No fetch, so as of the last one
+        ahead = git(checkout, "rev-list", "--count", f"refs/remotes/origin/{branch}..HEAD")
+        if ahead is None:
+            report(False, f"GitHub's {branch} has never been fetched into ResourcePackScripts")
+        elif ahead == "0":
+            report(True, f"ResourcePackScripts has no commits that GitHub's {branch} lacks (as of the last fetch)")
+        else:
+            report(
+                False,
+                f"ResourcePackScripts has {ahead} commit(s) that GitHub's {branch} doesn't: made on the server"
+                " (they need a pull request), or GitHub's history was rewritten (reset the checkout to it)",
+            )
+    # --no-optional-locks: a plain status rewrites .git/index, which could make a running release's merge fail
+    edits = git(checkout, "--no-optional-locks", "status", "--porcelain")
+    if edits is None:
+        report(False, "git status failed in ResourcePackScripts")
+    else:
+        report(edits == "", "ResourcePackScripts has no local edits" if edits == "" else f"ResourcePackScripts has local edits:\n{edits}")
+
+    launcher = LAUNCHER.read_bytes()
+    for name in SCRIPT_NAMES:
+        path = folder / name
+        report(path.is_file() and path.read_bytes() == launcher, f"{name} is the launcher")
+    # What the launchers hand over to: without it every release stops with exit 2
+    for name in SCRIPT_NAMES:
+        report((checkout / "automation" / "scripts" / name).is_file(), f"ResourcePackScripts has automation/scripts/{name}")
+    if settings and settings["wrapper"] == "yes":
+        entry = checkout / "automation" / "pipeline" / "run"
+        report(entry.is_file() and os.access(entry, os.X_OK), "ResourcePackScripts has an executable automation/pipeline/run")
+    for tool in TOOLS:
+        report(which(tool) is not None, f"{tool} is on PATH")
+
+    if (folder / "runs" / ".lock").exists():
+        try:
+            locker(folder).close()
+            report(True, "no release is running")
+        except LockHeld:
+            report(False, "a release is running")
+    else:
+        report(True, "no release is running")
+
+    print("Ready." if not problems else f"Not ready: {len(problems)} problem(s).")
+    return 0 if not problems else 1

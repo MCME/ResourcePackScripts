@@ -372,5 +372,108 @@ class Refusals(InstallerTest):
         self.assertEqual(snapshot(self.folder), self.before)
 
 
+class Check(InstallerTest):
+    def run_check(self, which=all_present, locker=free_lock):
+        out = io.StringIO()
+        with redirect_stdout(out):
+            code = install.check(self.folder, which=which, locker=locker)
+        return code, out.getvalue()
+
+    def test_an_installed_folder_is_ready(self):
+        self.run_install()
+        code, out = self.run_check()
+        self.assertEqual(code, 0, out)
+        self.assertNotIn("PROBLEM", out)
+
+    def test_a_folder_before_the_install_is_not_ready(self):
+        code, out = self.run_check()
+        self.assertEqual(code, 1)
+        self.assertIn("PROBLEM automation.conf", out)
+        self.assertIn("PROBLEM releaseDynmap.sh is the launcher", out)
+
+    def test_changes_nothing(self):
+        before = snapshot(self.folder)
+        self.run_check()
+        self.assertEqual(snapshot(self.folder), before)
+
+    def test_reports_a_missing_tool(self):
+        self.run_install()
+        code, out = self.run_check(which=lambda tool: None if tool == "7z" else f"/usr/bin/{tool}")
+        self.assertEqual(code, 1)
+        self.assertIn("PROBLEM 7z is on PATH", out)
+
+    def test_reports_local_edits_in_the_checkout(self):
+        self.run_install()
+        (self.folder / "ResourcePackScripts" / "README.md").write_text("edited on the server\n")
+        code, out = self.run_check()
+        self.assertEqual(code, 1)
+        self.assertIn("local edits", out)
+
+    def test_reports_the_wrong_branch(self):
+        self.run_install()
+        git("checkout", "-q", "-b", "hotfix", cwd=self.folder / "ResourcePackScripts")
+        code, out = self.run_check()
+        self.assertEqual(code, 1)
+        self.assertIn("hotfix", out)
+
+    @unittest.skipUnless(os.name == "posix", "the x bit is POSIX")
+    def test_reports_a_wrapper_entry_that_is_not_executable(self):
+        self.run_install()
+        checkout = self.folder / "ResourcePackScripts"
+        (checkout / "automation" / "pipeline" / "run").chmod(0o644)
+        git("update-index", "--chmod=-x", "automation/pipeline/run", cwd=checkout)
+        git("commit", "-q", "-m", "run not executable", cwd=checkout)
+        git("update-ref", "refs/remotes/origin/development", "HEAD", cwd=checkout)
+        code, out = self.run_check()
+        self.assertEqual(code, 1)
+        self.assertIn("PROBLEM ResourcePackScripts has an executable automation/pipeline/run", out)
+
+    def test_leaves_a_folder_without_runs_alone(self):
+        # Before the install there is no runs/.lock to probe, so check must not create one
+        def no_lock(folder):
+            self.fail("check took the release lock")
+
+        self.run_check(locker=no_lock)
+        self.assertFalse((self.folder / "runs").exists())
+
+    def test_reports_a_release_script_the_checkout_lacks(self):
+        self.run_install()
+        checkout = self.folder / "ResourcePackScripts"
+        git("rm", "-q", "automation/scripts/releaseDynmap.sh", cwd=checkout)
+        git("commit", "-q", "-m", "no dynmap", cwd=checkout)
+        git("update-ref", "refs/remotes/origin/development", "HEAD", cwd=checkout)
+        code, out = self.run_check()
+        self.assertEqual(code, 1)
+        self.assertIn("PROBLEM ResourcePackScripts has automation/scripts/releaseDynmap.sh", out)
+
+    def test_reports_commits_github_does_not_have(self):
+        self.run_install()
+        checkout = self.folder / "ResourcePackScripts"
+        (checkout / "local.txt").write_text("a commit made on the server\n")
+        git("add", "local.txt", cwd=checkout)
+        git("commit", "-q", "-m", "server-side commit", cwd=checkout)
+        code, out = self.run_check()
+        self.assertEqual(code, 1)
+        self.assertIn("PROBLEM ResourcePackScripts has 1 commit(s) that GitHub's development doesn't", out)
+
+    def test_does_not_rewrite_the_checkouts_index(self):
+        # A plain git status refreshes .git/index, which could make a running release's merge fail
+        self.run_install()
+        checkout = self.folder / "ResourcePackScripts"
+        readme = checkout / "README.md"
+        stat = readme.stat()
+        os.utime(readme, (stat.st_atime, stat.st_mtime + 100))  # a stale stat: plain status would rewrite the index
+        index = (checkout / ".git" / "index").read_bytes()
+        self.run_check()
+        self.assertEqual((checkout / ".git" / "index").read_bytes(), index)
+
+    def test_reports_a_running_release(self):
+        self.run_install()
+        (self.folder / "runs" / ".lock").write_text("")
+        code, out = self.run_check(locker=held_lock)
+        self.assertEqual(code, 1)
+        self.assertIn("PROBLEM a release is running", out)
+
+
 if __name__ == "__main__":
     unittest.main()
