@@ -169,6 +169,39 @@ checkout follows `development`; the production one follows `master`. That is the
 `master` is **9 commits** behind `development`, including a Minecraft version update and the shared shader base. The
 only way to learn that is to run `git log` in two directories on the server.
 
+### F. Supporting two client versions costs far more than the difference between them
+
+The network runs one Minecraft version but lets clients of the next one in, so every pack has to serve both. Today
+that is paid for twice over.
+
+**F1. Two builds to express a 25-file difference.** Production keeps two separate builds of the same pack, one per
+client version, each built, published and assigned on its own. But the test build already proves they do not have to
+be separate: it declares `min_format` 88 and `max_format` 97 and carries a single overlay for the newer version whose
+entire contents are **25 shader files**, against roughly 12,700 files the two versions share. One asset, both client
+versions, chosen by the client itself. That is a built-in Minecraft mechanism, not a trick, and it is already working
+on the test server.
+
+**F2. Slots are enumerated by hand, per version, per pack, per variant.** There are **441** slot entries to maintain
+across the network's pack configurations, each holding a download URL and a checksum. **100 of them — 23 % — exist
+only because two client versions are supported.** Allowing the newer client cost 50 new entries, every one of which
+had to be written and then checksummed, and a forgotten checksum leaves a slot that cannot serve anybody.
+
+**F3. Nothing connects a pack's declared support to the slots it is put in.** A build that supports only the older
+version can be assigned to the newer version's slot, and the result is silent: the client refuses the pack and the
+pipeline reports success. That is not hypothetical — it is how an entire client version's players were left without a
+pack, with nothing in any log to say so.
+
+**F4. There is no map from a pack format number to a Minecraft version.** The plugin knows version to protocol
+number, which is how it picks a slot for a client. Nothing knows that pack format 88 means one Minecraft version and
+97 the next, so nothing can check a pack's declared range against the slot it is going into, or work out which slots
+a given build is entitled to fill.
+
+**What this means for the rework.** The burden is not inherent to supporting two client versions; it comes from
+expressing that support as duplicated builds and hand-enumerated slots. If a pack declares the range it supports, and
+the pipeline owns the mapping from format to Minecraft version, then one build can fill every slot it is entitled to,
+be refused from any slot it is not, and the maintainer never types a version number. Issue 10 covers that; it depends
+on the format map from issue 2.
+
 ## Principles for the rework
 
 1. **One action, three surfaces.** A release can be started from game, dashboard or console, and behaves identically.
@@ -208,8 +241,9 @@ Sized by where it lives, because that decides who can do it and when.
 | 7 | Resolution robustness: skip unknown keys instead of stopping; re-read an implausible cached protocol; name the level that failed; let a player clear their own state | plugin | Removes C3, D1, D2. |
 | 8 | Install the wrapper on production; add an explicit promotion step | wrapper | Removes E1, E2. Needs 9 first. |
 | 9 | Put the release scripts in this repository and install them to every automation folder from one source | **this repository** | Removes E3–E7. The root cause of the drift. |
+| 10 | Derive the slots a release fills from the range the pack declares; make the dual-version build the norm | **this repository** + wrapper | Removes F1–F4. Needs 2's format map. |
 
-Items 1, 2, 8 and 9 need no plugin change. Items 3–7 are plugin work.
+Items 1, 2, 8, 9 and 10 need no plugin change. Items 3–7 are plugin work.
 
 Item 9 is the one piece of this that belongs in **this** repository, and it is a prerequisite for 8: the
 wrapper cannot be installed on production correctly while the script it has to hook into is a hand-edited

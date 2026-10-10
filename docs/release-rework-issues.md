@@ -1,7 +1,7 @@
 # Release process rework — issues
 
 > [!NOTE]
-> Nine issue-ready entries for the work breakdown in
+> Ten issue-ready entries for the work breakdown in
 > [Reworking the release process](release-process-rework.md). Each is written to be copied into a GitHub issue as it
 > stands. The letters in **Problem** refer to that document's sections.
 >
@@ -22,6 +22,7 @@ flowchart LR
     i5["5 Console + dashboard"] --> i6
     i9["9 Scripts in one place"] --> i8["8 Production parity"]
     i7["7 Resolution robustness"]
+    i2 --> i10["10 Slots from the pack's own range"]
 ```
 
 **Sizes** are rough: S = under a day, M = a few days, L = more than that or needs a design decision first.
@@ -86,6 +87,8 @@ problems and missing files, and nobody reads them.
 - [ ] Known-good case is not flagged: a pack whose range spans two Minecraft versions, assigned to both their slots.
 - [ ] Missing-model and missing-texture counts appear in the summary.
 - [ ] A blanket directory atlas source that collides with a built-in atlas is a warning, naming one colliding sprite.
+- [ ] A map from pack format number to Minecraft version exists in one place, and the checks use it rather than
+      hardcoding either side. It is the prerequisite for issue 10.
 
 ---
 
@@ -251,3 +254,44 @@ have.
       and built zips alone.
 
 **Out of scope:** installing the wrapper on production (issue 8) — this issue only makes that safe to do.
+
+---
+
+## 10. Let a pack say which Minecraft versions it supports, and fill those slots from it
+
+**Lives in:** this repository, plus the wrapper · **Problem:** F1–F4 · **Size:** L · **Needs:** 2
+
+The network runs one Minecraft version and admits clients of the next, so every pack must serve both. That is paid for
+twice: two separate builds of the same pack, and a slot enumerated by hand for each version, each variant and each
+pack. There are 441 slot entries across the network and 100 of them exist only because two client versions are
+supported.
+
+Neither cost is necessary. A pack can declare the range of formats it supports and carry an overlay for the newer
+version; the client then picks. The test build already does exactly this — one overlay, 25 shader files, against the
+roughly 12,700 files both versions share. What is missing is for the pipeline to know the mapping from pack format to
+Minecraft version, so that one build can fill every slot it is entitled to and be refused from any it is not.
+
+**Scope**
+- Make the dual-version build the converter's normal output rather than something a maintainer opts into, with the
+  per-version overlay generated from the parts that genuinely differ.
+- Using the format map from issue 2, work out which of the network's known Minecraft versions a build's declared
+  range covers, and fill exactly those slots.
+- Refuse to place a build in a slot its declared range does not cover.
+- Report coverage per pack: which client versions have a slot, which build serves each, and where a client version is
+  admitted by the proxy but has no pack.
+
+**Acceptance criteria**
+- [ ] A release assigns itself to every slot its declared format range covers, without a maintainer naming a version.
+- [ ] A build whose range does not cover a slot's Minecraft version cannot be placed in it, and the refusal says why.
+- [ ] One build serving two Minecraft versions is the normal result of a release for a pack that needs it.
+- [ ] Adding support for a further Minecraft version needs no per-pack, per-variant slot editing — the range covers it
+      or the report says it does not.
+- [ ] A coverage report lists, per pack, every Minecraft version the network admits and the build serving it, and
+      marks any version with no pack.
+- [ ] Regression: the case where a client version was admitted but served a pack that did not support it is caught
+      before the release is assigned, not after players report it.
+- [ ] A pack that genuinely needs two separate builds can still have them, and the report shows which versions each
+      covers.
+
+**Out of scope:** changing how the plugin stores slots. This fills the existing per-version slots correctly; collapsing
+them into one ranged entry would be a plugin change and a separate decision.
