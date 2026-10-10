@@ -314,6 +314,7 @@ class Refusals(InstallerTest):
             "https://github.com/mcme/resourcepackscripts.git",
             "git@github.com:MCME/ResourcePackScripts.git",
             "ssh://git@github.com/MCME/ResourcePackScripts.git",
+            "https://x-access-token:abc@github.com/MCME/ResourcePackScripts.git",
         ):
             with self.subTest(url=url):
                 git("remote", "set-url", "origin", url, cwd=self.folder / "ResourcePackScripts")
@@ -324,11 +325,29 @@ class Refusals(InstallerTest):
             "https://github.com/someone/ResourcePackScripts.git",
             "https://github.com/MCME/ResourcePackScripts-fork.git",
             "https://notgithub.com/MCME/ResourcePackScripts.git",
+            # github.com as a path segment, not the host
+            "https://evil.example/github.com/MCME/ResourcePackScripts.git",
+            "file:///srv/mirror/github.com/MCME/ResourcePackScripts.git",
+            "/srv/mirror/github.com/MCME/ResourcePackScripts.git",
         ):
             with self.subTest(url=url):
                 git("remote", "set-url", "origin", url, cwd=self.folder / "ResourcePackScripts")
                 with self.assertRaises(install.Refused):
                     install.check_folder(self.folder)
+
+    def test_never_shows_the_origins_credentials(self):
+        git(
+            "remote", "set-url", "origin", "https://x-access-token:SECRET@gitlab.com/someone/scripts.git",
+            cwd=self.folder / "ResourcePackScripts",
+        )
+        message = str(self.refused())
+        self.assertNotIn("SECRET", message)
+        self.assertIn("<credentials>@gitlab.com", message)
+
+    def test_refuses_to_run_as_root(self):
+        # What it wrote would belong to root, and the launcher, run as the servers' user, couldn't open runs/.lock
+        with mock.patch.object(install.os, "geteuid", return_value=0, create=True):
+            self.assertIn("not as root", str(self.refused()))
 
     def test_refuses_a_folder_without_pack_checkouts(self):
         for pack in ("Human-Sodium", "Rohan-Vanilla"):
@@ -466,6 +485,46 @@ class Check(InstallerTest):
         index = (checkout / ".git" / "index").read_bytes()
         self.run_check()
         self.assertEqual((checkout / ".git" / "index").read_bytes(), index)
+
+    def test_reports_a_file_added_to_the_checkout(self):
+        # As the launcher sees it, whatever the server's git config says
+        self.run_install()
+        checkout = self.folder / "ResourcePackScripts"
+        git("config", "status.showUntrackedFiles", "no", cwd=checkout)
+        (checkout / "automation" / "scripts" / "releaseExtra.sh").write_text("echo unreviewed\n")
+        code, out = self.run_check()
+        self.assertEqual(code, 1)
+        self.assertIn("releaseExtra.sh", out)
+
+    def test_reports_running_as_root(self):
+        self.run_install()
+        with mock.patch.object(install.os, "geteuid", return_value=0, create=True):
+            code, out = self.run_check()
+        self.assertEqual(code, 1)
+        self.assertIn("PROBLEM --check runs as root", out)
+
+    @unittest.skipUnless(os.name == "posix" and os.geteuid() != 0, "file modes are POSIX, and root ignores them")
+    def test_reports_a_lock_file_the_launcher_could_not_write(self):
+        # What a sudo install leaves behind: every release would stop with "Permission denied"
+        self.run_install()
+        lock = self.folder / "runs" / ".lock"
+        lock.write_text("")
+        lock.chmod(0o444)
+        self.addCleanup(lock.chmod, 0o644)
+        code, out = self.run_check()
+        self.assertEqual(code, 1)
+        self.assertIn("PROBLEM runs/.lock can be written", out)
+
+    def test_reports_a_lock_it_cannot_open(self):
+        self.run_install()
+        (self.folder / "runs" / ".lock").write_text("")
+
+        def denied(folder):
+            raise PermissionError(13, "Permission denied")
+
+        code, out = self.run_check(locker=denied)
+        self.assertEqual(code, 1)
+        self.assertIn("PROBLEM runs/.lock can't be opened: Permission denied", out)
 
     def test_reports_a_running_release(self):
         self.run_install()
@@ -605,6 +664,28 @@ class Restore(InstallerTest):
             install.restore(self.folder, backup, locker=free_lock)
             self.assertEqual(running.read(), LAUNCHER_BYTES)
 
+    def test_refuses_to_run_as_root(self):
+        self.run_install()
+        [backup] = self.backups()
+        installed = snapshot(self.folder)
+        with mock.patch.object(install.os, "geteuid", return_value=0, create=True):
+            with self.assertRaises(install.Refused), redirect_stdout(io.StringIO()):
+                install.restore(self.folder, backup, locker=free_lock)
+        self.assertEqual(snapshot(self.folder), installed)
+
+    @unittest.skipUnless(os.name == "posix", "symlinks need extra rights on Windows")
+    def test_refuses_to_restore_over_a_pipeline_that_is_a_symlink(self):
+        self.run_install()
+        [backup] = self.backups()
+        elsewhere = self.tmp / "elsewhere"
+        elsewhere.mkdir()
+        (self.folder / "pipeline").symlink_to(elsewhere)
+        installed = snapshot(self.folder)
+        with self.assertRaises(install.Refused) as caught, redirect_stdout(io.StringIO()):
+            install.restore(self.folder, backup, locker=free_lock)
+        self.assertIn("restore over it", str(caught.exception))
+        self.assertEqual(snapshot(self.folder), installed)
+
     @unittest.skipUnless(os.name == "posix", "file modes are POSIX")
     def test_puts_each_file_back_with_its_mode(self):
         (self.folder / "releaseGeneral.sh").chmod(0o640)
@@ -616,6 +697,14 @@ class Restore(InstallerTest):
 
 
 class CommandLine(InstallerTest):
+    def test_install_options_do_not_apply_to_check_or_restore(self):
+        # --check --side production would otherwise check the folder's own side, silently
+        for args in (("--check", "--side", "production"), ("--check", "--branch", "x"), ("--restore", "x", "--force")):
+            with self.subTest(args=args):
+                with self.assertRaises(SystemExit) as caught:
+                    self.run_main("--folder", str(self.folder), *args)
+                self.assertEqual(caught.exception.code, 2)
+
     def test_installing_needs_a_side(self):
         with self.assertRaises(SystemExit) as caught:
             self.run_main("--folder", str(self.folder))

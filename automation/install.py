@@ -10,11 +10,12 @@ the user the Minecraft servers run as:
 
 Installing writes the launcher under every release script's name and the
 folder's automation.conf, after backing up whatever it replaces or removes into
-pre-automation-backup-<stamp>/. It takes the release lock first, and it puts
-each new file in place with a rename, so even a release the lock can't see (an
-old script takes none) goes on reading the script it started with. It never
-touches the pack checkouts, Footprints/, the vanilla assets, release/ or the
-run data in runs/.
+pre-automation-backup-<stamp>/. It takes the release lock before it changes
+anything, and it puts each new file in place with a rename, so even a release
+the lock can't see (an old script takes none) goes on reading the script it
+started with. It never touches the pack checkouts, Footprints/, the vanilla
+assets, release/ or the run data in runs/. It refuses to run as root: what it
+wrote would then lock the servers' user out of every release.
 """
 
 import argparse
@@ -34,8 +35,11 @@ HERE = Path(__file__).resolve().parent
 LAUNCHER = HERE / "launcher.sh"
 SCRIPT_NAMES = ("releaseVanillaSodium.sh", "releaseGeneral.sh", "releaseDynmap.sh")
 TOOLS = ("git", "gh", "7z", "python3", "flock")
-# HTTPS, SSH and scp-style remotes; GitHub ignores the case of owner and repository names
-ORIGIN = re.compile(r"(?:^|[/@])github\.com[:/]MCME/ResourcePackScripts(?:\.git)?/?$", re.IGNORECASE)
+# HTTPS, SSH and scp-style remotes, with github.com as the host itself rather than
+# somewhere in a path; GitHub ignores the case of owner and repository names
+ORIGIN = re.compile(
+    r"^(?:[a-z][a-z0-9+.-]*://)?(?:[^@/]+@)?github\.com[:/]MCME/ResourcePackScripts(?:\.git)?/?$", re.IGNORECASE
+)
 LOCK_HELD = 75
 
 
@@ -69,6 +73,24 @@ def git(checkout, *args):
     return result.stdout.strip() if result.returncode == 0 else None
 
 
+def _current_branch(checkout):
+    """The branch checked out, read as the launcher reads it (the full name, so a tag can't confuse it)."""
+    head = git(checkout, "symbolic-ref", "--quiet", "HEAD") or ""
+    return head[len("refs/heads/"):] if head.startswith("refs/heads/") else "no branch"
+
+
+def _running_as_root():
+    return hasattr(os, "geteuid") and os.geteuid() == 0
+
+
+def _refuse_root():
+    if _running_as_root():
+        raise Refused(
+            "run install.py as the user the Minecraft servers run as, not as root or with sudo:"
+            " what it wrote would lock that user out of every release"
+        )
+
+
 def check_folder(folder):
     """The pack checkouts' names; Refused unless folder is a release system's automation folder."""
     checkout = folder / "ResourcePackScripts"
@@ -81,7 +103,9 @@ def check_folder(folder):
         raise Refused(f"git can't read ResourcePackScripts's origin: {error}")
     origin = result.stdout.strip()
     if not ORIGIN.search(origin):
-        raise Refused(f"ResourcePackScripts's origin is {origin or 'empty'}, not MCME/ResourcePackScripts")
+        # A token in the URL is masked: the message may end up in a log or a chat
+        shown = re.sub(r"//[^/@]*@", "//<credentials>@", origin) or "empty"
+        raise Refused(f"ResourcePackScripts's origin is {shown}, not MCME/ResourcePackScripts")
     packs = sorted(p.name for p in folder.iterdir() if p.is_dir() and p.name.endswith(("-Sodium", "-Vanilla")))
     if not packs:
         raise Refused(
@@ -90,14 +114,14 @@ def check_folder(folder):
     return packs
 
 
-def _check_shapes(folder):
-    """Refused unless what install replaces or removes is a plain file, or for pipeline/ a plain folder."""
+def _check_shapes(folder, action="back it up"):
+    """Refused unless what install or restore replaces is a plain file, or for pipeline/ a plain folder."""
     for name in SCRIPT_NAMES + ("automation.conf", "pipeline"):
         path = folder / name
         plain = path.is_dir() if name == "pipeline" else path.is_file()
         if path.is_symlink() or (os.path.lexists(path) and not plain):
             kind = "a symlink" if path.is_symlink() else "not a plain " + ("folder" if name == "pipeline" else "file")
-            raise Refused(f"{name} is {kind}, so install.py can't back it up as it is: replace it with a plain copy")
+            raise Refused(f"{name} is {kind}, so install.py can't {action} as it is: replace it with a plain copy")
 
 
 def _put(path, data, mode):
@@ -105,6 +129,7 @@ def _put(path, data, mode):
     a shell still reading the old script goes on reading it; and a crash leaves the
     old file or the new one, never part of one."""
     tmp = path.with_name(f".{path.name}.install-tmp")
+    tmp.unlink(missing_ok=True)  # a leftover, or a symlink planted there, is never written through
     try:
         tmp.write_bytes(data)
         tmp.chmod(mode)
@@ -133,8 +158,7 @@ def _note_kept_conf(kept, settings):
 
 def _note_branch_mismatch(folder, branch):
     """Warn when the checkout isn't on the branch the folder follows: every release would refuse."""
-    head = git(folder / "ResourcePackScripts", "symbolic-ref", "--quiet", "HEAD") or ""
-    current = head[len("refs/heads/"):] if head.startswith("refs/heads/") else "no branch"
+    current = _current_branch(folder / "ResourcePackScripts")
     if current != branch:
         print(
             f"Note: ResourcePackScripts is on {current}, but this folder follows {branch}, so every release here"
@@ -145,6 +169,7 @@ def _note_branch_mismatch(folder, branch):
 
 def install(folder, side, branch=None, force=False, locker=lock_release):
     """Install the launchers and automation.conf into folder; 0 when done."""
+    _refuse_root()
     folder = Path(folder).resolve()
     check_folder(folder)
     _check_shapes(folder)
@@ -237,6 +262,9 @@ def check(folder, which=shutil.which, locker=lock_release):
         print("Not ready: 1 problem(s).")
         return 1
     report(True, f"automation folder with {len(packs)} pack checkout(s): {', '.join(packs)}")
+    if _running_as_root():
+        # root may write anywhere, so the permission checks below would all pass
+        report(False, "--check runs as root, so it can't see the servers' user's permission problems: run it as that user")
 
     settings = None
     try:
@@ -246,9 +274,7 @@ def check(folder, which=shutil.which, locker=lock_release):
         report(False, f"automation.conf: {e}")
 
     checkout = folder / "ResourcePackScripts"
-    # As the launcher reads it: the full name, so a tag can't confuse it
-    head = git(checkout, "symbolic-ref", "--quiet", "HEAD") or ""
-    current = head[len("refs/heads/"):] if head.startswith("refs/heads/") else "no branch"
+    current = _current_branch(checkout)
     if settings:
         branch = settings["branch"]
         report(current == branch, f"ResourcePackScripts is on {current} (automation.conf: {branch})")
@@ -264,8 +290,9 @@ def check(folder, which=shutil.which, locker=lock_release):
                 f"ResourcePackScripts has {ahead} commit(s) that GitHub's {branch} doesn't: made on the server"
                 " (they need a pull request), or GitHub's history was rewritten (reset the checkout to it)",
             )
-    # --no-optional-locks: a plain status rewrites .git/index, which could make a running release's merge fail
-    edits = git(checkout, "--no-optional-locks", "status", "--porcelain")
+    # --no-optional-locks: a plain status rewrites .git/index, which could make a running release's merge fail.
+    # --untracked-files=normal: as the launcher sees it, whatever the server's git config says
+    edits = git(checkout, "--no-optional-locks", "status", "--porcelain", "--untracked-files=normal")
     if edits is None:
         report(False, "git status failed in ResourcePackScripts")
     else:
@@ -284,12 +311,19 @@ def check(folder, which=shutil.which, locker=lock_release):
     for tool in TOOLS:
         report(which(tool) is not None, f"{tool} is on PATH")
 
-    if (folder / "runs" / ".lock").exists():
+    # The launcher writes runs/.lock and runs/current on every release
+    runs = folder / "runs"
+    for path in (runs, runs / ".lock", runs / "current"):
+        if path.exists():
+            report(os.access(path, os.W_OK), f"{path.relative_to(folder).as_posix()} can be written")
+    if (runs / ".lock").exists():
         try:
             locker(folder).close()
             report(True, "no release is running")
         except LockHeld:
             report(False, "a release is running")
+        except OSError as e:
+            report(False, f"runs/.lock can't be opened: {e.strerror}")
     else:
         report(True, "no release is running")
 
@@ -299,6 +333,7 @@ def check(folder, which=shutil.which, locker=lock_release):
 
 def restore(folder, backup, locker=lock_release):
     """Put back what an install replaced or removed, and remove what it created."""
+    _refuse_root()
     folder = Path(folder).resolve()
     backup = Path(backup)
     if not backup.is_absolute():
@@ -334,7 +369,7 @@ def restore(folder, backup, locker=lock_release):
         if path.is_symlink() or not plain:
             raise Refused(f"{backup.name} lacks {name}, or holds something else under that name, so it can't be restored")
     # And the folder must hold what install left: a symlinked pipeline would stop restore halfway
-    _check_shapes(folder)
+    _check_shapes(folder, action="restore over it")
 
     lock = locker(folder)
     try:
@@ -365,6 +400,8 @@ def main(argv=None):
     mode.add_argument("--check", action="store_true", help="say whether the folder is ready; change nothing")
     mode.add_argument("--restore", type=Path, metavar="BACKUP", help="put back what an install replaced")
     args = parser.parse_args(argv)
+    if (args.check or args.restore) and (args.side or args.branch or args.force):
+        parser.error("--side, --branch and --force only apply when installing")
     if not (args.check or args.restore or args.side):
         parser.error("--side is required to install")
     try:

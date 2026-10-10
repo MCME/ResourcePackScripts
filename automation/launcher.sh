@@ -25,18 +25,34 @@ setting() {
     python3 "$checkout/automation/automation_conf.py" get "$folder/automation.conf" "$1"
 }
 
-# 1. This folder's settings
-if ! branch=$(setting branch) || ! wrapper=$(setting wrapper); then
+# 1. This folder's settings. The reader exits 2 when the folder isn't installed
+#    or automation.conf is wrong. Any other failure is the reader itself, which a
+#    fix on GitHub can't reach by itself: the launcher reads before it fetches.
+branch=$(setting branch)
+status=$?
+if [ "$status" -eq 0 ]; then
+    wrapper=$(setting wrapper)
+    status=$?
+fi
+case $status in
+0) ;;
+2)
     say "This automation folder isn't installed, or its automation.conf is invalid (see above)."
     say "Install it with: python3 ResourcePackScripts/automation/install.py --side <test|production>. Or fix the line named above."
     exit 2
-fi
+    ;;
+*)
+    say "ResourcePackScripts's automation/automation_conf.py itself failed (see above), so no release can start."
+    say "If the fix is already on GitHub, update the checkout by hand: git -C ResourcePackScripts pull --ff-only"
+    exit 2
+    ;;
+esac
 
 # 2. The release lock, on descriptor 9. Every process that inherits the
 #    descriptor holds the lock until it ends: the script and the wrapper, so the
 #    lock lasts the whole release, but also anything left running in the
-#    background. git fetch, merge and pull may leave a detached
-#    `git maintenance` behind, so they run with 9>&-.
+#    background. git may leave a detached `git maintenance` behind, so every
+#    git command here runs with 9>&-.
 mkdir -p "$folder/runs" || exit 2
 exec 9>>"$folder/runs/.lock" || exit 2
 flock -n 9
@@ -57,20 +73,27 @@ printf '%s %s (started %s)\n' "$name" "$*" "$(date '+%Y-%m-%d %H:%M:%S')" > "$fo
 # 3. The checkout: on the declared branch, nothing edited or committed here,
 #    then up to date with GitHub. Full ref names throughout, so a tag called
 #    like the branch is never taken for it; symbolic-ref gives nothing on a
-#    detached checkout, and git's own errors stay visible
-head=$(git -C "$checkout" symbolic-ref --quiet HEAD)
-if [ "$head" != "refs/heads/$branch" ]; then
-    current=${head#refs/heads/}
-    say "ResourcePackScripts is on '${current:-no branch}', but automation.conf says '$branch'."
+#    detached checkout (status 1), and git's own errors stay visible
+head=$(git -C "$checkout" symbolic-ref --quiet HEAD 9>&-)
+status=$?
+if [ "$status" -gt 1 ]; then
+    say "git can't read ResourcePackScripts (its reason is above), so no release runs here."
     exit 3
 fi
-if [ -n "$(git -C "$checkout" status --porcelain)" ]; then
+if [ "$head" != "refs/heads/$branch" ]; then
+    current=${head#refs/heads/}
+    say "ResourcePackScripts is on '${current:-no branch}', but automation.conf says '$branch'. Switch it with: git -C ResourcePackScripts switch $branch"
+    exit 3
+fi
+# Untracked files count too, whatever the server's git config says: a script
+# dropped into the checkout must not run unreviewed
+if [ -n "$(git -C "$checkout" status --porcelain --untracked-files=normal 9>&-)" ]; then
     say "Someone edited ResourcePackScripts on the server. That change must go through a pull request; until then no release runs here."
     exit 3
 fi
 fetched=yes
 fetch_error=$(GIT_TERMINAL_PROMPT=0 git -C "$checkout" fetch --quiet origin "+refs/heads/$branch:refs/remotes/origin/$branch" 2>&1 9>&-) || fetched=no
-if ! git -C "$checkout" rev-parse --verify --quiet "refs/remotes/origin/$branch" >/dev/null; then
+if ! git -C "$checkout" rev-parse --verify --quiet "refs/remotes/origin/$branch" >/dev/null 9>&-; then
     say "GitHub has no branch '$branch' (or can't be reached, and it was never fetched here), so ResourcePackScripts can't follow it."
     exit 3
 fi
@@ -79,7 +102,7 @@ if [ "$fetched" = no ]; then
 fi
 # merge --ff-only alone would take a checkout that is ahead of GitHub as
 # "already up to date", and a commit made here would go out unreviewed
-if ! git -C "$checkout" merge-base --is-ancestor HEAD "refs/remotes/origin/$branch"; then
+if ! git -C "$checkout" merge-base --is-ancestor HEAD "refs/remotes/origin/$branch" 9>&-; then
     say "ResourcePackScripts has commits that GitHub's $branch doesn't. Either they were made on the server and need a pull request, or GitHub's history was rewritten and the checkout needs resetting to it. Until then no release runs here."
     exit 3
 fi
@@ -107,7 +130,7 @@ if [ "$wrapper" = yes ]; then
         exit 2
     fi
 fi
-say "Releasing with ResourcePackScripts $branch at $(git -C "$checkout" rev-parse --short HEAD)."
+say "Releasing with ResourcePackScripts $branch at $(git -C "$checkout" rev-parse --short HEAD 9>&-)."
 if [ "$wrapper" = yes ]; then
     exec "$entry" "$script" "$@"
 fi

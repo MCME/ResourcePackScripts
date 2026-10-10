@@ -175,6 +175,18 @@ class ReadPack(unittest.TestCase):
         )
         self.assertEqual(release_note.read_pack(archive)["pack_format"], 97)
 
+    def test_reads_the_pack_section_of_a_pack_with_overlays(self):
+        # The overlays section lists formats for its own folders; the note goes by the pack section
+        archive = make_zip(
+            self.tmp.name,
+            "a.zip",
+            {
+                "pack": {"min_format": 88, "max_format": 97},
+                "overlays": {"entries": [{"formats": [97, 97], "directory": "1_21_1"}]},
+            },
+        )
+        self.assertEqual(release_note.zip_range(archive), (88, 97))
+
     def test_every_refusal_names_the_zip_and_the_reason(self):
         # Not every standard library message names the file, so the zip's name has to come from us
         folder = Path(self.tmp.name)

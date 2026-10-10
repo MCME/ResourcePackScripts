@@ -26,9 +26,12 @@ echo "parent $PPID, in $(pwd)"
 flock -n runs/.lock true; echo "lock probe: $?"
 """
 
+# The wrapper's own check that it runs under the launcher's lock: descriptor 9 is
+# runs/.lock, and flock on that same open file succeeds while a fresh open would not
 FAKE_WRAPPER = """\
 #!/bin/sh
 echo "wrapper (parent $PPID) got: $1"
+if [ /proc/self/fd/9 -ef runs/.lock ] && flock -n 9; then echo "wrapper holds the lock"; fi
 shift
 echo "args: $#:$1|$2|$3|$4|$5"
 """
@@ -223,9 +226,26 @@ class Launcher(unittest.TestCase):
         self.assertEqual(result.returncode, 2)
         self.assertIn("staging", result.stderr)
 
+    def test_says_how_to_recover_when_its_settings_reader_is_broken(self):
+        # A fix on GitHub can't reach a broken automation_conf.py by itself: the launcher reads before it fetches
+        (self.checkout / "automation" / "automation_conf.py").write_text("this is not Python\n")
+        result = self.launch()
+        self.assertEqual(result.returncode, 2)
+        self.assertIn("automation_conf.py itself failed", result.stderr)
+        self.assertIn("git -C ResourcePackScripts pull --ff-only", result.stderr)
+        self.assertNotIn("isn't installed", result.stderr)
+
     def test_refuses_a_checkout_edited_on_the_server(self):
         script = self.checkout / "automation" / "scripts" / "releaseGeneral.sh"
         script.write_text(script.read_text() + "echo edited on the server\n")
+        result = self.launch()
+        self.assertEqual(result.returncode, 3)
+        self.assertIn("edited ResourcePackScripts on the server", result.stderr)
+
+    def test_refuses_a_file_added_to_the_checkout_on_the_server(self):
+        # An unreviewed script dropped into the checkout must not run, whatever the server's git config says
+        git("config", "status.showUntrackedFiles", "no", cwd=self.checkout)
+        (self.checkout / "automation" / "scripts" / "releaseExtra.sh").write_text("echo unreviewed\n")
         result = self.launch()
         self.assertEqual(result.returncode, 3)
         self.assertIn("edited ResourcePackScripts on the server", result.stderr)
@@ -235,6 +255,15 @@ class Launcher(unittest.TestCase):
         result = self.launch()
         self.assertEqual(result.returncode, 3)
         self.assertIn("on 'hotfix'", result.stderr)
+        self.assertIn("git -C ResourcePackScripts switch development", result.stderr)
+
+    def test_says_when_git_cannot_read_the_checkout(self):
+        # Not a detached checkout: git itself fails, and says why
+        (self.checkout / ".git" / "HEAD").write_text("not a ref\n")
+        result = self.launch()
+        self.assertEqual(result.returncode, 3)
+        self.assertIn("git can't read ResourcePackScripts", result.stderr)
+        self.assertNotIn("no branch", result.stderr)
 
     def test_refuses_a_checkout_that_has_diverged_from_github(self):
         (self.checkout / "local.txt").write_text("a commit made on the server\n")
@@ -284,6 +313,7 @@ class Launcher(unittest.TestCase):
         script = self.checkout / "automation" / "scripts" / "releaseGeneral.sh"
         self.assertIn(f"wrapper (parent {os.getpid()}) got: {script}", result.stdout)
         self.assertIn("args: 5:Rohan|MCME|RP-Rohan|v1.0|Better leaves", result.stdout)
+        self.assertIn("wrapper holds the lock", result.stdout)
 
     def test_refuses_the_wrapper_when_the_checkout_has_none(self):
         self.write_conf(wrapper="yes")
@@ -309,6 +339,14 @@ class Launcher(unittest.TestCase):
         self.assertEqual(result.returncode, 2)
         self.assertIn("no release script called releaseUnknown.sh", result.stderr)
         self.assertNotIn("Releasing with", result.stderr)
+
+
+class CheckoutHygiene(unittest.TestCase):
+    def test_python_caches_stay_out_of_the_checkout(self):
+        # install.py and every release import Python from the checkout. An unignored
+        # __pycache__/ would make it look edited, and the launcher would refuse every release after
+        lines = [line.strip() for line in (REPO_ROOT / ".gitignore").read_text(encoding="utf-8").splitlines()]
+        self.assertIn("__pycache__/", lines)
 
 
 if __name__ == "__main__":
