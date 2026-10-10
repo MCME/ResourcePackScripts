@@ -1,0 +1,49 @@
+Only in test: pipeline
+Only in test: releaseDynmap.sh
+diff -ru production/releaseGeneral.sh test/releaseGeneral.sh
+--- production/releaseGeneral.sh	2025-01-23 17:17:35.281855711 +0000
++++ test/releaseGeneral.sh	2026-09-28 21:40:12.372510349 +0000
+@@ -1,4 +1,9 @@
+ #!/bin/bash
++# Every run goes through pipeline/run.sh: one release at a time, a log and a
++# summary per run for the dashboard (installed by install-rp-pipeline.sh)
++if [ -z "$RP_RELEASE_RUN" ] && [ -f "$(dirname "$0")/pipeline/run.sh" ]; then
++    exec sh "$(dirname "$0")/pipeline/run.sh" "$(basename "$0")" "$@"; fi
++
+ 
+ # $1 RP Name
+ # $2 GitHub Owner
+@@ -33,7 +38,7 @@
+ echo releasing $1 RP zips
+ 
+ gh release create $4 -R $2/$3 -t "$5" -n "Version $4 for MC 1.21.4"
+-gh release upload $4 $1.zip $1-Footprints.zip -R $2/$3
++gh release upload $4 $1.zip $1-Footprints.zip -R $2/$3 --clobber
+ 
+ # GitHub CLI api
+ # https://cli.github.com/manual/gh_api
+diff -ru production/releaseVanillaSodium.sh test/releaseVanillaSodium.sh
+--- production/releaseVanillaSodium.sh	2026-10-01 20:34:35.713706403 +0000
++++ test/releaseVanillaSodium.sh	2026-10-01 20:24:21.023213379 +0000
+@@ -1,4 +1,9 @@
+ #!/bin/bash
++# Every run goes through pipeline/run.sh: one release at a time, a log and a
++# summary per run for the dashboard (installed by install-rp-pipeline.sh)
++if [ -z "$RP_RELEASE_RUN" ] && [ -f "$(dirname "$0")/pipeline/run.sh" ]; then
++    exec sh "$(dirname "$0")/pipeline/run.sh" "$(basename "$0")" "$@"; fi
++
+ 
+ # $1 RP Name
+ # $2 GitHub Owner
+@@ -37,7 +42,10 @@
+ rm -r release
+ mkdir release
+ 
+-python3 ResourcePackScripts/generateVanilla/generateVanilla.py $1-Sodium release Vanilla-26.2 --objmc ResourcePackScripts/generateVanilla/objmc.py
++python3 ResourcePackScripts/generateVanilla/generateVanilla.py $1-Sodium release Vanilla-26.2 --objmc ResourcePackScripts/generateVanilla/objmc.py --debug
++
++#mkdir vanilla_sic
++#cp -r release vanilla_sic
+ 
+ cd release
+ 7z a -y $1-Vanilla.zip *

@@ -1,0 +1,38 @@
+#!/bin/bash
+# Every run goes through pipeline/run.sh: one release at a time, a log and a
+# summary per run for the dashboard (installed by install-rp-pipeline.sh)
+if [ -z "$RP_RELEASE_RUN" ] && [ -f "$(dirname "$0")/pipeline/run.sh" ]; then
+    exec sh "$(dirname "$0")/pipeline/run.sh" "$(basename "$0")" "$@"; fi
+
+
+# $1 RP Name
+# $2 GitHub Owner
+# $3 GitHub Repository
+# $4 Version tag
+# $5 Release name
+
+echo compiling $1 RP zips
+cd $1
+git pull
+cd ..
+
+rm -r release
+mkdir release
+cp -f -r $1/* release 
+#packsquash packsquash.toml
+
+cd release
+7z a -y $1.zip * -x!inventories
+mv  $1.zip ../../../baseline-server/plugins/dynmap/texturepacks/
+#cd ..
+
+
+#echo releasing $1 RP zips
+
+#gh release create $4 -R $2/$3 -t "$5" -n "Version $4 for MC 1.21.4"
+#gh release upload $4 $1.zip $1-Footprints.zip -R $2/$3 --clobber
+
+# GitHub CLI api
+# https://cli.github.com/manual/gh_api
+#gh api --method POST -H "Accept: application/vnd.github+json" -H "X-GitHub-Api-Version: 2022-11-28" /repos/$2/$3/releases -f "tag_name=$4" -f "target_commitish=master" -f "name=$5" -f "body=Version $4 for MC 1.19.4" -F "draft=false" -F "prerelease=false" -F "generate_release_notes=false"
+#gh release upload $4 $1.zip $1-footprints.zip -R $2/$3 --clobber                                            
