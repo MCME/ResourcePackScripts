@@ -52,3 +52,40 @@ def format_range(pack):
         # Minecraft refuses such a pack too; without this, note() would blame the other zips
         raise ReleaseNoteError(f"pack format range runs backwards: {lowest} to {highest}")
     return lowest, highest
+
+
+def versions_in(lowest, highest, formats):
+    """The Minecraft versions whose pack format lies in lowest..highest, oldest first."""
+    return [formats[pack_format] for pack_format in sorted(formats) if lowest <= pack_format <= highest]
+
+
+def _join(items):
+    """'a', 'a and b', 'a, b and c'."""
+    return items[0] if len(items) == 1 else ", ".join(items[:-1]) + " and " + items[-1]
+
+
+def _span(lowest, highest):
+    return str(lowest) if lowest == highest else f"{lowest}–{highest}"
+
+
+def note(tag, ranges, formats):
+    """(note text, warnings) for a release whose zips declare these format ranges."""
+    distinct = sorted(set(ranges))
+    listed = ", ".join(_span(low, high) for low, high in distinct)
+    lowest = max(low for low, _ in distinct)
+    highest = min(high for _, high in distinct)
+    if lowest > highest:
+        warning = f"no pack format is supported by every zip ({listed}), so the note names no Minecraft version"
+        return f"Version {tag}", [warning]
+    warnings = []
+    # Ranges may differ harmlessly: a Sodium zip declares 15-255, the zips
+    # converted from it 88-97. Warn only when the Minecraft versions differ.
+    if len({tuple(versions_in(low, high, formats)) for low, high in distinct}) > 1:
+        warnings.append(
+            f"the zips support different Minecraft versions (pack formats {listed}); "
+            "the note names only the versions they all support"
+        )
+    versions = versions_in(lowest, highest, formats)
+    if versions:
+        return f"Version {tag} for Minecraft {_join(versions)}", warnings
+    return f"Version {tag} for pack format {_span(lowest, highest)}", warnings
