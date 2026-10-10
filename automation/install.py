@@ -295,3 +295,91 @@ def check(folder, which=shutil.which, locker=lock_release):
 
     print("Ready." if not problems else f"Not ready: {len(problems)} problem(s).")
     return 0 if not problems else 1
+
+
+def restore(folder, backup, locker=lock_release):
+    """Put back what an install replaced or removed, and remove what it created."""
+    folder = Path(folder).resolve()
+    backup = Path(backup)
+    if not backup.is_absolute():
+        backup = folder / backup
+    manifest_path = backup / "backup.json"
+    if not manifest_path.is_file():
+        raise Refused(f"{backup} isn't a backup made by install.py: it has no backup.json")
+    try:
+        manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+    except ValueError as e:  # JSONDecodeError and UnicodeDecodeError both are
+        raise Refused(f"{manifest_path} isn't a manifest written by install.py: {e}") from e
+    if not isinstance(manifest, dict) or not all(
+        isinstance(manifest.get(key, []), list) for key in ("created", "replaced", "removed")
+    ):
+        raise Refused(f"{manifest_path} isn't a manifest written by install.py")
+    if manifest.get("folder") != str(folder):
+        # Test's backup restored into production would bring test's scripts back there
+        raise Refused(f"{backup.name} was made for {manifest.get('folder')}, not for {folder}")
+    created = manifest.get("created", [])
+    replaced = manifest.get("replaced", [])
+    removed = manifest.get("removed", [])
+    # Only what install itself writes or removes: restore deletes before it copies back
+    for name in list(created) + list(replaced):
+        if name not in SCRIPT_NAMES + ("automation.conf",):
+            raise Refused(f"{manifest_path} names {name!r}, which install.py never writes")
+    for name in removed:
+        if name != "pipeline":
+            raise Refused(f"{manifest_path} names {name!r}, which install.py never removes")
+    # Everything to put back must be there, as install made it, before anything is touched
+    for name in list(replaced) + list(removed):
+        path = backup / name
+        plain = path.is_dir() if name == "pipeline" else path.is_file()
+        if path.is_symlink() or not plain:
+            raise Refused(f"{backup.name} lacks {name}, or holds something else under that name, so it can't be restored")
+    # And the folder must hold what install left: a symlinked pipeline would stop restore halfway
+    _check_shapes(folder)
+
+    lock = locker(folder)
+    try:
+        for name in created:
+            (folder / name).unlink(missing_ok=True)
+        for name in replaced:
+            source = backup / name
+            _put(folder / name, source.read_bytes(), source.stat().st_mode & 0o777)
+        for name in removed:
+            if (folder / name).exists():
+                shutil.rmtree(folder / name)
+            shutil.copytree(backup / name, folder / name, symlinks=True)
+    finally:
+        lock.close()
+    print(f"Restored {folder} from {backup.name}.")
+    return 0
+
+
+def main(argv=None):
+    parser = argparse.ArgumentParser(
+        description="Install the release launchers into an automation folder, check one, or restore a backup."
+    )
+    parser.add_argument("--side", choices=sorted(automation_conf.DEFAULTS), help="install for this side")
+    parser.add_argument("--folder", type=Path, default=Path("."), help="the automation folder (default: here)")
+    parser.add_argument("--branch", help="the branch to follow (default: development for test, master for production)")
+    parser.add_argument("--force", action="store_true", help="rewrite an existing automation.conf")
+    mode = parser.add_mutually_exclusive_group()
+    mode.add_argument("--check", action="store_true", help="say whether the folder is ready; change nothing")
+    mode.add_argument("--restore", type=Path, metavar="BACKUP", help="put back what an install replaced")
+    args = parser.parse_args(argv)
+    if not (args.check or args.restore or args.side):
+        parser.error("--side is required to install")
+    try:
+        if args.check:
+            return check(args.folder)
+        if args.restore:
+            return restore(args.folder, args.restore)
+        return install(args.folder, args.side, args.branch, args.force)
+    except LockHeld:
+        print("A release is running in this folder. Run install.py again once it has finished.", file=sys.stderr)
+        return LOCK_HELD
+    except Refused as e:
+        print(f"install.py: {e}", file=sys.stderr)
+        return 1
+
+
+if __name__ == "__main__":
+    sys.exit(main())

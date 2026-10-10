@@ -475,5 +475,189 @@ class Check(InstallerTest):
         self.assertIn("PROBLEM a release is running", out)
 
 
+class Restore(InstallerTest):
+    def test_puts_back_what_the_install_replaced_and_removed(self):
+        self.run_install()
+        [backup] = self.backups()
+        with redirect_stdout(io.StringIO()):
+            self.assertEqual(install.restore(self.folder, backup, locker=free_lock), 0)
+        restored = snapshot(self.folder, skip=("ResourcePackScripts/.git", "runs", backup.name))
+        self.assertEqual(restored, self.before)
+
+    def test_takes_the_backup_by_its_name_inside_the_folder(self):
+        self.run_install()
+        [backup] = self.backups()
+        with redirect_stdout(io.StringIO()):
+            self.assertEqual(install.restore(self.folder, Path(backup.name), locker=free_lock), 0)
+        self.assertEqual((self.folder / "releaseGeneral.sh").read_text(), "# hand-edited copy\n")
+
+    def test_refuses_a_folder_that_is_not_a_backup(self):
+        with self.assertRaises(install.Refused):
+            install.restore(self.folder, self.folder / "Footprints", locker=free_lock)
+
+    def test_refuses_a_manifest_naming_a_path_outside_the_folder(self):
+        forged = self.folder / "pre-automation-backup-forged"
+        forged.mkdir()
+        (forged / "backup.json").write_text(
+            json.dumps({"folder": str(self.folder.resolve()), "created": ["../outside.txt"], "replaced": [], "removed": []})
+        )
+        with self.assertRaises(install.Refused):
+            install.restore(self.folder, forged, locker=free_lock)
+
+    def test_refuses_a_manifest_naming_a_pack_checkout(self):
+        # restore removes before it copies back, so it may only touch what install wrote
+        forged = self.folder / "pre-automation-backup-forged"
+        (forged / "Human-Sodium").mkdir(parents=True)
+        (forged / "backup.json").write_text(
+            json.dumps({"folder": str(self.folder.resolve()), "created": [], "replaced": [], "removed": ["Human-Sodium"]})
+        )
+        before = snapshot(self.folder)
+        with self.assertRaises(install.Refused):
+            install.restore(self.folder, forged, locker=free_lock)
+        self.assertEqual(snapshot(self.folder), before)
+
+    def test_refuses_a_backup_that_lacks_a_file_before_touching_anything(self):
+        self.run_install()
+        [backup] = self.backups()
+        (backup / "releaseGeneral.sh").unlink()
+        installed = snapshot(self.folder)
+        with self.assertRaises(install.Refused):
+            install.restore(self.folder, backup, locker=free_lock)
+        self.assertEqual(snapshot(self.folder), installed)
+
+    def test_refuses_a_backup_made_for_another_folder(self):
+        self.run_install()
+        [backup] = self.backups()
+        manifest = json.loads((backup / "backup.json").read_text())
+        manifest["folder"] = str(self.tmp / "elsewhere")
+        (backup / "backup.json").write_text(json.dumps(manifest))
+        with self.assertRaises(install.Refused):
+            install.restore(self.folder, backup, locker=free_lock)
+
+    def test_undoes_an_install_that_died_halfway(self):
+        # What the backup is for: the install stopped with the launchers written and pipeline/ still there
+        with mock.patch.object(install.shutil, "rmtree", side_effect=OSError("disk trouble")):
+            with self.assertRaises(OSError), redirect_stdout(io.StringIO()):
+                install.install(self.folder, "test", locker=free_lock)
+        [backup] = self.backups()
+        with redirect_stdout(io.StringIO()):
+            self.assertEqual(install.restore(self.folder, backup, locker=free_lock), 0)
+        self.assertEqual(snapshot(self.folder, skip=("ResourcePackScripts/.git", "runs", backup.name)), self.before)
+
+    def test_changes_nothing_while_a_release_is_running(self):
+        self.run_install()
+        [backup] = self.backups()
+        installed = snapshot(self.folder)
+        with self.assertRaises(install.LockHeld), redirect_stdout(io.StringIO()):
+            install.restore(self.folder, backup, locker=held_lock)
+        self.assertEqual(snapshot(self.folder), installed)
+
+    def test_refusals_never_take_the_lock(self):
+        def no_lock(folder):
+            self.fail("a refusal took the release lock")
+
+        forged = self.folder / "pre-automation-backup-forged"
+        forged.mkdir()
+        (forged / "backup.json").write_text(json.dumps({"folder": str(self.folder.resolve()), "removed": ["Footprints"]}))
+        with self.assertRaises(install.Refused), redirect_stdout(io.StringIO()):
+            install.restore(self.folder, forged, locker=no_lock)
+
+    def test_refuses_a_manifest_that_is_not_an_object(self):
+        forged = self.folder / "pre-automation-backup-forged"
+        forged.mkdir()
+        (forged / "backup.json").write_text("[]")
+        with self.assertRaises(install.Refused), redirect_stdout(io.StringIO()):
+            install.restore(self.folder, forged, locker=free_lock)
+
+    def test_refuses_a_manifest_that_is_not_json(self):
+        forged = self.folder / "pre-automation-backup-forged"
+        forged.mkdir()
+        (forged / "backup.json").write_text('{"folder": ')
+        with self.assertRaises(install.Refused), redirect_stdout(io.StringIO()):
+            install.restore(self.folder, forged, locker=free_lock)
+
+    def test_refuses_a_backup_whose_pipeline_is_not_a_folder(self):
+        # The live pipeline/ would be deleted before the copy back failed
+        forged = self.folder / "pre-automation-backup-forged"
+        forged.mkdir()
+        (forged / "pipeline").write_text("not a folder")
+        (forged / "backup.json").write_text(json.dumps({"folder": str(self.folder.resolve()), "removed": ["pipeline"]}))
+        before = snapshot(self.folder)
+        with self.assertRaises(install.Refused), redirect_stdout(io.StringIO()):
+            install.restore(self.folder, forged, locker=free_lock)
+        self.assertEqual(snapshot(self.folder), before)
+
+    def test_refuses_a_backup_holding_a_folder_where_a_file_was(self):
+        self.run_install()
+        [backup] = self.backups()
+        (backup / "releaseGeneral.sh").unlink()
+        (backup / "releaseGeneral.sh").mkdir()
+        installed = snapshot(self.folder)
+        with self.assertRaises(install.Refused), redirect_stdout(io.StringIO()):
+            install.restore(self.folder, backup, locker=free_lock)
+        self.assertEqual(snapshot(self.folder), installed)
+
+    @unittest.skipUnless(os.name == "posix", "replacing a file that is open needs POSIX semantics")
+    def test_a_release_reading_the_launcher_goes_on_reading_it(self):
+        self.run_install()
+        [backup] = self.backups()
+        with open(self.folder / "releaseGeneral.sh", "rb") as running, redirect_stdout(io.StringIO()):
+            install.restore(self.folder, backup, locker=free_lock)
+            self.assertEqual(running.read(), LAUNCHER_BYTES)
+
+    @unittest.skipUnless(os.name == "posix", "file modes are POSIX")
+    def test_puts_each_file_back_with_its_mode(self):
+        (self.folder / "releaseGeneral.sh").chmod(0o640)
+        self.run_install()
+        [backup] = self.backups()
+        with redirect_stdout(io.StringIO()):
+            install.restore(self.folder, backup, locker=free_lock)
+        self.assertEqual((self.folder / "releaseGeneral.sh").stat().st_mode & 0o777, 0o640)
+
+
+class CommandLine(InstallerTest):
+    def test_installing_needs_a_side(self):
+        with self.assertRaises(SystemExit) as caught:
+            self.run_main("--folder", str(self.folder))
+        self.assertEqual(caught.exception.code, 2)
+
+    def test_a_refusal_exits_1_with_the_reason(self):
+        (self.folder / "ResourcePackScripts").rename(self.tmp / "moved-away")
+        code, out, err = self.run_main("--side", "test", "--folder", str(self.folder))
+        self.assertEqual(code, 1)
+        self.assertIn("isn't an automation folder", err)
+
+
+@unittest.skipUnless(os.name == "posix" and shutil.which("flock"), "the real release lock needs fcntl and flock")
+class RealLock(InstallerTest):
+    def test_refuses_with_75_while_the_launcher_lock_is_held(self):
+        import signal
+
+        # Held as the launcher holds it: by util-linux flock, in another process
+        (self.folder / "runs").mkdir()
+        holder = subprocess.Popen(
+            ["flock", str(self.folder / "runs" / ".lock"), "sh", "-c", "echo held; sleep 30"],
+            stdout=subprocess.PIPE, text=True, start_new_session=True,
+        )
+        self.addCleanup(holder.stdout.close)
+        self.addCleanup(holder.wait)
+        # flock's child inherits the lock, so end the whole group, not flock alone
+        self.addCleanup(os.killpg, holder.pid, signal.SIGKILL)
+        self.assertEqual(holder.stdout.readline(), "held\n")
+        before = snapshot(self.folder)
+        code, out, err = self.run_main("--side", "test", "--folder", str(self.folder))
+        self.assertEqual(code, 75)
+        self.assertIn("A release is running", err)
+        self.assertEqual(snapshot(self.folder), before)
+
+    def test_takes_the_real_lock_and_lets_it_go(self):
+        import fcntl
+
+        code, out, err = self.run_main("--side", "test", "--folder", str(self.folder))
+        self.assertEqual(code, 0, err)
+        with open(self.folder / "runs" / ".lock", "a") as handle:
+            fcntl.flock(handle, fcntl.LOCK_EX | fcntl.LOCK_NB)  # raises if still held
+
+
 if __name__ == "__main__":
     unittest.main()
