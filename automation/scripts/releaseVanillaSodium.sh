@@ -56,13 +56,11 @@ echo "$pack-Lite"
 fresh_release
 generate --limit 2
 zip_release "$pack-Lite.zip" '*'
-# The same files are right only for a pack with at most two models per variant
-python3 "$automation/zips.py" same "$pack-Vanilla.zip" "$pack-Lite.zip"
-case $? in
-0) warn "$pack-Lite.zip holds the same files as $pack-Vanilla.zip. That's right only for a pack with at most two models per variant." ;;
-1) ;;
-*) stop "Couldn't compare $pack-Lite.zip with $pack-Vanilla.zip (see above). Nothing was published." ;;
-esac
+# generateVanilla writes the shader base's MCME_LITE flag into every Lite
+# conversion, so Lite always differs from Vanilla, even for a pack with at most
+# two models per variant. The same files would be Vanilla under the Lite name
+must_differ "$pack-Vanilla.zip" "$pack-Lite.zip" \
+    "generateVanilla's Lite mode didn't apply, since every Lite conversion sets the shader base's MCME_LITE flag"
 
 echo "$pack-Lite-Footprints"
 footprints activator_rail.png activator_rail_on.png

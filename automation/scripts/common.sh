@@ -119,13 +119,17 @@ footprints() {
     done
 }
 
-# A Footprints zip must differ from the zip it was made from: the same files
+# must_differ <zip> <variant zip> [<why>]: a variant must hold other files
+# than the zip it's compared with, or the release stops, saying why. By
+# default the variant is a Footprints zip made from <zip>, and the same files
 # mean the footprints textures didn't make it in. zips.py compares the files
 # in them, since the zips' bytes always differ
 must_differ() {
+    why="the footprints textures didn't make it in"
+    [ "$#" -lt 3 ] || why=$3
     python3 "$automation/zips.py" same "$1" "$2"
     case $? in
-    0) stop "$2 holds the same files as $1: the footprints textures didn't make it in. Nothing was published." ;;
+    0) stop "$2 holds the same files as $1: $why. Nothing was published." ;;
     1) ;;
     *) stop "Couldn't compare $2 with $1 (see above). Nothing was published." ;;
     esac

@@ -466,11 +466,18 @@ class ReleaseVanillaSodium(ReleaseScriptTest):
         [create] = self.gh("create")
         self.assertIn("--notes=Version v4.1.3 for Minecraft 26.3", create)
 
-    def test_warns_when_lite_holds_the_same_files_as_vanilla(self):
+    def test_stops_when_lite_holds_the_same_files_as_vanilla(self):
+        # generateVanilla marks every Lite conversion, so the same files mean Lite mode didn't apply:
+        # that Lite would be Vanilla under the Lite name
         result = self.release("releaseVanillaSodium.sh", *HUMAN, FAKE_GENERATE_SAME="1")
-        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
-        self.assertIn("WARNING!!! Human-Lite.zip holds the same files as Human-Vanilla.zip", result.stdout)
-        self.assertEqual(len(self.gh("upload")), 1)
+        self.assertEqual(result.returncode, 1)
+        self.assertEqual(self.errors(result), [
+            "ERROR: Human-Lite.zip holds the same files as Human-Vanilla.zip: generateVanilla's Lite mode didn't"
+            " apply, since every Lite conversion sets the shader base's MCME_LITE flag. Nothing was published."
+        ])
+        # It stopped in its own step
+        self.assertEqual(self.steps(result.stdout)[-1], "Human-Lite")
+        self.assertEqual(self.gh("create"), [])
 
     def test_stops_when_the_sodium_footprints_zip_holds_the_same_files(self):
         textures = self.folder / "Human-Sodium" / "assets" / "minecraft" / "textures" / "block"
