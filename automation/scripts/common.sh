@@ -77,28 +77,33 @@ check_release() {
 }
 
 # Bring a pack checkout up to date with its branch on GitHub, or stop: a
-# release builds exactly what GitHub has. As the launcher does for
-# ResourcePackScripts, the checkout must be on a branch that GitHub has, with
-# nothing edited or committed here, and it only ever fast-forwards: the server
-# never merges or rebases. git's own lines stay in the output, where the
-# wrapper reads what the update changed.
+# release builds what GitHub has. As the launcher does for
+# ResourcePackScripts, the checkout must be on a branch that follows one on
+# GitHub, with nothing edited or committed here, and it only ever
+# fast-forwards: the server never merges or rebases. git's own lines stay in
+# the output, where the wrapper reads what the update changed.
 # GIT_TERMINAL_PROMPT=0: a fetch that wants a password fails at once, and with
 # the low speed limit one that stalls, under 1000 bytes/s for 60 s, gives up,
 # instead of holding the lock until Architect stops the release. 9>&- on every
 # git command: a detached `git maintenance` would hold the release lock after
 # the release
 pull_pack() {
-    switch_back="An admin switches it back: git -C $1 switch ${RP_AUTOMATION_BRANCH:-<branch>}"
+    # Not the folder's own branch: some packs build another one, such as
+    # Paths of the Dead from a branch of RP-Human
+    to_stage_branch="switches it to the branch this stage builds for the pack, which docs/pack-repository.md lists"
+    # Without its own .git, git would answer for a repository around the folder
+    [ -e "$1/.git" ] \
+        || stop "$1 isn't a git checkout (it has no .git), so the release can't follow GitHub. Nothing was built. An admin checks the pack out again, as docs/server-setup.md says."
     # symbolic-ref says nothing on a detached checkout (status 1)
     branch=$(git -C "$1" symbolic-ref --quiet --short HEAD 9>&-)
     case $? in
     0) ;;
-    1) stop "$1 isn't on a branch, so the release can't follow GitHub. Nothing was built. $switch_back" ;;
-    *) stop "git can't read $1 (its reason is above). Nothing was built." ;;
+    1) stop "$1 isn't on a branch, so the release can't follow GitHub. Nothing was built. An admin $to_stage_branch: git -C $1 switch <branch>" ;;
+    *) stop "git can't read $1 (its reason is above). Nothing was built. An admin repairs the checkout, or checks the pack out again." ;;
     esac
     # Untracked files count too, whatever the server's git config says: they would be zipped
     changes=$(git -C "$1" status --porcelain --untracked-files=normal 9>&-) \
-        || stop "git status failed in $1 (its reason is above). Nothing was built."
+        || stop "git status failed in $1 (its reason is above). Nothing was built. An admin repairs the checkout, or checks the pack out again."
     if [ -n "$changes" ]; then
         # What changed, as git status shows it: the first 10 lines, so the admin
         # knows what to take to GitHub or undo
@@ -113,16 +118,21 @@ pull_pack() {
         stop "Someone edited $1 on the server (git status above): the release would build files that aren't on GitHub. Nothing was built. An admin takes the change to the pack's repository on GitHub, or undoes it here."
     fi
     GIT_TERMINAL_PROMPT=0 GIT_HTTP_LOW_SPEED_LIMIT=1000 GIT_HTTP_LOW_SPEED_TIME=60 git -C "$1" fetch --prune 9>&- \
-        || stop "Couldn't fetch $1 from GitHub (git's reason is above), so the release would build old files. Nothing was built. Try again in a few minutes; if it keeps failing, an admin checks the server's access to GitHub."
-    # --prune has removed the remote branch of a branch deleted on GitHub,
-    # which would otherwise stay "up to date" with its last commit
-    git -C "$1" rev-parse --verify --quiet '@{upstream}' >/dev/null 9>&- \
-        || stop "$1 is on '$branch', which follows no branch on GitHub (deleted there, or made on the server), so the release can't follow it. Nothing was built. $switch_back"
+        || stop "Couldn't fetch $1 from GitHub (git's reason is above), so the release would build old files. Nothing was built. Try again in a few minutes. If it keeps failing, an admin fixes what git's reason names."
+    # The branch must follow a remote one. --prune has removed that of a branch
+    # deleted on GitHub, which would otherwise stay "up to date" with its last
+    # commit, and a branch that follows one of the checkout itself fetched
+    # nothing from GitHub
+    upstream=$(git -C "$1" rev-parse --verify --quiet --symbolic-full-name '@{upstream}' 9>&-)
+    case $upstream in
+    refs/remotes/*) github_branch=${upstream#refs/remotes/*/} ;;
+    *) stop "$1 is on '$branch', which follows no branch on GitHub: deleted there, made on the server, or never connected. Nothing was built. An admin connects it to GitHub's '$branch' (git -C $1 branch --set-upstream-to=origin/$branch), or $to_stage_branch." ;;
+    esac
     # A fast-forward alone would call a checkout ahead of GitHub "already up to date"
-    git -C "$1" merge-base --is-ancestor HEAD '@{upstream}' 9>&- \
-        || stop "$1 has commits that GitHub's $branch doesn't. Either they were made on the server and belong on GitHub, or GitHub's history was rewritten and the checkout needs resetting to it. Nothing was built."
-    git -C "$1" merge --ff-only '@{upstream}' 9>&- \
-        || stop "Couldn't bring $1 up to date with GitHub's $branch (git's reason is above). Nothing was built."
+    git -C "$1" merge-base --is-ancestor HEAD "$upstream" 9>&- \
+        || stop "$1 has commits that GitHub's $github_branch doesn't: made on the server, or left behind when GitHub's history was rewritten. Nothing was built. An admin takes them to GitHub, or resets the checkout to GitHub's $github_branch."
+    git -C "$1" merge --ff-only "$upstream" 9>&- \
+        || stop "Couldn't bring $1 up to date with GitHub's $github_branch (git's reason is above). Nothing was built. An admin fixes what git's reason names, for example files that belong to another user."
 }
 
 # release/ is the scratch folder every release builds in

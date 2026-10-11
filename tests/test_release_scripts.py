@@ -39,9 +39,11 @@ ROHAN = ("Rohan", "MCME", "RP-Rohan", "v1.0", "Better leaves")
 
 # git as on the server, with nothing from the developer's own config
 GIT_CONFIG = {"GIT_CONFIG_GLOBAL": os.devnull, "GIT_CONFIG_NOSYSTEM": "1"}
-# The tests' own git: commits a pack developer pushes to GitHub, or an admin makes on the server
-GIT_ENV = dict(
-    os.environ, **GIT_CONFIG,
+# The tests' own git: commits a pack developer pushes to GitHub, or an admin makes on the server. No GIT_*
+# from the developer's environment: a GIT_DIR or GIT_INDEX_FILE from a git hook would point it at their repository
+GIT_ENV = {key: value for key, value in os.environ.items() if not key.startswith("GIT_")}
+GIT_ENV.update(
+    GIT_CONFIG,
     GIT_AUTHOR_NAME="test", GIT_AUTHOR_EMAIL="test@example.com",
     GIT_COMMITTER_NAME="test", GIT_COMMITTER_EMAIL="test@example.com",
 )
@@ -49,6 +51,11 @@ GIT_ENV = dict(
 
 def git(*args, cwd):
     subprocess.run(["git", *args], cwd=cwd, env=GIT_ENV, check=True, capture_output=True)
+
+
+def git_output(*args, cwd):
+    result = subprocess.run(["git", *args], cwd=cwd, env=GIT_ENV, check=True, capture_output=True, text=True)
+    return result.stdout.strip()
 
 
 @unittest.skipUnless(TOOLS_PRESENT, "needs Linux with sh, git and python3, as on the server")
@@ -403,9 +410,9 @@ class ReleaseGeneral(ReleaseScriptTest):
 
 
 class PackCheckout(ReleaseScriptTest):
-    """A release builds exactly what GitHub has: the pack's checkout is brought up to date with its branch
-    on GitHub, or the release stops before it builds anything. Through releaseGeneral.sh: all three
-    scripts update their pack with common.sh's pull_pack."""
+    """A release builds what GitHub has: the pack's checkout is brought up to date with its branch on
+    GitHub, or the release stops before it builds anything. Through releaseGeneral.sh: all three scripts
+    update their pack with common.sh's pull_pack."""
 
     EDITED = (
         "ERROR: Someone edited Rohan-Vanilla on the server (git status above): the release would build files"
@@ -413,10 +420,19 @@ class PackCheckout(ReleaseScriptTest):
         " GitHub, or undoes it here."
     )
     AHEAD = (
-        "ERROR: Rohan-Vanilla has commits that GitHub's development doesn't. Either they were made on the"
-        " server and belong on GitHub, or GitHub's history was rewritten and the checkout needs resetting to"
-        " it. Nothing was built."
+        "ERROR: Rohan-Vanilla has commits that GitHub's development doesn't: made on the server, or left behind"
+        " when GitHub's history was rewritten. Nothing was built. An admin takes them to GitHub, or resets the"
+        " checkout to GitHub's development."
     )
+    # Not the folder's own branch: some packs build another one (docs/pack-repository.md)
+    STAGE_BRANCH = "switches it to the branch this stage builds for the pack, which docs/pack-repository.md lists"
+
+    def follows_no_branch(self, branch):
+        return (
+            f"ERROR: Rohan-Vanilla is on '{branch}', which follows no branch on GitHub: deleted there, made on the"
+            f" server, or never connected. Nothing was built. An admin connects it to GitHub's '{branch}'"
+            f" (git -C Rohan-Vanilla branch --set-upstream-to=origin/{branch}), or {self.STAGE_BRANCH}."
+        )
 
     def setUp(self):
         super().setUp()
@@ -436,13 +452,24 @@ class PackCheckout(ReleaseScriptTest):
         self.assertEqual(self.read_in("Rohan.zip", "assets/minecraft/textures/block/stone.png"), b"stone, pushed")
 
     def test_shows_what_the_update_changed_as_the_wrapper_reads_it(self):
-        # The wrapper turns git's update lines into the run's git event on the dashboard
+        # The wrapper turns git's fetch and update lines into the run's git events on the dashboard
         self.push_to_github("Rohan-Vanilla", {"assets/minecraft/textures/block/stone.png": b"stone, pushed"})
         result = self.release("releaseGeneral.sh", *ROHAN)
         at = datetime.datetime(2026, 10, 11, 12, 0, 0)
         events, _ = RP_RELEASE.fold([(at, line) for line in result.stdout.splitlines()])
         [update] = [event for event in events if event["kind"] == "git"]
         self.assertIn("1 file changed", update["text"])
+        # The wrapper reads the fetch's "From https://github.com/…" line; here GitHub is a local folder
+        self.assertIn(f"From {self.tmp / 'github' / 'Rohan-Vanilla'}\n", result.stderr)
+
+    def test_only_fast_forwards_whatever_the_servers_git_config_says(self):
+        # With merge.ff=false a plain merge would make a merge commit on the server
+        git("config", "merge.ff", "false", cwd=self.pack)
+        self.push_to_github("Rohan-Vanilla", {"assets/minecraft/textures/block/stone.png": b"stone, pushed"})
+        result = self.release("releaseGeneral.sh", *ROHAN)
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+        on_github = git_output("rev-parse", "development", cwd=self.tmp / "github" / "Rohan-Vanilla.git")
+        self.assertEqual(git_output("rev-parse", "HEAD", cwd=self.pack), on_github)
 
     def test_stops_when_github_cannot_be_reached(self):
         self.unreachable_github(self.pack)
@@ -450,8 +477,8 @@ class PackCheckout(ReleaseScriptTest):
         self.assert_stopped(
             result,
             "ERROR: Couldn't fetch Rohan-Vanilla from GitHub (git's reason is above), so the release would build"
-            " old files. Nothing was built. Try again in a few minutes; if it keeps failing, an admin checks the"
-            " server's access to GitHub.",
+            " old files. Nothing was built. Try again in a few minutes. If it keeps failing, an admin fixes what"
+            " git's reason names.",
         )
         # git's reason
         self.assertIn("does not appear to be a git repository", result.stderr)
@@ -472,7 +499,16 @@ class PackCheckout(ReleaseScriptTest):
         self.assertIn("\n  ?? extra.png\n", result.stderr)
 
     def test_shows_at_most_ten_of_the_changes(self):
-        for n in range(12):
+        # Ten all fit
+        for n in range(10):
+            (self.pack / f"extra{n:02}.png").write_bytes(b"added on the server")
+        result = self.release("releaseGeneral.sh", *ROHAN)
+        self.assert_stopped(result, self.EDITED)
+        shown = [line for line in result.stderr.splitlines() if line.startswith("  ?? extra")]
+        self.assertEqual(shown, [f"  ?? extra{n:02}.png" for n in range(10)])
+        self.assertNotIn(" more: ", result.stderr)
+        # Twelve: the first ten, and how many more
+        for n in range(10, 12):
             (self.pack / f"extra{n:02}.png").write_bytes(b"added on the server")
         result = self.release("releaseGeneral.sh", *ROHAN)
         self.assert_stopped(result, self.EDITED)
@@ -493,16 +529,13 @@ class PackCheckout(ReleaseScriptTest):
         self.assert_stopped(result, self.AHEAD)
 
     def test_stops_when_the_checkout_is_not_on_a_branch(self):
-        # The fix names the folder's own branch
         git("checkout", "-q", "--detach", cwd=self.pack)
-        for branch in ("development", "master"):
-            with self.subTest(branch=branch):
-                result = self.release("releaseGeneral.sh", *ROHAN, RP_AUTOMATION_BRANCH=branch)
-                self.assert_stopped(
-                    result,
-                    "ERROR: Rohan-Vanilla isn't on a branch, so the release can't follow GitHub. Nothing was built."
-                    f" An admin switches it back: git -C Rohan-Vanilla switch {branch}",
-                )
+        result = self.release("releaseGeneral.sh", *ROHAN)
+        self.assert_stopped(
+            result,
+            "ERROR: Rohan-Vanilla isn't on a branch, so the release can't follow GitHub. Nothing was built. An admin"
+            f" {self.STAGE_BRANCH}: git -C Rohan-Vanilla switch <branch>",
+        )
 
     def test_stops_when_github_no_longer_has_the_branch(self):
         # A branch tried on the server, then merged and deleted on GitHub: a plain fetch would keep its
@@ -512,28 +545,38 @@ class PackCheckout(ReleaseScriptTest):
         git("switch", "-q", "feature", cwd=self.pack)
         git("push", "-q", "origin", "--delete", "feature", cwd=self.tmp / "seeds" / "Rohan-Vanilla")
         result = self.release("releaseGeneral.sh", *ROHAN)
-        self.assert_stopped(
-            result,
-            "ERROR: Rohan-Vanilla is on 'feature', which follows no branch on GitHub (deleted there, or made on"
-            " the server), so the release can't follow it. Nothing was built. An admin switches it back:"
-            " git -C Rohan-Vanilla switch development",
-        )
+        self.assert_stopped(result, self.follows_no_branch("feature"))
 
     def test_stops_when_the_branch_was_made_on_the_server(self):
         git("switch", "-q", "-c", "hotfix", cwd=self.pack)
         result = self.release("releaseGeneral.sh", *ROHAN)
+        self.assert_stopped(result, self.follows_no_branch("hotfix"))
+
+    def test_stops_when_the_branch_follows_a_branch_of_the_checkout_itself(self):
+        # Its fetch would fetch nothing from GitHub, and the release would build the checkout's old development
+        git("switch", "-q", "-c", "hotfix", "--track", "development", cwd=self.pack)
+        self.push_to_github("Rohan-Vanilla", {"assets/minecraft/textures/block/stone.png": b"stone, pushed"})
+        result = self.release("releaseGeneral.sh", *ROHAN)
+        self.assert_stopped(result, self.follows_no_branch("hotfix"))
+
+    def test_stops_when_the_folder_is_not_a_checkout(self):
+        # A copy of the pack without its .git. Inside another repository, git would answer for that one
+        shutil.rmtree(self.pack / ".git")
+        result = self.release("releaseGeneral.sh", *ROHAN)
         self.assert_stopped(
             result,
-            "ERROR: Rohan-Vanilla is on 'hotfix', which follows no branch on GitHub (deleted there, or made on"
-            " the server), so the release can't follow it. Nothing was built. An admin switches it back:"
-            " git -C Rohan-Vanilla switch development",
+            "ERROR: Rohan-Vanilla isn't a git checkout (it has no .git), so the release can't follow GitHub. Nothing"
+            " was built. An admin checks the pack out again, as docs/server-setup.md says.",
         )
 
     def test_stops_when_git_cannot_read_the_checkout(self):
-        # A copy of the pack without its .git
-        shutil.rmtree(self.pack / ".git")
+        (self.pack / ".git" / "HEAD").write_text("not a ref\n")
         result = self.release("releaseGeneral.sh", *ROHAN)
-        self.assert_stopped(result, "ERROR: git can't read Rohan-Vanilla (its reason is above). Nothing was built.")
+        self.assert_stopped(
+            result,
+            "ERROR: git can't read Rohan-Vanilla (its reason is above). Nothing was built. An admin repairs the"
+            " checkout, or checks the pack out again.",
+        )
         self.assertIn("not a git repository", result.stderr)
 
     def test_stops_when_git_status_fails(self):
@@ -541,7 +584,9 @@ class PackCheckout(ReleaseScriptTest):
         (self.pack / ".git" / "index").write_bytes(b"not an index")
         result = self.release("releaseGeneral.sh", *ROHAN)
         self.assert_stopped(
-            result, "ERROR: git status failed in Rohan-Vanilla (its reason is above). Nothing was built."
+            result,
+            "ERROR: git status failed in Rohan-Vanilla (its reason is above). Nothing was built. An admin repairs"
+            " the checkout, or checks the pack out again.",
         )
 
     @unittest.skipIf(os.name == "posix" and os.geteuid() == 0, "root can write a read-only folder")
@@ -555,7 +600,8 @@ class PackCheckout(ReleaseScriptTest):
         self.assert_stopped(
             result,
             "ERROR: Couldn't bring Rohan-Vanilla up to date with GitHub's development (git's reason is above)."
-            " Nothing was built.",
+            " Nothing was built. An admin fixes what git's reason names, for example files that belong to another"
+            " user.",
         )
 
 
