@@ -27,19 +27,21 @@
 
 ## Messages from the launcher and the scripts
 
-The launcher's lines start with `release launcher:`, and the release scripts' stops with `ERROR:`. Both are in the server console, and on the RP server in the run's log too.
+The launcher's lines start with `release launcher:`, and the release scripts' stops with `ERROR:`. The launcher's lines are in the server console only: it prints them before the run starts, so a refused start leaves no run to read. The scripts' lines are in the console too, and on the RP server in the run's log.
 
 | Message | Exit code | What it means | What to do |
 |---|---|---|---|
 | `This automation folder isn't installed` | 2 | No `automation.conf`, or no `ResourcePackScripts/` | An admin installs the folder (see [Install, check or undo](server-setup.md#install-check-or-undo)). |
 | `This folder's automation.conf is invalid` | 2 | The line above it names the setting | Fix that line, or rewrite the file with `install.py --side <side> --force`. |
 | `automation/automation_conf.py failed` | 2 | The settings reader itself is broken, as it is on GitHub | Fix it on GitHub. The next release picks the fix up by itself. |
-| `Couldn't take the release lock` | 2 | `flock` failed, for example because `runs/.lock` can't be opened | Usually files written by another user: run `install.py --check` as the servers' user. |
+| `Couldn't take the release lock` | 2 | `flock` itself failed, for example because it isn't installed. Its reason is on the line above. Another release holding the lock is a different case: exit code 75. | An admin checks that util-linux's `flock` is installed and works: `install.py --check` lists it. |
+| `Permission denied` from the shell or `mkdir`, with no `release launcher:` line | 2 | `runs/` or `runs/.lock` can't be created or opened. Something was run with sudo or as root, so some files belong to another user. The git rows below can have the same cause. | An admin gives the files back to the user the Minecraft servers run as, then runs `install.py --check` as that user (see [Install, check or undo](server-setup.md#install-check-or-undo)). `install.py` itself refuses to run as root, so never use sudo with it. |
 | `Someone edited ResourcePackScripts on the server` | 3 | The checkout has changes or new files | Make the change through a pull request. An admin restores the checkout: `git -C ResourcePackScripts status` shows what changed. |
 | `ResourcePackScripts is on '<X>', but automation.conf says '<Y>'` | 3 | The checkout is on another branch, or on none | `git -C ResourcePackScripts switch <Y>` |
 | `ResourcePackScripts has commits that GitHub's <branch> doesn't` | 3 | A commit made on the server, or GitHub's history was rewritten | Make the change through a pull request, or reset the checkout to GitHub's branch. |
 | `GitHub has no branch` | 3 | `automation.conf`'s branch doesn't exist on GitHub, or was never fetched | Fix `branch`, or check that the server can reach GitHub. |
 | `git can't read ResourcePackScripts` or `git status failed` | 3 | git itself fails in the checkout | An admin reads git's reason, on the line above. |
+| `Couldn't bring ResourcePackScripts up to date with GitHub's <branch>` | 3 | The fast-forward itself failed, after the other checks passed: for example git can't overwrite files that belong to another user (see `Permission denied` above), or an old `.git/index.lock` is left | An admin reads git's reason, on the line above. |
 | `Couldn't fetch '<branch>' from GitHub` | none: a warning | GitHub couldn't be reached | Nothing: the release goes on with the version fetched last. |
 | `ERROR: The tag '…' can't be used` | 1 | The tag has characters other than letters, digits and `. _ -`, or doesn't start with a letter or digit | Use a tag like `v4.1.3`. |
 | `ERROR: <tag> already exists in <owner>/<repo>, and this folder never replaces a release's zips` | 1 | A production release with a tag that exists. Nothing was built. | Use a new tag. |
@@ -59,7 +61,7 @@ The launcher's lines start with `release launcher:`, and the release scripts' st
 
 | Problem | Usual cause | What to do |
 |---|---|---|
-| `<zip> is empty.` | The step before it failed, usually generateVanilla stopping with a Python error (look for `Traceback` in the run). | Fix the cause, then release again with a new tag, or the same tag to replace the zips. |
+| `<zip> is empty.` | 7-Zip finished, but the zip holds no files: look at the step before it in the run. A converter that stops is not the cause: the release then ends with `ERROR: generateVanilla stopped`, and nothing is published. | Fix the cause, then release again with a new tag, or the same tag to replace the zips. |
 | `7-Zip did not finish <zip>.` | Disk full, or a file vanished while zipping, for example because two releases ran at once. | Release again. |
 | `<zip> has N files; the last good release (vX) had M.` | More than 10 % fewer files than last time. Either the conversion broke half-way, or the pack really lost files. | Compare with the last release. If the drop is intended (a big cleanup), ignore it. |
 | `No GitHub release was created.` | `gh` couldn't create the release: no access to the release repository, GitHub down, or a bad tag. | Read the `releasing` step's output. An admin may need to check the server's GitHub login. |
@@ -91,7 +93,7 @@ On the RP server, the run's summary counts the lines that start with `WARNING!` 
 | `Error parsing objmeta file …` | YAML error in a `.objmeta`. The defaults are used. | Fix the YAML. |
 | `… leads outside the pack - skipping …` | A path or symlink points outside the pack. | Fix the pack: no links outside it. |
 | `Missing assets folder` / `Missing vanilla overrides folder` | The pack has no `assets/` or no `vanilla/`. | Expected for a pack without `vanilla/`; otherwise check the path. |
-| A `Traceback` | The converter stopped (see [What stops a run](conversion.md#what-stops-a-run-and-what-doesnt)). The zip is incomplete or empty. | Fix the file named in the last lines, release again. |
+| A `Traceback` | The converter stopped (see [What stops a run](conversion.md#what-stops-a-run-and-what-doesnt)). The release ends with `ERROR: generateVanilla stopped`, and nothing is published. | Fix the file named in the last lines, release again. |
 
 Two things go wrong **without any message**:
 

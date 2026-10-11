@@ -180,7 +180,7 @@ A texture with a `.png.mcmeta` that has an `animation` section is treated as a f
 
 A missing or wrong **vanilla resources** folder doesn't stop anything: the walk finds no blockstates or items, writes none, and the run ends normally. Check the folder if a Vanilla variant comes out with none.
 
-The release scripts don't stop when the converter does: the zip of a half-converted pack still gets made and uploaded. On the RP server, the run summary flags it (a `Traceback`, and usually an empty or much smaller zip).
+The release scripts stop when the converter does: the release ends with `ERROR: generateVanilla stopped`, and nothing is published (see [Troubleshooting](troubleshooting.md#messages-from-the-launcher-and-the-scripts)). On the RP server, the run's summary shows the `Traceback` and the status `failed`.
 
 **Exit codes:** 0 when the run gets to the end, even with warnings and failed models. 1 for a Python error. 2 for wrong command line arguments.
 
