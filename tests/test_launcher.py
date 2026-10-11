@@ -3,11 +3,13 @@
 Linux only - the launcher needs util-linux's flock, as on the server - and
 plain unittest, so WSL can run it without pytest. Each test builds a throwaway
 automation folder whose ResourcePackScripts checkout is a clone of a local
-"origin" repository holding fake release scripts.
+"origin" repository holding fake release scripts, a fake wrapper and the real
+settings reader.
 """
 
 import os
 import shutil
+import signal
 import subprocess
 import tempfile
 import unittest
@@ -24,16 +26,31 @@ FAKE_SCRIPT = """\
 echo "ran releaseGeneral {version}: $#:$1|$2|$3|$4|$5"
 echo "parent $PPID, in $(pwd)"
 flock -n runs/.lock true; echo "lock probe: $?"
+echo "settings: $RP_AUTOMATION_SIDE $RP_AUTOMATION_BRANCH $RP_AUTOMATION_REPLACE_EXISTING $RP_AUTOMATION_COMMIT"
+"""
+
+# A release that takes its time, for the test that stops one as Architect does
+SLOW_SCRIPT = """\
+echo started
+sleep 30
 """
 
 # The wrapper's own check that it runs under the launcher's lock: descriptor 9 is
 # runs/.lock, and flock on that same open file succeeds while a fresh open would not
 FAKE_WRAPPER = """\
-#!/bin/sh
 echo "wrapper (parent $PPID) got: $1"
 if [ /proc/self/fd/9 -ef runs/.lock ] && flock -n 9; then echo "wrapper holds the lock"; fi
 shift
 echo "args: $#:$1|$2|$3|$4|$5"
+"""
+
+# The wrapper's rp-release.py, as far as the launcher uses it: refusing a release
+FAKE_RP_RELEASE = """\
+import os
+import sys
+
+print("rp-release.py " + " ".join(sys.argv[1:]))
+sys.exit(int(os.environ.get("FAKE_RP_RELEASE_EXIT", "0")))
 """
 
 GIT_ENV = dict(
@@ -42,6 +59,9 @@ GIT_ENV = dict(
     GIT_AUTHOR_EMAIL="test@example.com",
     GIT_COMMITTER_NAME="test",
     GIT_COMMITTER_EMAIL="test@example.com",
+    # The developer's own git config never reaches these tests
+    GIT_CONFIG_GLOBAL=os.devnull,
+    GIT_CONFIG_NOSYSTEM="1",
 )
 
 TOOLS_PRESENT = os.name == "posix" and all(shutil.which(tool) for tool in ("sh", "git", "flock", "python3"))
@@ -49,6 +69,20 @@ TOOLS_PRESENT = os.name == "posix" and all(shutil.which(tool) for tool in ("sh",
 
 def git(*args, cwd):
     subprocess.run(["git", *args], cwd=cwd, env=GIT_ENV, check=True, capture_output=True)
+
+
+def git_output(*args, cwd):
+    result = subprocess.run(["git", *args], cwd=cwd, env=GIT_ENV, check=True, capture_output=True, text=True)
+    return result.stdout.strip()
+
+
+def stop(process):
+    """End a process started in its own session, with everything it started, as Architect does."""
+    try:
+        os.killpg(process.pid, signal.SIGKILL)
+    except ProcessLookupError:
+        pass
+    process.wait()
 
 
 @unittest.skipUnless(TOOLS_PRESENT, "needs Linux with sh, git, flock and python3, as on the server")
@@ -66,9 +100,9 @@ class Launcher(unittest.TestCase):
         (self.seed / "automation" / "pipeline").mkdir()
         shutil.copy(CONF_TOOL, self.seed / "automation" / "automation_conf.py")
         self.write_script("v1")
-        wrapper = self.seed / "automation" / "pipeline" / "run"
-        wrapper.write_text(FAKE_WRAPPER)
-        wrapper.chmod(0o755)
+        # Committed without the executable bit: the launcher runs the wrapper with sh (P1)
+        (self.seed / "automation" / "pipeline" / "run.sh").write_text(FAKE_WRAPPER)
+        (self.seed / "automation" / "pipeline" / "rp-release.py").write_text(FAKE_RP_RELEASE)
         git("add", "-A", cwd=self.seed)
         git("commit", "-q", "-m", "seed", cwd=self.seed)
         git("clone", "-q", "--bare", str(self.seed), str(self.origin), cwd=tmp)
@@ -83,7 +117,8 @@ class Launcher(unittest.TestCase):
         script.write_text(FAKE_SCRIPT.format(version=version))
 
     def push(self, message):
-        git("commit", "-q", "-am", message, cwd=self.seed)
+        git("add", "-A", cwd=self.seed)
+        git("commit", "-q", "-m", message, cwd=self.seed)
         git("push", "-q", str(self.origin), "development", cwd=self.seed)
 
     def write_conf(self, **overrides):
@@ -100,6 +135,15 @@ class Launcher(unittest.TestCase):
             ["sh", str(self.folder / name), *args],
             cwd=self.folder.parent, capture_output=True, text=True, env=env, timeout=30,
         )
+
+    def hold_the_lock(self):
+        """Hold runs/.lock as a running release does, until the test ends."""
+        import fcntl
+
+        (self.folder / "runs").mkdir(exist_ok=True)
+        handle = open(self.folder / "runs" / ".lock", "a")
+        self.addCleanup(handle.close)
+        fcntl.flock(handle, fcntl.LOCK_EX)
 
     def test_runs_the_script_with_the_original_arguments(self):
         result = self.launch()
@@ -122,8 +166,8 @@ class Launcher(unittest.TestCase):
     def test_holds_the_lock_while_the_script_runs(self):
         self.assertIn("lock probe: 1", self.launch().stdout)
 
-    def test_git_fetch_and_merge_run_without_the_lock(self):
-        # A detached `git maintenance` they leave behind would hold the lock after the release.
+    def test_every_git_command_runs_without_the_lock(self):
+        # A detached `git maintenance` left behind would hold the lock after the release.
         # The fake git logs to a file: the launcher keeps the fetch's stderr to itself
         bin_dir = self.folder.parent / "bin"
         bin_dir.mkdir()
@@ -141,11 +185,11 @@ class Launcher(unittest.TestCase):
         result = self.launch(env=dict(GIT_ENV, PATH=f"{bin_dir}:{os.environ['PATH']}"))
         self.assertIn("ran releaseGeneral v2:", result.stdout)
         logged = calls.read_text().splitlines()
-        for command, wanted in ((" fetch ", "fd 9 closed, prompt 0:"), (" merge ", "fd 9 closed,")):
+        for command in (" symbolic-ref ", " status ", " fetch ", " merge-base ", " merge ", " rev-parse "):
             with self.subTest(command=command.strip()):
-                seen = [line for line in logged if command in line]
-                self.assertTrue(seen, f"the fake git never saw a{command}")
-                self.assertEqual([line for line in seen if not line.startswith(wanted)], [])
+                self.assertTrue([line for line in logged if command in line], f"the fake git never saw a{command}")
+        self.assertEqual([line for line in logged if not line.startswith("fd 9 closed")], [])
+        self.assertEqual([line for line in logged if " fetch " in line and "prompt 0:" not in line], [])
 
     def test_brings_the_checkout_up_to_date_before_running_the_script(self):
         self.write_script("v2")
@@ -155,11 +199,14 @@ class Launcher(unittest.TestCase):
     def test_says_which_commit_it_releases_with(self):
         self.write_script("v2")
         self.push("v2")
-        head = subprocess.run(
-            ["git", "rev-parse", "--short", "HEAD"], cwd=self.seed, capture_output=True, text=True, check=True
-        ).stdout.strip()
+        head = git_output("rev-parse", "--short", "HEAD", cwd=self.seed)
         result = self.launch()
         self.assertIn(f"Releasing with ResourcePackScripts development at {head}.", result.stderr)
+
+    def test_tells_the_release_what_it_runs_with(self):
+        # The scripts' setting, and the side, branch and commit for the wrapper's run summary
+        commit = git_output("rev-parse", "HEAD", cwd=self.seed)
+        self.assertIn(f"settings: test development yes {commit}\n", self.launch().stdout)
 
     def test_follows_the_branch_when_github_has_a_tag_of_the_same_name(self):
         # "git fetch origin development" would fetch the tag, and the folder would stop following the branch
@@ -185,20 +232,64 @@ class Launcher(unittest.TestCase):
         current = (self.folder / "runs" / "current").read_text()
         self.assertIn("releaseGeneral.sh Rohan MCME RP-Rohan v1.0 Better leaves", current)
 
-    def test_refuses_while_another_release_holds_the_lock(self):
-        import fcntl
+    def test_clears_its_record_when_it_stops_before_the_hand_over(self):
+        # Otherwise a release refused later would name this one as running
+        script = self.checkout / "automation" / "scripts" / "releaseGeneral.sh"
+        script.write_text(script.read_text() + "echo edited on the server\n")
+        self.assertEqual(self.launch().returncode, 3)
+        self.assertFalse((self.folder / "runs" / "current").exists())
 
+    def test_refuses_while_another_release_holds_the_lock(self):
         (self.folder / "runs").mkdir()
         (self.folder / "runs" / "current").write_text(
             "releaseVanillaSodium.sh Human MCME RP-Human v4.1.3 Leaves (started 2026-10-10 12:00:00)\n"
         )
-        handle = open(self.folder / "runs" / ".lock", "a")
-        self.addCleanup(handle.close)
-        fcntl.flock(handle, fcntl.LOCK_EX)
+        self.hold_the_lock()
         result = self.launch()
         self.assertEqual(result.returncode, 75)
         self.assertIn("Another release is running: releaseVanillaSodium.sh Human", result.stderr)
         self.assertNotIn("ran releaseGeneral", result.stdout)
+        # The record is the running release's: a refusal leaves it alone
+        self.assertIn("RP-Human", (self.folder / "runs" / "current").read_text())
+
+    def test_a_refusal_goes_through_the_wrapper_when_the_folder_uses_it(self):
+        # P2: the wrapper says which release runs, and notes the attempt for the dashboard
+        self.write_conf(wrapper="yes")
+        self.hold_the_lock()
+        result = self.launch()
+        self.assertEqual(result.returncode, 75)
+        self.assertIn(
+            "rp-release.py refused --runs runs --script releaseGeneral.sh --server-log ../logs/latest.log"
+            " -- Rohan MCME RP-Rohan v1.0 Better leaves",
+            result.stdout,
+        )
+        self.assertNotIn("Another release is running", result.stderr)
+
+    def test_a_refusal_says_it_itself_when_the_wrapper_cannot(self):
+        self.write_conf(wrapper="yes")
+        self.hold_the_lock()
+        result = self.launch(env=dict(GIT_ENV, FAKE_RP_RELEASE_EXIT="1"))
+        self.assertEqual(result.returncode, 75)
+        self.assertIn("Another release is running", result.stderr)
+
+    def test_the_lock_comes_free_when_architect_stops_a_release(self):
+        # At its timeout Architect stops the release and everything it started (TERM, then KILL)
+        (self.seed / "automation" / "scripts" / "releaseSlow.sh").write_text(SLOW_SCRIPT)
+        self.push("a slow release")
+        self.install("releaseSlow.sh")
+        slow = subprocess.Popen(
+            ["sh", str(self.folder / "releaseSlow.sh"), *ARGS], cwd=self.folder, env=GIT_ENV,
+            stdout=subprocess.PIPE, stderr=subprocess.DEVNULL, text=True, start_new_session=True,
+        )
+        self.addCleanup(slow.stdout.close)
+        self.addCleanup(stop, slow)
+        self.assertEqual(slow.stdout.readline(), "started\n")
+        self.assertEqual(self.launch().returncode, 75)
+        os.killpg(slow.pid, signal.SIGTERM)
+        slow.wait(timeout=10)
+        result = self.launch()
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertIn("ran releaseGeneral v1:", result.stdout)
 
     def test_a_broken_flock_is_not_reported_as_a_running_release(self):
         # flock -n exits 1 when the lock is held; any other status means flock itself failed
@@ -219,21 +310,43 @@ class Launcher(unittest.TestCase):
         self.assertEqual(result.returncode, 2)
         self.assertIn("isn't installed", result.stderr)
         self.assertNotIn("ran releaseGeneral", result.stdout)
+        self.assertFalse((self.folder / "runs").exists())
+
+    def test_refuses_a_folder_without_a_checkout(self):
+        shutil.rmtree(self.checkout)
+        result = self.launch()
+        self.assertEqual(result.returncode, 2)
+        self.assertIn("isn't installed", result.stderr)
+        self.assertFalse((self.folder / "runs").exists())
 
     def test_refuses_an_invalid_automation_conf(self):
         self.write_conf(side="staging")
         result = self.launch()
         self.assertEqual(result.returncode, 2)
         self.assertIn("staging", result.stderr)
+        self.assertIn("automation.conf is invalid", result.stderr)
+        self.assertNotIn("ran releaseGeneral", result.stdout)
 
-    def test_says_how_to_recover_when_its_settings_reader_is_broken(self):
-        # A fix on GitHub can't reach a broken automation_conf.py by itself: the launcher reads before it fetches
-        (self.checkout / "automation" / "automation_conf.py").write_text("this is not Python\n")
+    def test_a_settings_reader_fixed_on_github_heals_the_folder(self):
+        # P3: the launcher updates the checkout before it reads automation.conf
+        reader = self.seed / "automation" / "automation_conf.py"
+        reader.write_text("this is not Python\n")
+        self.push("break the reader")
+        git("pull", "-q", "--ff-only", cwd=self.checkout)
+        shutil.copy(CONF_TOOL, reader)
+        self.push("fix the reader")
+        result = self.launch()
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertIn("ran releaseGeneral v1:", result.stdout)
+
+    def test_says_so_when_the_settings_reader_is_broken_on_github_too(self):
+        (self.seed / "automation" / "automation_conf.py").write_text("this is not Python\n")
+        self.push("break the reader")
         result = self.launch()
         self.assertEqual(result.returncode, 2)
-        self.assertIn("automation_conf.py itself failed", result.stderr)
-        self.assertIn("git -C ResourcePackScripts pull --ff-only", result.stderr)
+        self.assertIn("automation_conf.py failed (see above), as it is on GitHub's development", result.stderr)
         self.assertNotIn("isn't installed", result.stderr)
+        self.assertNotIn("ran releaseGeneral", result.stdout)
 
     def test_refuses_a_checkout_edited_on_the_server(self):
         script = self.checkout / "automation" / "scripts" / "releaseGeneral.sh"
@@ -250,12 +363,29 @@ class Launcher(unittest.TestCase):
         self.assertEqual(result.returncode, 3)
         self.assertIn("edited ResourcePackScripts on the server", result.stderr)
 
+    def test_refuses_when_git_status_fails(self):
+        # Read as "nothing edited", a broken index would let the release go on
+        (self.checkout / ".git" / "index").write_bytes(b"not an index")
+        result = self.launch()
+        self.assertEqual(result.returncode, 3)
+        self.assertIn("git status failed", result.stderr)
+        self.assertNotIn("ran releaseGeneral", result.stdout)
+
     def test_refuses_a_checkout_on_another_branch(self):
         git("checkout", "-q", "-b", "hotfix", cwd=self.checkout)
         result = self.launch()
         self.assertEqual(result.returncode, 3)
         self.assertIn("on 'hotfix'", result.stderr)
         self.assertIn("git -C ResourcePackScripts switch development", result.stderr)
+
+    def test_refuses_when_automation_conf_names_another_branch(self):
+        # Read after the update: the checkout follows development, the folder says main
+        self.write_conf(wrapper="no", branch="main")
+        result = self.launch()
+        self.assertEqual(result.returncode, 3)
+        self.assertIn("ResourcePackScripts is on 'development', but automation.conf says 'main'", result.stderr)
+        self.assertIn("git -C ResourcePackScripts switch main", result.stderr)
+        self.assertNotIn("ran releaseGeneral", result.stdout)
 
     def test_says_when_git_cannot_read_the_checkout(self):
         # Not a detached checkout: git itself fails, and says why
@@ -298,6 +428,7 @@ class Launcher(unittest.TestCase):
         result = self.launch()
         self.assertEqual(result.returncode, 3)
         self.assertIn("on 'no branch'", result.stderr)
+        self.assertIn("git -C ResourcePackScripts switch development", result.stderr)
 
     def test_carries_on_when_github_cannot_be_reached(self):
         git("remote", "set-url", "origin", str(self.folder.parent / "gone.git"), cwd=self.checkout)
@@ -315,23 +446,22 @@ class Launcher(unittest.TestCase):
         self.assertIn("args: 5:Rohan|MCME|RP-Rohan|v1.0|Better leaves", result.stdout)
         self.assertIn("wrapper holds the lock", result.stdout)
 
+    def test_runs_the_wrapper_with_sh_so_it_needs_no_executable_bit(self):
+        # P1: committed as 100644, as Architect's scripts are
+        mode = git_output("ls-files", "-s", "automation/pipeline/run.sh", cwd=self.checkout).split()[0]
+        self.assertEqual(mode, "100644")
+        self.write_conf(wrapper="yes")
+        result = self.launch()
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertIn("wrapper holds the lock", result.stdout)
+
     def test_refuses_the_wrapper_when_the_checkout_has_none(self):
         self.write_conf(wrapper="yes")
-        (self.seed / "automation" / "pipeline" / "run").unlink()
+        (self.seed / "automation" / "pipeline" / "run.sh").unlink()
         self.push("no wrapper")
         result = self.launch()
         self.assertEqual(result.returncode, 2)
-        self.assertIn("no automation/pipeline/run", result.stderr)
-
-    def test_refuses_a_wrapper_that_is_not_executable(self):
-        # Committed without +x it isn't a missing wrapper, and exec alone would only say "Permission denied"
-        self.write_conf(wrapper="yes")
-        (self.seed / "automation" / "pipeline" / "run").chmod(0o644)
-        self.push("wrapper without +x")
-        result = self.launch()
-        self.assertEqual(result.returncode, 2)
-        self.assertIn("isn't executable", result.stderr)
-        self.assertIn("100755", result.stderr)
+        self.assertIn("no automation/pipeline/run.sh", result.stderr)
 
     def test_refuses_a_name_with_no_script(self):
         self.install("releaseUnknown.sh")
@@ -347,6 +477,16 @@ class CheckoutHygiene(unittest.TestCase):
         # __pycache__/ would make it look edited, and the launcher would refuse every release after
         lines = [line.strip() for line in (REPO_ROOT / ".gitignore").read_text(encoding="utf-8").splitlines()]
         self.assertIn("__pycache__/", lines)
+
+    def test_shell_files_are_checked_out_with_lf(self):
+        # dash stops at a carriage return; .gitattributes keeps *.sh LF even in a Windows checkout
+        rules = [line.split() for line in (REPO_ROOT / ".gitattributes").read_text(encoding="utf-8").splitlines()]
+        self.assertIn(["*.sh", "text", "eol=lf"], rules)
+        scripts = sorted((REPO_ROOT / "automation").rglob("*.sh"))
+        self.assertTrue(scripts)
+        for script in scripts:
+            with self.subTest(script=script.relative_to(REPO_ROOT).as_posix()):
+                self.assertNotIn(b"\r", script.read_bytes())
 
 
 if __name__ == "__main__":
