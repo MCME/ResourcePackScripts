@@ -31,6 +31,9 @@ GIT_ENV = dict(
     GIT_COMMITTER_NAME="test",
     GIT_COMMITTER_EMAIL="test@example.com",
 )
+# The developer's own git config never reaches these tests
+ISOLATED_GIT = {"GIT_CONFIG_GLOBAL": os.devnull, "GIT_CONFIG_NOSYSTEM": "1"} if os.name == "posix" else {}
+GIT_ENV.update(ISOLATED_GIT)
 
 
 def git(*args, cwd):
@@ -73,19 +76,23 @@ class InstallerTest(unittest.TestCase):
     def setUp(self):
         self.tmp = Path(tempfile.mkdtemp())
         self.addCleanup(shutil.rmtree, self.tmp, True)
+        patcher = mock.patch.dict(os.environ, ISOLATED_GIT)
+        patcher.start()
+        self.addCleanup(patcher.stop)
         self.folder = self.tmp / "resourcePackAutomation"
         checkout = self.folder / "ResourcePackScripts"
         checkout.mkdir(parents=True)
         git("init", "-q", "-b", "development", cwd=checkout)
         git("remote", "add", "origin", "https://github.com/MCME/ResourcePackScripts.git", cwd=checkout)
         (checkout / "README.md").write_text("checkout\n")
-        # What the launchers hand over to, which --check looks for
+        # The launcher the folder installs, and what it hands over to, which install and --check look for
         (checkout / "automation" / "scripts").mkdir(parents=True)
         for name in install.SCRIPT_NAMES:
             (checkout / "automation" / "scripts" / name).write_text("# a release script\n")
+        (checkout / "automation" / "launcher.sh").write_bytes(LAUNCHER_BYTES)
         (checkout / "automation" / "pipeline").mkdir()
-        (checkout / "automation" / "pipeline" / "run").write_text("#!/bin/sh\n")
-        (checkout / "automation" / "pipeline" / "run").chmod(0o755)
+        (checkout / "automation" / "pipeline" / "run.sh").write_text("# the wrapper\n")
+        (checkout / "automation" / "pipeline" / "rp-release.py").write_text("# the wrapper's logger\n")
         git("add", "-A", cwd=checkout)
         git("commit", "-q", "-m", "checkout", cwd=checkout)
         # As after a fetch: GitHub's development is where the checkout is
@@ -278,6 +285,29 @@ class Install(InstallerTest):
         self.assertEqual(code, 0)
         self.assertIn("ResourcePackScripts is on development, but this folder follows master", out)
 
+    def test_installs_the_launcher_of_the_folders_own_checkout(self):
+        # Not the one next to the install.py that runs: with --folder they can differ
+        checkout = self.folder / "ResourcePackScripts"
+        (checkout / "automation" / "launcher.sh").write_bytes(b"#!/bin/sh\n# the checkout's launcher\n")
+        git("commit", "-q", "-am", "another launcher", cwd=checkout)
+        git("update-ref", "refs/remotes/origin/development", "HEAD", cwd=checkout)
+        self.run_install()
+        self.assertEqual((self.folder / "releaseGeneral.sh").read_bytes(), b"#!/bin/sh\n# the checkout's launcher\n")
+
+    def test_the_undo_command_runs_the_folders_own_install_py(self):
+        code, out = self.run_install()
+        self.assertIn(str(self.folder.resolve() / "ResourcePackScripts" / "automation" / "install.py"), out)
+
+    @unittest.skipUnless(os.name == "posix", "symlinks need extra rights on Windows")
+    def test_never_writes_through_a_symlink_left_at_the_temporary_name(self):
+        outside = self.tmp / "outside.txt"
+        outside.write_text("not install.py's\n")
+        (self.folder / ".releaseGeneral.sh.install-tmp").symlink_to(outside)
+        self.run_install()
+        self.assertEqual(outside.read_text(), "not install.py's\n")
+        self.assertEqual((self.folder / "releaseGeneral.sh").read_bytes(), LAUNCHER_BYTES)
+        self.assertFalse(os.path.lexists(self.folder / ".releaseGeneral.sh.install-tmp"))
+
 
 class Refusals(InstallerTest):
     def refused(self, side="test", **kwargs):
@@ -390,6 +420,13 @@ class Refusals(InstallerTest):
             install.install(self.folder, "test", locker=held_lock)
         self.assertEqual(snapshot(self.folder), self.before)
 
+    def test_refuses_a_checkout_without_the_launcher(self):
+        # A checkout from before the automation: there is nothing to install yet
+        checkout = self.folder / "ResourcePackScripts"
+        git("rm", "-q", "automation/launcher.sh", cwd=checkout)
+        git("commit", "-q", "-m", "no launcher", cwd=checkout)
+        self.assertIn("no automation/launcher.sh", str(self.refused()))
+
 
 class Check(InstallerTest):
     def run_check(self, which=all_present, locker=free_lock):
@@ -435,17 +472,33 @@ class Check(InstallerTest):
         self.assertEqual(code, 1)
         self.assertIn("hotfix", out)
 
-    @unittest.skipUnless(os.name == "posix", "the x bit is POSIX")
-    def test_reports_a_wrapper_entry_that_is_not_executable(self):
+    def test_reports_a_checkout_without_the_wrapper(self):
         self.run_install()
         checkout = self.folder / "ResourcePackScripts"
-        (checkout / "automation" / "pipeline" / "run").chmod(0o644)
-        git("update-index", "--chmod=-x", "automation/pipeline/run", cwd=checkout)
-        git("commit", "-q", "-m", "run not executable", cwd=checkout)
+        git("rm", "-q", "automation/pipeline/run.sh", cwd=checkout)
+        git("commit", "-q", "-m", "no wrapper", cwd=checkout)
         git("update-ref", "refs/remotes/origin/development", "HEAD", cwd=checkout)
         code, out = self.run_check()
         self.assertEqual(code, 1)
-        self.assertIn("PROBLEM ResourcePackScripts has an executable automation/pipeline/run", out)
+        self.assertIn("PROBLEM ResourcePackScripts has the pipeline wrapper", out)
+
+    def test_reports_a_checkout_without_the_launcher(self):
+        self.run_install()
+        checkout = self.folder / "ResourcePackScripts"
+        git("rm", "-q", "automation/launcher.sh", cwd=checkout)
+        git("commit", "-q", "-m", "no launcher", cwd=checkout)
+        git("update-ref", "refs/remotes/origin/development", "HEAD", cwd=checkout)
+        code, out = self.run_check()
+        self.assertEqual(code, 1)
+        self.assertIn("PROBLEM ResourcePackScripts has no automation/launcher.sh", out)
+        self.assertIn("PROBLEM releaseGeneral.sh is the launcher", out)
+
+    def test_shows_each_local_edit_with_its_status(self):
+        # git's two status columns: " M" is a change not staged
+        self.run_install()
+        (self.folder / "ResourcePackScripts" / "README.md").write_text("edited on the server\n")
+        code, out = self.run_check()
+        self.assertIn("\n M README.md", out)
 
     def test_leaves_a_folder_without_runs_alone(self):
         # Before the install there is no runs/.lock to probe, so check must not create one
@@ -746,6 +799,20 @@ class RealLock(InstallerTest):
         self.assertEqual(code, 0, err)
         with open(self.folder / "runs" / ".lock", "a") as handle:
             fcntl.flock(handle, fcntl.LOCK_EX | fcntl.LOCK_NB)  # raises if still held
+
+    @unittest.skipUnless(os.name == "posix" and os.geteuid() != 0, "file modes are POSIX, and root ignores them")
+    def test_refuses_a_lock_file_it_cannot_open(self):
+        # What a sudo install leaves behind. It used to end in a PermissionError traceback
+        (self.folder / "runs").mkdir()
+        lock = self.folder / "runs" / ".lock"
+        lock.write_text("")
+        lock.chmod(0o444)
+        self.addCleanup(lock.chmod, 0o644)
+        before = snapshot(self.folder)
+        code, out, err = self.run_main("--side", "test", "--folder", str(self.folder))
+        self.assertEqual(code, 1)
+        self.assertIn("runs/.lock can't be opened: Permission denied", err)
+        self.assertEqual(snapshot(self.folder), before)
 
 
 if __name__ == "__main__":

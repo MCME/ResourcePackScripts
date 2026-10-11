@@ -8,14 +8,15 @@ the user the Minecraft servers run as:
     python3 ResourcePackScripts/automation/install.py --check
     python3 ResourcePackScripts/automation/install.py --restore pre-automation-backup-<stamp>
 
-Installing writes the launcher under every release script's name and the
-folder's automation.conf, after backing up whatever it replaces or removes into
-pre-automation-backup-<stamp>/. It takes the release lock before it changes
-anything, and it puts each new file in place with a rename, so even a release
-the lock can't see (an old script takes none) goes on reading the script it
-started with. It never touches the pack checkouts, Footprints/, the vanilla
-assets, release/ or the run data in runs/. It refuses to run as root: what it
-wrote would then lock the servers' user out of every release.
+Installing writes the launcher of the folder's own checkout
+(ResourcePackScripts/automation/launcher.sh) under every release script's
+name, and the folder's automation.conf, after backing up whatever it replaces
+or removes into pre-automation-backup-<stamp>/. It takes the release lock
+before it changes anything, and it puts each new file in place with a rename,
+so even a release the lock can't see (an old script takes none) goes on reading
+the script it started with. It never touches the pack checkouts, Footprints/,
+the vanilla assets, release/ or the run data in runs/. It refuses to run as
+root: what it wrote would then lock the servers' user out of every release.
 """
 
 import argparse
@@ -31,8 +32,6 @@ from pathlib import Path
 
 import automation_conf
 
-HERE = Path(__file__).resolve().parent
-LAUNCHER = HERE / "launcher.sh"
 SCRIPT_NAMES = ("releaseVanillaSodium.sh", "releaseGeneral.sh", "releaseDynmap.sh")
 TOOLS = ("git", "gh", "7z", "python3", "flock")
 # HTTPS, SSH and scp-style remotes, with github.com as the host itself rather than
@@ -52,13 +51,17 @@ class LockHeld(Exception):
 
 
 def lock_release(folder):
-    """Take the launcher's release lock (runs/.lock), or raise LockHeld."""
+    """Take the launcher's release lock (runs/.lock), or raise LockHeld; Refused when it can't be opened."""
     try:
         import fcntl
     except ImportError:
         raise Refused("install.py runs on the Linux server: this system has no flock") from None
-    (folder / "runs").mkdir(exist_ok=True)
-    handle = open(folder / "runs" / ".lock", "a")
+    try:
+        (folder / "runs").mkdir(exist_ok=True)
+        handle = open(folder / "runs" / ".lock", "a")
+    except OSError as e:
+        # A runs/ or a lock file written by another user, which --check reports too
+        raise Refused(f"runs/.lock can't be opened: {e.strerror}") from e
     try:
         fcntl.flock(handle, fcntl.LOCK_EX | fcntl.LOCK_NB)
     except BlockingIOError:
@@ -68,9 +71,9 @@ def lock_release(folder):
 
 
 def git(checkout, *args):
-    """A git command's output in checkout, or None if it failed."""
+    """A git command's output in checkout, without its trailing newline, or None if it failed."""
     result = subprocess.run(["git", "-C", str(checkout), *args], capture_output=True, text=True)
-    return result.stdout.strip() if result.returncode == 0 else None
+    return result.stdout.rstrip() if result.returncode == 0 else None
 
 
 def _current_branch(checkout):
@@ -122,6 +125,17 @@ def _check_shapes(folder, action="back it up"):
         if path.is_symlink() or (os.path.lexists(path) and not plain):
             kind = "a symlink" if path.is_symlink() else "not a plain " + ("folder" if name == "pipeline" else "file")
             raise Refused(f"{name} is {kind}, so install.py can't {action} as it is: replace it with a plain copy")
+
+
+def _launcher(folder):
+    """The launcher of the folder's own checkout: the one its releases will run with."""
+    path = folder / "ResourcePackScripts" / "automation" / "launcher.sh"
+    if not path.is_file():
+        raise Refused(
+            "ResourcePackScripts has no automation/launcher.sh, so it predates the release automation:"
+            " bring it up to date first (git -C ResourcePackScripts pull --ff-only)"
+        )
+    return path.read_bytes()
 
 
 def _put(path, data, mode):
@@ -190,7 +204,7 @@ def install(folder, side, branch=None, force=False, locker=lock_release):
         except automation_conf.ConfError as e:
             raise Refused(f"automation.conf: {e}. Correct the file, or rewrite it with --force.") from e
     final = kept or settings
-    launcher = LAUNCHER.read_bytes()
+    launcher = _launcher(folder)
 
     lock = locker(folder)
     try:
@@ -224,7 +238,7 @@ def install(folder, side, branch=None, force=False, locker=lock_release):
         # Said before anything changes, so that a crash from here on still names the way back
         undo = " ".join(
             shlex.quote(part)
-            for part in ("python3", str(HERE / "install.py"), "--folder", str(folder), "--restore", backup.name)
+            for part in ("python3", str(folder / "ResourcePackScripts" / "automation" / "install.py"), "--folder", str(folder), "--restore", backup.name)
         )
         print(f"Backed up into {backup.name}. Undo with: {undo}")
 
@@ -298,16 +312,23 @@ def check(folder, which=shutil.which, locker=lock_release):
     else:
         report(edits == "", "ResourcePackScripts has no local edits" if edits == "" else f"ResourcePackScripts has local edits:\n{edits}")
 
-    launcher = LAUNCHER.read_bytes()
+    try:
+        launcher = _launcher(folder)
+    except Refused as e:
+        report(False, str(e))
+        launcher = None
     for name in SCRIPT_NAMES:
         path = folder / name
-        report(path.is_file() and path.read_bytes() == launcher, f"{name} is the launcher")
+        report(launcher is not None and path.is_file() and path.read_bytes() == launcher, f"{name} is the launcher")
     # What the launchers hand over to: without it every release stops with exit 2
     for name in SCRIPT_NAMES:
         report((checkout / "automation" / "scripts" / name).is_file(), f"ResourcePackScripts has automation/scripts/{name}")
     if settings and settings["wrapper"] == "yes":
-        entry = checkout / "automation" / "pipeline" / "run"
-        report(entry.is_file() and os.access(entry, os.X_OK), "ResourcePackScripts has an executable automation/pipeline/run")
+        pipeline = checkout / "automation" / "pipeline"
+        report(
+            (pipeline / "run.sh").is_file() and (pipeline / "rp-release.py").is_file(),
+            "ResourcePackScripts has the pipeline wrapper (automation/pipeline/run.sh and rp-release.py)",
+        )
     for tool in TOOLS:
         report(which(tool) is not None, f"{tool} is on PATH")
 
@@ -322,6 +343,8 @@ def check(folder, which=shutil.which, locker=lock_release):
             report(True, "no release is running")
         except LockHeld:
             report(False, "a release is running")
+        except Refused as e:
+            report(False, str(e))
         except OSError as e:
             report(False, f"runs/.lock can't be opened: {e.strerror}")
     else:
