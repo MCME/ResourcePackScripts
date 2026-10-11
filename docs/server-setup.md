@@ -35,7 +35,7 @@ Each folder holds:
 |---|---|
 | `releaseVanillaSodium.sh`, `releaseGeneral.sh`, `releaseDynmap.sh` | The release launcher: three copies of one file, which `install.py` writes. **Never edit them.** The scripts they hand over to are in `ResourcePackScripts/automation/scripts/`, and a change to them goes through a pull request in this repository. |
 | `automation.conf` | The folder's settings (see [The automation folder's settings](#the-automation-folders-settings)) |
-| `<Pack>-Sodium/`, `<Pack>-Vanilla/` | The server's checkout of each pack. The folder name must be the pack's name exactly, capitals included, plus `-Sodium` (Sodium packs) or `-Vanilla` (vanilla-only packs). |
+| `<Pack>-Sodium/`, `<Pack>-Vanilla/` | The server's checkout of each pack. The folder name must be the pack's name exactly, capitals included, plus `-Sodium` (Sodium packs) or `-Vanilla` (vanilla-only packs). Each release brings it up to date with its branch on GitHub. **Never edit it on the server**: a release stops while the checkout has changed or new files, or commits GitHub doesn't have. |
 | `ResourcePackScripts/` | A checkout of this repository, on the folder's branch. The launcher brings it up to date before every release, and runs the release scripts from it. **Never edit it on the server**: the launcher then refuses every release. |
 | `Footprints/` | `activator_rail.png` and `activator_rail_on.png`, copied into every Footprints zip |
 | `Vanilla-26.2/` | The `assets/` of the Minecraft 26.2 client, which generateVanilla walks |
@@ -191,7 +191,7 @@ git fetch
 git switch <branch>
 ```
 
-The next release builds that branch. **`ResourcePackScripts/` follows `automation.conf`:** set `branch` there, and switch the checkout with it (`git -C ResourcePackScripts switch <branch>`). The launcher refuses a checkout on another branch than the one `automation.conf` names.
+The next release builds that branch. It must be a branch on GitHub: a release stops while the checkout's branch follows none there, for example after the branch was merged and deleted. Switch back with `git switch development` (`master` on production). **`ResourcePackScripts/` follows `automation.conf`:** set `branch` there, and switch the checkout with it (`git -C ResourcePackScripts switch <branch>`). The launcher refuses a checkout on another branch than the one `automation.conf` names.
 
 ## Add a Minecraft version
 
