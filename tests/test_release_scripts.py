@@ -440,5 +440,56 @@ class ReleaseVanillaSodium(ReleaseScriptTest):
         self.assertEqual(self.calls(), [])
 
 
+GONDOR = ("Gondor", "MCME", "RP-Gondor", "v1.0", "Dynmap")
+
+
+class ReleaseDynmap(ReleaseScriptTest):
+    def setUp(self):
+        super().setUp()
+        self.make_pack("Gondor", VANILLA_MCMETA, {"inventories/blocks.json": b"{}"})
+        # ../../baseline-server seen from the automation folder, as on the RP server
+        self.texturepacks = self.tmp / "network" / "baseline-server" / "plugins" / "dynmap" / "texturepacks"
+        self.texturepacks.mkdir(parents=True)
+
+    def test_puts_the_zip_into_dynmaps_texture_packs(self):
+        result = self.release("releaseDynmap.sh", *GONDOR)
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+        names = self.names_in(self.texturepacks / "Gondor.zip")
+        self.assertIn("pack.mcmeta", names)
+        self.assertEqual([name for name in names if name.startswith("inventories")], [])
+        self.assertFalse((self.folder / "Gondor.zip").exists())
+
+    def test_publishes_nothing(self):
+        self.release("releaseDynmap.sh", *GONDOR)
+        self.assertEqual(self.calls("gh"), [])
+
+    def test_prints_the_wrappers_step_line_exactly(self):
+        result = self.release("releaseDynmap.sh", *GONDOR)
+        self.assertEqual(self.steps(result.stdout), ["compiling Gondor RP zips"])
+
+    def test_pulls_the_checkout_named_after_the_pack(self):
+        self.release("releaseDynmap.sh", *GONDOR)
+        self.assertEqual([call["cwd"] for call in self.calls("git")], ["Gondor"])
+
+    def test_replaces_the_zip_already_there(self):
+        (self.texturepacks / "Gondor.zip").write_bytes(b"the last one")
+        self.release("releaseDynmap.sh", *GONDOR)
+        self.assertTrue(zipfile.is_zipfile(self.texturepacks / "Gondor.zip"))
+
+    def test_stops_where_there_is_no_dynmap_folder(self):
+        # P5: the production folder sits in the network folder, with no ../../baseline-server
+        shutil.rmtree(self.tmp / "network" / "baseline-server")
+        result = self.release("releaseDynmap.sh", *GONDOR)
+        self.assertEqual(result.returncode, 1)
+        self.assertIn("There's no dynmap texture packs folder", result.stderr)
+        self.assertEqual(self.calls(), [])
+
+    def test_checks_its_arguments_like_the_others(self):
+        result = self.release("releaseDynmap.sh", "..", "MCME", "RP-Gondor", "v1.0", "x")
+        self.assertEqual(result.returncode, 1)
+        self.assertIn("ERROR: The pack name", result.stderr)
+        self.assertEqual(self.calls(), [])
+
+
 if __name__ == "__main__":
     unittest.main()
