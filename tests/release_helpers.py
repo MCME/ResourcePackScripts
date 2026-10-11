@@ -131,7 +131,8 @@ elif command == "upload":
 '''
 
 # git, for a pack's `git pull`: logs where it ran, whether it inherited
-# descriptor 9 and GIT_TERMINAL_PROMPT. $FAKE_GIT_FAIL makes the pull fail.
+# descriptor 9, GIT_TERMINAL_PROMPT, and GIT_HTTP_LOW_SPEED_LIMIT and _TIME.
+# $FAKE_GIT_FAIL makes the pull fail.
 FAKE_GIT = '''\
 #!/usr/bin/env python3
 import json, os, sys
@@ -139,7 +140,9 @@ import json, os, sys
 fd9 = os.path.exists("/proc/self/fd/9")
 with open(os.environ["FAKE_LOG"], "a") as log:
     print(json.dumps({"tool": "git", "args": sys.argv[1:], "cwd": os.path.basename(os.getcwd()), "fd9": fd9,
-                      "prompt": os.environ.get("GIT_TERMINAL_PROMPT")}), file=log)
+                      "prompt": os.environ.get("GIT_TERMINAL_PROMPT"),
+                      "lowSpeed": [os.environ.get(f"GIT_HTTP_LOW_SPEED_{name}") for name in ("LIMIT", "TIME")]}),
+          file=log)
 if os.environ.get("FAKE_GIT_FAIL"):
     print("fatal: unable to access 'https://github.com/MCME/RP-Test.git/': Could not resolve host: github.com",
           file=sys.stderr)

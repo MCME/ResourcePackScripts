@@ -180,20 +180,28 @@ class Launcher(unittest.TestCase):
         fake_git.write_text(
             "#!/bin/sh\n"
             "if [ -e /proc/self/fd/9 ]; then fd9=open; else fd9=closed; fi\n"
-            f'echo "fd 9 $fd9, prompt ${{GIT_TERMINAL_PROMPT:-unset}}: git $*" >> "{calls}"\n'
+            f'echo "fd 9 $fd9, prompt ${{GIT_TERMINAL_PROMPT:-unset}}, low speed ${{GIT_HTTP_LOW_SPEED_LIMIT:-unset}}'
+            f' B/s for ${{GIT_HTTP_LOW_SPEED_TIME:-unset}} s: git $*" >> "{calls}"\n'
             f'exec {shutil.which("git")} "$@"\n'
         )
         fake_git.chmod(0o755)
         self.write_script("v2")
         self.push("v2")
-        result = self.launch(env=dict(GIT_ENV, PATH=f"{bin_dir}:{os.environ['PATH']}"))
+        # The fetch's settings must come from the launcher, not from the developer's environment
+        own = ("GIT_TERMINAL_PROMPT", "GIT_HTTP_LOW_SPEED_LIMIT", "GIT_HTTP_LOW_SPEED_TIME")
+        env = {key: value for key, value in GIT_ENV.items() if key not in own}
+        result = self.launch(env=dict(env, PATH=f"{bin_dir}:{os.environ['PATH']}"))
         self.assertIn("ran releaseGeneral v2:", result.stdout)
         logged = calls.read_text().splitlines()
         for command in (" symbolic-ref ", " status ", " fetch ", " merge-base ", " merge ", " rev-parse "):
             with self.subTest(command=command.strip()):
                 self.assertTrue([line for line in logged if command in line], f"the fake git never saw a{command}")
         self.assertEqual([line for line in logged if not line.startswith("fd 9 closed")], [])
-        self.assertEqual([line for line in logged if " fetch " in line and "prompt 0:" not in line], [])
+        # A fetch that wants a password fails at once, and one that stalls gives up, instead of holding the lock
+        # until Architect's timeout
+        self.assertEqual(
+            [line for line in logged if " fetch " in line and "prompt 0, low speed 1000 B/s for 60 s:" not in line], []
+        )
 
     def test_brings_the_checkout_up_to_date_before_running_the_script(self):
         self.write_script("v2")
@@ -367,6 +375,8 @@ class Launcher(unittest.TestCase):
         result = self.launch()
         self.assertEqual(result.returncode, 3)
         self.assertIn("edited ResourcePackScripts on the server", result.stderr)
+        # The admin sees which file changed, as git status shows it
+        self.assertIn("release launcher:    M automation/scripts/releaseGeneral.sh\n", result.stderr)
 
     def test_refuses_a_file_added_to_the_checkout_on_the_server(self):
         # An unreviewed script dropped into the checkout must not run, whatever the server's git config says
@@ -375,6 +385,18 @@ class Launcher(unittest.TestCase):
         result = self.launch()
         self.assertEqual(result.returncode, 3)
         self.assertIn("edited ResourcePackScripts on the server", result.stderr)
+        self.assertIn("release launcher:   ?? automation/scripts/releaseExtra.sh\n", result.stderr)
+
+    def test_shows_at_most_ten_of_the_changes(self):
+        for n in range(12):
+            (self.checkout / f"extra{n:02}.txt").write_text("unreviewed\n")
+        result = self.launch()
+        self.assertEqual(result.returncode, 3)
+        shown = [line for line in result.stderr.splitlines() if line.startswith("release launcher:   ?? extra")]
+        self.assertEqual(shown, [f"release launcher:   ?? extra{n:02}.txt" for n in range(10)])
+        self.assertIn(
+            "release launcher: and 2 more: git -C ResourcePackScripts status lists them all.\n", result.stderr
+        )
 
     def test_refuses_when_git_status_fails(self):
         # Read as "nothing edited", a broken index would let the release go on

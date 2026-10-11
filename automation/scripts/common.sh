@@ -78,10 +78,12 @@ check_release() {
 # Bring a pack checkout up to date. A failed pull carries on with the files
 # already there, as releases always have (item 1 changes that); git's own error
 # line marks the run in the wrapper's summary. GIT_TERMINAL_PROMPT=0: a pull
-# that wants a password fails at once instead of holding the lock. 9>&-: a
-# detached `git maintenance` would hold the release lock after the release
+# that wants a password fails at once, and with the low speed limit one that
+# stalls, under 1000 bytes/s for 60 s, gives up, instead of holding the lock
+# until Architect stops the release. 9>&-: a detached `git maintenance` would
+# hold the release lock after the release
 pull_pack() {
-    (cd "$1" && GIT_TERMINAL_PROMPT=0 git pull 9>&-)
+    (cd "$1" && GIT_TERMINAL_PROMPT=0 GIT_HTTP_LOW_SPEED_LIMIT=1000 GIT_HTTP_LOW_SPEED_TIME=60 git pull 9>&-)
 }
 
 # release/ is the scratch folder every release builds in

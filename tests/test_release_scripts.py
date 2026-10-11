@@ -168,11 +168,12 @@ class ReleaseGeneral(ReleaseScriptTest):
 
     def test_pulls_the_pack_without_the_lock_and_without_prompting(self):
         # Under the launcher descriptor 9 is the release lock: a detached git maintenance must not keep it.
-        # A pull that wants a password must fail at once, not wait for Architect's 30 minutes
+        # A pull that wants a password must fail at once, and one that stalls (under 1000 bytes/s for 60 s)
+        # must give up, not wait for Architect's 30 minutes
         result = self.release("releaseGeneral.sh", *ROHAN, prefix='exec 9>>runs/.lock && exec sh "$@"')
         self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
         [pull] = self.calls("git")
-        self.assertEqual((pull["fd9"], pull["prompt"]), (False, "0"))
+        self.assertEqual((pull["fd9"], pull["prompt"], pull["lowSpeed"]), (False, "0", ["1000", "60"]))
         # 7-Zip did inherit descriptor 9, so the check above isn't vacuous
         self.assertTrue(all(call["fd9"] for call in self.calls("7z")))
 

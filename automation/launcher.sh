@@ -98,11 +98,22 @@ if ! changes=$(git -C "$checkout" status --porcelain --untracked-files=normal 9>
     exit 3
 fi
 if [ -n "$changes" ]; then
-    say "Someone edited ResourcePackScripts on the server. That change must go through a pull request; until then no release runs here."
+    # What changed, as git status shows it: the first 10 lines, so the admin
+    # knows what to take to a pull request or undo
+    say "Someone edited ResourcePackScripts on the server. That change must go through a pull request; until then no release runs here. What git status shows:"
+    printf '%s\n' "$changes" | head -n 10 | sed 's/^/release launcher:   /' >&2
+    count=$(printf '%s\n' "$changes" | grep -c '')
+    if [ "$count" -gt 10 ]; then
+        say "and $((count - 10)) more: git -C ResourcePackScripts status lists them all."
+    fi
     exit 3
 fi
+# GIT_TERMINAL_PROMPT=0: a fetch that wants a password fails at once. The low
+# speed limit: one that stalls, under 1000 bytes/s for 60 s, gives up. Either
+# would otherwise hold the release lock until Architect stops the release
 fetched=yes
-fetch_error=$(GIT_TERMINAL_PROMPT=0 git -C "$checkout" fetch --quiet origin "+refs/heads/$current:refs/remotes/origin/$current" 2>&1 9>&-) || fetched=no
+fetch_error=$(GIT_TERMINAL_PROMPT=0 GIT_HTTP_LOW_SPEED_LIMIT=1000 GIT_HTTP_LOW_SPEED_TIME=60 \
+    git -C "$checkout" fetch --quiet origin "+refs/heads/$current:refs/remotes/origin/$current" 2>&1 9>&-) || fetched=no
 if ! git -C "$checkout" rev-parse --verify --quiet "refs/remotes/origin/$current" >/dev/null 9>&-; then
     # Most likely a branch made on the server: name the folder's own, if the
     # reader can tell before the update
