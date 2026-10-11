@@ -82,7 +82,7 @@ python3 ResourcePackScripts/automation/install.py --restore pre-automation-backu
 
 ## 1. Check out the pack
 
-In the **test** folder, check out `development`; in the **production** folder, `master`:
+In the **test** folder, check out `development`; in the **production** folder, `master`. A few packs build other branches, or another pack's repository: when you check one of those out again, use the repository and branch that [The packs in the pipeline today](pack-repository.md#the-packs-in-the-pipeline-today) gives for it.
 
 ```bash
 # Sodium pack
