@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """rp-release.py — a log and a summary for every resource pack release, for
-the dashboard's Resource packs page (ADR-040). Standard library only.
+the dashboard's Resource packs page. Standard library only.
 
 pipeline/run.sh uses it around each release script. ARGS are the release
 script's own: <pack> <owner> <repo> <tag> <release name>.

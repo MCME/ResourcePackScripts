@@ -104,7 +104,7 @@ class Launcher(unittest.TestCase):
         (self.seed / "automation" / "pipeline").mkdir()
         shutil.copy(CONF_TOOL, self.seed / "automation" / "automation_conf.py")
         self.write_script("v1")
-        # Committed without the executable bit: the launcher runs the wrapper with sh (P1)
+        # Committed without the executable bit: the launcher runs the wrapper with sh, as Architect runs scripts
         (self.seed / "automation" / "pipeline" / "run.sh").write_text(FAKE_WRAPPER)
         (self.seed / "automation" / "pipeline" / "rp-release.py").write_text(FAKE_RP_RELEASE)
         git("add", "-A", cwd=self.seed)
@@ -272,7 +272,7 @@ class Launcher(unittest.TestCase):
         self.assertIn("RP-Human", (self.folder / "runs" / "current").read_text())
 
     def test_a_refusal_goes_through_the_wrapper_when_the_folder_uses_it(self):
-        # P2: the wrapper says which release runs, and notes the attempt for the dashboard
+        # The wrapper's own refusal: it says which release runs, and notes the attempt for the dashboard
         self.write_conf(wrapper="yes")
         self.hold_the_lock()
         result = self.launch()
@@ -349,7 +349,7 @@ class Launcher(unittest.TestCase):
         self.assertNotIn("ran releaseGeneral", result.stdout)
 
     def test_a_settings_reader_fixed_on_github_heals_the_folder(self):
-        # P3: the launcher updates the checkout before it reads automation.conf
+        # The launcher updates the checkout before it reads automation.conf, with the reader it just updated
         reader = self.seed / "automation" / "automation_conf.py"
         reader.write_text("this is not Python\n")
         self.push("break the reader")
@@ -482,7 +482,7 @@ class Launcher(unittest.TestCase):
         self.assertIn("wrapper holds the lock", result.stdout)
 
     def test_runs_the_wrapper_with_sh_so_it_needs_no_executable_bit(self):
-        # P1: committed as 100644, as Architect's scripts are
+        # Committed as 100644, as Architect's scripts are: the launcher runs it with sh
         mode = git_output("ls-files", "-s", "automation/pipeline/run.sh", cwd=self.checkout).split()[0]
         self.assertEqual(mode, "100644")
         self.write_conf(wrapper="yes")

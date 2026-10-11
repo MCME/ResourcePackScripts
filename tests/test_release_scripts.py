@@ -26,7 +26,7 @@ import release_helpers  # noqa: E402
 
 # The wrapper's rp-release.py, for the patterns it reads the output with
 RP_RELEASE = release_helpers.load_rp_release()
-# The lines the wrapper reads as steps (P4)
+# The lines the wrapper reads as steps, which the scripts must print exactly
 STEP = RP_RELEASE.STEP
 
 TOOLS_PRESENT = os.name == "posix" and all(shutil.which(tool) for tool in ("sh", "python3"))
@@ -317,7 +317,7 @@ class ReleaseGeneral(ReleaseScriptTest):
         self.assertEqual(self.gh("create"), [])
 
     def test_a_failed_pull_of_the_pack_carries_on(self):
-        # Unchanged on purpose: the release builds what the checkout has (item 1 changes that)
+        # As releases always have: the release builds what the checkout has, and git's error line marks the run
         result = self.release("releaseGeneral.sh", *ROHAN, FAKE_GIT_FAIL="1")
         self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
         self.assertIn("Could not resolve host", result.stderr)
@@ -577,7 +577,7 @@ class ReleaseDynmap(ReleaseScriptTest):
         self.assertTrue(zipfile.is_zipfile(self.texturepacks / "Gondor.zip"))
 
     def test_stops_where_there_is_no_dynmap_folder(self):
-        # P5: the production folder sits in the network folder, with no ../../baseline-server
+        # The production folder sits in the network folder, with no ../../baseline-server
         shutil.rmtree(self.tmp / "network" / "baseline-server")
         result = self.release("releaseDynmap.sh", *GONDOR)
         self.assertEqual(result.returncode, 1)

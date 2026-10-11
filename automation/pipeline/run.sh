@@ -1,6 +1,6 @@
 #!/bin/sh
 # run.sh — one resource pack release at a time, with a log and a summary per
-# run for the dashboard's Resource packs page (ADR-040).
+# run for the dashboard's Resource packs page.
 #
 # The release launcher (automation/launcher.sh) hands over to it when the
 # automation folder's automation.conf says wrapper=yes:
