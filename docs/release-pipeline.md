@@ -97,7 +97,7 @@ So you can look at a release before it reaches players, and going back to an old
 
 - **You need the permission `architect.resourcePackAdmin`.** The command also works from the server console.
 - **Run it on the server of the stage you want**: the RP server for a test release, a main server for production.
-- **The build runs in the background.** Its output scrolls through that server's console, not through your chat. You get one chat message when it ends (see [The result](#6-the-result)).
+- **The build runs in the background.** Its output goes to that server's MCME-Architect log, not to your chat (see [Where the output goes](#where-the-output-goes)). You get one chat message when it ends (see [The result](#6-the-result)).
 
 ## 3. The plugin starts the release script
 
@@ -115,11 +115,27 @@ It runs `sh <script> <Pack> <owner> <repo> <tag> <title>` in that folder and wai
 > [!IMPORTANT]
 > The plugin waits up to **30 minutes**, or `timeoutMinutes` from the pack's `gitHubRpReleases` entry. A release still running then is stopped, with everything it started, and the chat message says `Process terminated=false`. A Human release takes a little over 5 minutes (see [How long a release takes](#how-long-a-release-takes)).
 
+### Where the output goes
+
+MCME-Architect writes every line the release prints, its errors included, to its own log, marked with the pack: `[2026-10-06 14:05:01] [INFO] [RP release Human] compiling Human RP zips`. The log is in the folder of the server where `/rp release` ran:
+
+```
+plugins/MCME-Architect/logs/architect_<date>_<time>_<n>.log
+```
+
+`<date>_<time>` is when the server started, such as `2026-10-06_14-03-12`, and the newest file of that start ends in `_0`. By default Architect keeps 14 days of them. To read a pack's last release:
+
+```bash
+grep -hF '[RP release Human]' plugins/MCME-Architect/logs/architect_*.log | tail -n 50
+```
+
+The server console and `logs/latest.log` get these lines too only when `alsoServerLog` is `true` in the `logging.file` section of Architect's `config.yml`. It's `false` by default. With `enabled: false` in that section, Architect keeps no log of its own, and the lines go to the server console and `logs/latest.log` instead.
+
 ## 4. The launcher, the lock and the wrapper
 
 The release scripts in the automation folder aren't the scripts themselves. Each is a copy of the **release launcher**, `automation/launcher.sh` in this repository, which `install.py` put there. Before anything is built, it:
 
-1. **takes the release lock.** Every release script builds in the same `release/` folder, so two releases at once would mix their files. While one release runs, a second is refused and starts nothing: the console says which release is running, and the chat message shows `exitCode=75`. Run `/rp release` again once the first has finished. This holds on both stages.
+1. **takes the release lock.** Every release script builds in the same `release/` folder, so two releases at once would mix their files. While one release runs, a second is refused and starts nothing: Architect's log says which release is running, and the chat message shows `exitCode=75`. Run `/rp release` again once the first has finished. This holds on both stages.
 2. **brings the folder's ResourcePackScripts checkout up to date** with its branch on GitHub: `development` on the RP server, `master` on production. A change merged here reaches the next release on that stage. It refuses (`exitCode=3`) when the checkout was edited on the server, is on another branch, or has commits GitHub doesn't have. If GitHub can't be reached, it warns and uses what it fetched last.
 3. **reads the folder's settings**, `automation.conf` (see [The automation folder's settings](server-setup.md#the-automation-folders-settings)).
 4. **hands over** to the release script of the same name in `ResourcePackScripts/automation/scripts/`. On the RP server it goes through the pipeline wrapper.
@@ -130,7 +146,7 @@ What `development` has that production's `master` doesn't yet: [compare `master.
 
 The wrapper, in `automation/pipeline/`, runs the script and adds:
 
-- **A log of every run.** Every output line is kept with a timestamp. The generator's `--debug` lines (about 120,000 per Human release) go only to the full log. Everything else still reaches the server console. Full logs are kept for the last 30 runs, the console part for the last 200, summaries for good.
+- **A log of every run.** Every output line is kept with a timestamp. The generator's `--debug` lines (about 120,000 per Human release) go only to the full log. Everything else still reaches MCME-Architect, and so its log. Full logs are kept for the last 30 runs, the part without the `--debug` lines for the last 200, summaries for good.
 - **A summary of every run.** It records the steps and how long each took, every zip with its file count, warnings, errors, the GitHub release URL, the stage, branch and ResourcePackScripts commit the release ran with, and a status:
 
 | Status | Meaning |
@@ -146,7 +162,7 @@ The summary flags these problems even when the script ended with exit code 0:
 - a zip with **under 90 %** of the files the same zip had in the pack's last good release, which usually means the conversion broke half-way;
 - **no GitHub release** created.
 
-The verdict is the `Release run …` line near the end of the run's console output, followed by one line for each problem. For example:
+The verdict is the `Release run …` line near the end of the run's output, in Architect's log and in the run's log, followed by one line for each problem. For example:
 
 ```
 Release run 20260930-050612-Human-v4.1.3: OK with warnings, released. 10 warning(s), 0 error(s). Human-Sodium.zip 16,075 files, ...
@@ -155,7 +171,7 @@ Release run 20260930-050612-Human-v4.1.3: OK with warnings, released. 10 warning
 Staff with access to the admin dashboard can read every run there, with its steps, warnings and full log, on the **Resource packs** page.
 
 > [!NOTE]
-> Production doesn't use the wrapper yet, so its releases have no log or summary. Read the console output there.
+> Production doesn't use the wrapper yet, so its releases have no run log or summary. Read the release's lines in Architect's log there (see [Where the output goes](#where-the-output-goes)).
 
 The launcher, the release scripts and the wrapper are in this repository, under `automation/`. The server runs them from its checkout and never edits them.
 
@@ -167,7 +183,7 @@ Used by Human and Mordor. `<Pack>` is the pack's name in the config, for example
 
 Before the first step, the script checks its arguments and asks GitHub whether the tag exists. On production a tag that exists stops it there, and nothing is built.
 
-| Step (console line) | What happens | Output |
+| Step (line in the output) | What happens | Output |
 |---|---|---|
 | `compiling <Pack> RP zips` | Start | |
 | `<Pack>-Sodium` | `git pull` in `<Pack>-Sodium`. The pack is copied to `release/` and zipped as it is, **without** its `vanilla/` folder. The shader base is already in the repository, written by [the sync](shader-base.md#getting-it-into-a-pack). | `<Pack>-Sodium.zip` |
@@ -178,7 +194,7 @@ Before the first step, the script checks its arguments and asks GitHub whether t
 | `<Pack>-Lite-Footprints` | Footprints again | `<Pack>-Lite-Footprints.zip` |
 | `releasing <Pack> RP zips` | `gh release create <tag>` in the release repository, with your title and a note worked out from the zips, such as "Version v4.1.3 for Minecraft 26.2 and 26.3": every Minecraft version all six zips support. Then `gh release upload` of all six zips, and the release URL is printed. | GitHub release |
 
-**Each Footprints zip must differ from the zip it was made from**, or the release stops before anything is published: the footprints textures didn't make it in. A Lite zip that holds the same files as the Vanilla zip only gives a warning, since a pack with at most two models per variant makes them equal. Any failed step stops the release before it publishes: 7-Zip, generateVanilla, a footprints texture, or the release note. Nothing from an earlier release is ever uploaded in its place.
+**Each Footprints zip must differ from the zip it was made from**, or the release stops before anything is published: the footprints textures didn't make it in. **The Lite zip must differ from the Vanilla zip** in the same way. generateVanilla sets the shader base's `MCME_LITE` flag in every Lite conversion, so the two differ even for a pack with at most two models per variant, and the same files mean Lite mode didn't apply. Any failed step stops the release before it publishes: 7-Zip, generateVanilla, a footprints texture, or the release note. Nothing from an earlier release is ever uploaded in its place.
 
 ```mermaid
 flowchart LR
@@ -198,7 +214,7 @@ Used by Rohan, Lothlorien, Dwarven and, for now, Paths of the Dead. There's no c
 | Step | What happens | Output |
 |---|---|---|
 | `compiling <Pack> RP zips` | `git pull` in `<Pack>-Vanilla`. The pack is copied to `release/` and zipped, leaving out any `inventories` folder. | `<Pack>.zip` |
-| (no console line) | Both footprints textures are copied in and the folder is zipped again. That zip must differ from the first, or the release stops. | `<Pack>-Footprints.zip` |
+| (no step line) | Both footprints textures are copied in and the folder is zipped again. That zip must differ from the first, or the release stops. | `<Pack>-Footprints.zip` |
 | `releasing <Pack> RP zips` | `gh release create` with the note worked out from the zips, then `gh release upload` of both zips | GitHub release |
 
 ### The dynmap pack: `releaseDynmap.sh` (one zip, no release)
@@ -220,9 +236,9 @@ It zips the checkout named exactly `<Pack>`, leaving out any `inventories` folde
 - the success message, `RP release finished. You might want to do /rp server <pack> <tag>`, if the script ended with exit code 0 in the plugin's time (30 minutes, unless the pack's entry sets `timeoutMinutes`);
 - otherwise `Error while creating RP release! Process terminated=<true|false> exitCode=<n>`. That doesn't always mean it failed: see [Error messages in game](troubleshooting.md#error-messages-in-game).
 
-**On GitHub**, the release appears at `https://github.com/<owner>/<repo>/releases/tag/<tag>` with its zips.
+**On GitHub**, the release appears at `https://github.com/<owner>/<repo>/releases/tag/<tag>` with its zips. `gh release create` publishes it before the zips are uploaded, so when the upload fails the release is there without all of them, and the release's `ERROR:` line says what to do (see [Messages from the launcher and the scripts](troubleshooting.md#messages-from-the-launcher-and-the-scripts)).
 
-**For the real verdict**, read the wrapper's summary on the RP server: the `Release run …` line near the end of the run, or the dashboard's Resource packs page. On production, read the console output and check that the release has all its zips.
+**For the real verdict**, read the wrapper's summary on the RP server: the `Release run …` line near the end of the run, or the dashboard's Resource packs page. On production, read the release's lines in Architect's log, and check that the release has all its zips.
 
 ## 7. Put the release on a server
 

@@ -9,8 +9,8 @@
 #
 # It runs in the automation folder, under the launcher's release lock, and
 # refuses to start without it. The script's output, stdout and stderr in
-# order, still reaches the plugin (and so the server console) as it happens,
-# except the generator's --debug lines. Plain POSIX sh: the plugin starts the
+# order, still reaches the plugin (and so its log) as it happens, except the
+# generator's --debug lines. Plain POSIX sh: the plugin starts the
 # scripts with sh.
 
 tool="$(cd "$(dirname "$0")" && pwd)/rp-release.py" || exit 2

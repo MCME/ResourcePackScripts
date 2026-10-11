@@ -442,7 +442,7 @@ class ReleaseVanillaSodium(ReleaseScriptTest):
         self.assertEqual(lite, [*common, "--limit", "2"])
 
     def test_asks_for_debug_lines_only_under_the_wrapper(self):
-        # The wrapper sets RP_RELEASE_RUN and keeps --debug's lines out of the console; Lite never had them
+        # The wrapper sets RP_RELEASE_RUN and keeps --debug's lines out of Architect's log; Lite never had them
         self.release("releaseVanillaSodium.sh", *HUMAN, RP_RELEASE_RUN="20261010-120000-Human-v4.1.3")
         vanilla, lite = [call["args"] for call in self.calls("generateVanilla")]
         self.assertEqual(vanilla[-1], "--debug")

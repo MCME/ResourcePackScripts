@@ -7,8 +7,9 @@
 # exports this folder's settings as RP_AUTOMATION_*. MCME-Architect passes
 # <pack> <owner> <repo> <tag> <title>.
 #
-# Staff read the output in the server console. A warning starts with
-# WARNING!!!, which the wrapper counts; a stop is one ERROR: line, then exit 1.
+# MCME-Architect writes the output to its own log, where staff read it. A
+# warning starts with WARNING!!!, which the wrapper counts; a stop is one ERROR:
+# line, then exit 1.
 # Exit codes 2, 3 and 75 belong to the launcher: Architect shows staff only the
 # number, so the scripts never use them.
 
@@ -97,7 +98,7 @@ copy_pack() {
 }
 
 # Zip release/'s contents into <zip>, next to release/; the arguments after the
-# zip's name are 7z's. 7-Zip's report goes to the console, where the wrapper
+# zip's name are 7z's. 7-Zip's report goes to the output, where the wrapper
 # reads it. The zip an earlier release left is removed first, so a failed
 # build can never publish it
 zip_release() {

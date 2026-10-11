@@ -41,7 +41,7 @@ zip_release "$pack-Sodium-Footprints.zip" '-x!vanilla' '-x!.git'
 must_differ "$pack-Sodium.zip" "$pack-Sodium-Footprints.zip"
 
 # --debug only under the wrapper (it sets RP_RELEASE_RUN), which keeps those
-# lines out of the console and in the run's full log
+# lines out of Architect's log and in the run's full log
 echo "$pack-Vanilla"
 fresh_release
 generate ${RP_RELEASE_RUN:+--debug}

@@ -9,12 +9,12 @@ script's own: <pack> <owner> <repo> <tag> <release name>.
         The script's output, stdout and stderr together, on stdin. Every line
         goes to DIR/ID.log with a timestamp. All but the generator's --debug
         lines also go to DIR/ID.console.log and to stdout, which the plugin
-        writes to the server console. DIR/current.json says what is running.
+        writes to its log. DIR/current.json says what is running.
 
     rp-release.py summary --runs DIR --id ID --exit CODE|interrupted
         DIR/ID.json from DIR/ID.log: steps, zips, warnings, errors and the
         release. Then the log is gzipped, current.json removed and old logs
-        pruned. Prints one line for the console.
+        pruned. Prints one line for the plugin's log.
 
     rp-release.py refused --runs DIR --script NAME [--server-log FILE] -- ARGS
         Another release holds the lock: says which, and notes the attempt in
