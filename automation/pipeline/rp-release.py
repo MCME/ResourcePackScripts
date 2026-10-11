@@ -27,6 +27,11 @@ Runs from before the pipeline are read back from a server log once:
 
 Summaries are DIR/<id>.json, where <id> is <YYYYmmdd-HHMMSS>-<pack>-<tag>.
 They hold the run's folded console, never the --debug lines themselves.
+
+Each run also records the side, the branch and the ResourcePackScripts commit
+it ran with, from the release launcher's RP_AUTOMATION_SIDE, _BRANCH and
+_COMMIT: "automation" in the log's #meta line and in the summary, null for a
+run that didn't come through the launcher.
 """
 
 import argparse
@@ -112,6 +117,13 @@ def release_args(args):
             "name": " ".join(args[4:]) or None}
 
 
+def automation_info():
+    """The side, branch and ResourcePackScripts commit the release launcher
+    exported (RP_AUTOMATION_*); None for a run that didn't come through it."""
+    info = {key: os.environ.get(f"RP_AUTOMATION_{key.upper()}") or None for key in ("side", "branch", "commit")}
+    return info if any(info.values()) else None
+
+
 def debug_kind(text):
     for kind, rx in DEBUG:
         if rx.match(text):
@@ -163,7 +175,7 @@ def cmd_log(opts):
     started = now()
     meta = {"version": VERSION, "id": run_id, "script": opts.script, **release_args(opts.args),
             "user": find_user(opts.server_log, release_args(opts.args)["tag"], started),
-            "started": iso(started), "pid": os.getppid()}
+            "started": iso(started), "pid": os.getppid(), "automation": automation_info()}
     progress = {**meta, "step": None, "stepStarted": None, "lines": 0, "consoleLines": 0,
                 "debugLines": 0, "warnings": 0, "errors": 0, "updated": iso(started),
                 "consoleLog": f"{run_id}.console.log"}
@@ -497,7 +509,7 @@ def summarize(runs, run_id, meta, lines, exit_code, source, ended=None, console_
     summary = {
         "version": VERSION, "id": run_id, "source": source, "script": meta.get("script"),
         "pack": meta.get("pack"), "owner": meta.get("owner"), "repo": meta.get("repo"), "tag": meta.get("tag"),
-        "name": meta.get("name"), "user": meta.get("user"),
+        "name": meta.get("name"), "user": meta.get("user"), "automation": meta.get("automation"),
         "started": iso(started), "ended": iso(ended), "durationS": round((ended - started).total_seconds()),
         "exitCode": None if exit_code == "interrupted" else exit_code,
         "outcome": outcome, "checks": checks, "status": status,
