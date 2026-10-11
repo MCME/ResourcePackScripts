@@ -149,9 +149,10 @@ class EndToEnd(unittest.TestCase):
         self.assertIn("--notes=Version v1.0 for Minecraft 26.2 and 26.3", create)
         self.assertFalse((self.folder / "runs" / "current").exists())
 
-        # 4. A second release while another holds the lock: refused through the wrapper, which notes it
+        # 4. A second release while another holds the lock: refused through the wrapper, which notes it.
+        #    -w 10: a lock step 3 left held fails the test instead of hanging it
         holder = subprocess.Popen(
-            ["flock", str(self.folder / "runs" / ".lock"), "sh", "-c", "echo held; sleep 60"],
+            ["flock", "-w", "10", str(self.folder / "runs" / ".lock"), "sh", "-c", "echo held; sleep 60"],
             stdout=subprocess.PIPE, text=True, start_new_session=True,
         )
         self.addCleanup(holder.stdout.close)
@@ -163,6 +164,8 @@ class EndToEnd(unittest.TestCase):
         refused = (self.folder / "runs" / "refused.jsonl").read_text(encoding="utf-8").splitlines()
         self.assertEqual(json.loads(refused[-1])["tag"], "v1.1")
         stop(holder)
+        # The holder's sh and sleep may outlive flock for a moment, and hold the lock until they end
+        release_helpers.wait_until_free(self.folder / "runs" / ".lock")
 
         # 5. Undo with the command install.py printed
         result = self.run_in_folder(*undo, env=self.as_admin)

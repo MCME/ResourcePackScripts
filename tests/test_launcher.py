@@ -11,6 +11,7 @@ import os
 import shutil
 import signal
 import subprocess
+import sys
 import tempfile
 import unittest
 from pathlib import Path
@@ -18,6 +19,9 @@ from pathlib import Path
 REPO_ROOT = Path(__file__).resolve().parent.parent
 LAUNCHER = REPO_ROOT / "automation" / "launcher.sh"
 CONF_TOOL = REPO_ROOT / "automation" / "automation_conf.py"
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+
+import release_helpers  # noqa: E402
 
 ARGS = ["Rohan", "MCME", "RP-Rohan", "v1.0", "Better leaves"]
 
@@ -287,6 +291,8 @@ class Launcher(unittest.TestCase):
         self.assertEqual(self.launch().returncode, 75)
         os.killpg(slow.pid, signal.SIGTERM)
         slow.wait(timeout=10)
+        # The script's `sleep` may outlive it for a moment, and holds the lock until it ends
+        release_helpers.wait_until_free(self.folder / "runs" / ".lock")
         result = self.launch()
         self.assertEqual(result.returncode, 0, result.stderr)
         self.assertIn("ran releaseGeneral v1:", result.stdout)

@@ -6,6 +6,7 @@ call as a JSON line to the file named by $FAKE_LOG.
 
 import importlib.util
 import json
+import time
 from pathlib import Path
 
 REPO_ROOT = Path(__file__).resolve().parent.parent
@@ -17,6 +18,29 @@ def load_rp_release():
     module = importlib.util.module_from_spec(spec)
     spec.loader.exec_module(module)
     return module
+
+
+def wait_until_free(lock, seconds=10):
+    """Wait until no process holds the release lock, the flock on the file at `lock`.
+
+    A stopped release lets its lock go only when the last process holding it
+    has ended, a moment after the one the test waited for. Every 10 ms this
+    tries to take the lock on a fresh handle, and lets it go at once.
+    """
+    import fcntl  # POSIX only: the modules that import this file also run on Windows
+
+    deadline = time.monotonic() + seconds
+    while True:
+        with open(lock, "a") as handle:
+            try:
+                fcntl.flock(handle, fcntl.LOCK_EX | fcntl.LOCK_NB)
+            except BlockingIOError:
+                pass
+            else:
+                return
+        if time.monotonic() >= deadline:
+            raise AssertionError(f"{lock} is still held {seconds} s after the release was stopped")
+        time.sleep(0.01)
 
 
 # 7-Zip's `7z a -y <zip> [<pattern>...] [-x!<pattern>...]`, run in the folder
