@@ -1,0 +1,18 @@
+# automation.conf - what an automation folder does differently.
+#
+# install.py writes this file into resourcePackAutomation/ when it installs
+# the launchers. Every setting is required, and a setting or value the
+# launcher doesn't know stops every release in the folder before anything
+# runs, so a typo can never change a release silently. "#" starts a comment.
+#
+# The test folder (inside the RP server's folder):
+side=test                   # test | production
+branch=development          # the branch ResourcePackScripts follows in this folder
+replace_existing=yes        # may a re-run with an existing tag replace its zips? yes | no
+wrapper=yes                 # run releases through the pipeline wrapper? yes | no
+#
+# The production folder (next to the servers' folder; every other server uses it) sets:
+#   side=production
+#   branch=master
+#   replace_existing=no     # a replaced zip would no longer match a live slot's checksum
+#   wrapper=no              # until the wrapper comes to production
