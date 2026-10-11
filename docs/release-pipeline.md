@@ -78,7 +78,7 @@ So you can look at a release before it reaches players, and going back to an old
 
 ## 1. Before you release
 
-- **Push your work to the branch the stage builds from**: `development` for the RP server, `master` for production. At the start of every release the server brings its checkout of the pack up to date with that branch on GitHub, and builds exactly what GitHub has. Work that is only on your computer, or on another branch, isn't in the release.
+- **Push your work to the branch the stage builds from**: `development` for the RP server, `master` for production. At the start of every release the server brings its checkout of the pack up to date with that branch on GitHub, and builds what GitHub has. Work that is only on your computer, or on another branch, isn't in the release.
 - **Pick a new version tag**, for example `v4.1.4`. It becomes part of every download URL, so use only letters, digits, dots, dashes and underscores, starting with a letter or digit: the release scripts refuse any other tag before they build anything. Keep it short: the plugin stores each player's pack URL in a 100-character column, and today's longest URLs are already 96 characters.
 - **Use a new tag for every release.** On the RP server, reusing a tag replaces that release's zips. On production, a tag that exists is refused before anything is built (see [Re-running a release](troubleshooting.md#re-running-a-release)).
 - **Optional but recommended:** run the conversion on your own computer with generateVanilla (see the [README](../README.md#generate-the-vanilla-pack)) and read the warnings. The server runs the same code.
@@ -223,12 +223,12 @@ It brings the checkout named exactly `<Pack>` up to date with GitHub, as the oth
 
 ### Details that matter
 
-- **The server builds exactly what GitHub has on its checkout's branch.** Before it builds anything, the script fetches that branch from GitHub and fast-forwards the pack's checkout to it: it never merges or rebases on the server. It stops the release instead, with an `ERROR:` line that says why and who fixes it, when:
+- **The server builds what GitHub has on its checkout's branch.** Before it builds anything, the script fetches that branch from GitHub and fast-forwards the pack's checkout to it: it never merges or rebases on the server. It stops the release instead, with an `ERROR:` line that says why and who fixes it, when:
   - GitHub can't be reached;
   - someone edited or added files in the checkout on the server, or made commits there;
-  - the checkout is on no branch, or on a branch GitHub doesn't have (any more).
+  - the checkout is on no branch, or on a branch that follows none on GitHub, for example one deleted there.
 
-  See [Messages from the launcher and the scripts](troubleshooting.md#messages-from-the-launcher-and-the-scripts).
+  See [Messages from the launcher and the scripts](troubleshooting.md#messages-from-the-launcher-and-the-scripts). Files that the pack's `.gitignore` ignores aren't checked, and would still be zipped: leave none in the checkout.
 - **Files and folders at the top of the repository whose names start with a dot** (`.git`, `.gitignore`, `.github`) never end up in a zip. Deeper down they do, so don't commit `.DS_Store` and the like.
 - **Everything else at the top of your repository goes into the Sodium zip and the vanilla-only zips**: `README.md`, `changelog.txt`, `blockList.txt` and so on. Keep the top level tidy.
 - **ResourcePackScripts is brought up to date at the start of every release**, by the launcher. A change merged into `development` here is used by the next test release; a change merged into `master` by the next production release.

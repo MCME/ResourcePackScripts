@@ -191,7 +191,7 @@ git fetch
 git switch <branch>
 ```
 
-The next release builds that branch. It must be a branch on GitHub: a release stops while the checkout's branch follows none there, for example after the branch was merged and deleted. Switch back with `git switch development` (`master` on production). **`ResourcePackScripts/` follows `automation.conf`:** set `branch` there, and switch the checkout with it (`git -C ResourcePackScripts switch <branch>`). The launcher refuses a checkout on another branch than the one `automation.conf` names.
+The next release builds that branch. It must follow a branch on GitHub: a release stops while the checkout's branch follows none there, for example after the branch was merged and deleted. Switch back to the branch the stage builds for that pack: `development` or `master` for most packs, but not all (see [The packs in the pipeline today](pack-repository.md#the-packs-in-the-pipeline-today)). **`ResourcePackScripts/` follows `automation.conf`:** set `branch` there, and switch the checkout with it (`git -C ResourcePackScripts switch <branch>`). The launcher refuses a checkout on another branch than the one `automation.conf` names.
 
 ## Add a Minecraft version
 
