@@ -91,9 +91,13 @@ pull_pack() {
     # Not the folder's own branch: some packs build another one, such as
     # Paths of the Dead from a branch of RP-Human
     to_stage_branch="switches it to the branch this stage builds for the pack, which docs/pack-repository.md lists"
-    # Without its own .git, git would answer for a repository around the folder
+    # A copy of the pack, not a checkout
     [ -e "$1/.git" ] \
         || stop "$1 isn't a git checkout (it has no .git), so the release can't follow GitHub. Nothing was built. An admin checks the pack out again, as docs/server-setup.md says."
+    # git looks no higher than this folder: a checkout whose .git is broken
+    # would otherwise get the answers of a repository around the folder
+    GIT_CEILING_DIRECTORIES=$(pwd -P)
+    export GIT_CEILING_DIRECTORIES
     # symbolic-ref says nothing on a detached checkout (status 1)
     branch=$(git -C "$1" symbolic-ref --quiet --short HEAD 9>&-)
     case $? in

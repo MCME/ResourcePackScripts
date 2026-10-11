@@ -570,6 +570,10 @@ class PackCheckout(ReleaseScriptTest):
         )
 
     def test_stops_when_git_cannot_read_the_checkout(self):
+        # A broken .git, in a server folder that is a repository itself: git must not answer for that one,
+        # which says nothing changed while it ignores everything
+        git("init", "-q", str(self.tmp), cwd=self.tmp)
+        (self.tmp / ".gitignore").write_text("*\n")
         (self.pack / ".git" / "HEAD").write_text("not a ref\n")
         result = self.release("releaseGeneral.sh", *ROHAN)
         self.assert_stopped(
