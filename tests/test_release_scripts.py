@@ -316,5 +316,129 @@ class ReleaseGeneral(ReleaseScriptTest):
                 self.assertFalse(current.exists())
 
 
+HUMAN = ("Human", "MCME", "RP-Human", "v4.1.3", "Better leaves")
+SIX_ZIPS = [
+    "Human-Vanilla.zip", "Human-Vanilla-Footprints.zip", "Human-Sodium.zip",
+    "Human-Sodium-Footprints.zip", "Human-Lite.zip", "Human-Lite-Footprints.zip",
+]
+
+
+class ReleaseVanillaSodium(ReleaseScriptTest):
+    def setUp(self):
+        super().setUp()
+        self.make_pack("Human-Sodium", SODIUM_MCMETA, {
+            "vanilla/assets/minecraft/blockstates/stone.json": b"{}",
+            "assets/mcme/models/block/tree.obj": b"v 0 0 0",
+        })
+
+    def test_builds_six_zips_and_publishes_them_in_the_usual_order(self):
+        result = self.release("releaseVanillaSodium.sh", *HUMAN)
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+        self.assertEqual(
+            self.gh("upload"), [["release", "upload", "v4.1.3", *SIX_ZIPS, "--repo", "MCME/RP-Human", "--clobber"]]
+        )
+
+    def test_prints_the_wrappers_step_lines_exactly(self):
+        result = self.release("releaseVanillaSodium.sh", *HUMAN)
+        self.assertEqual(self.steps(result.stdout), [
+            "compiling Human RP zips", "Human-Sodium", "Human-Sodium-Footprints", "Human-Vanilla",
+            "Human-Vanilla-Footprints", "Human-Lite", "Human-Lite-Footprints", "releasing Human RP zips",
+        ])
+
+    def test_the_sodium_zip_is_the_pack_without_its_vanilla_folder(self):
+        self.release("releaseVanillaSodium.sh", *HUMAN)
+        names = self.names_in("Human-Sodium.zip")
+        self.assertIn("assets/mcme/models/block/tree.obj", names)
+        self.assertEqual([name for name in names if name.startswith("vanilla")], [])
+
+    def test_the_sodium_footprints_zip_swaps_only_the_unpowered_rail(self):
+        # As it always has (docs: Known limits); the converted Footprints zips swap both
+        self.release("releaseVanillaSodium.sh", *HUMAN)
+        self.assertEqual(
+            self.read_in("Human-Sodium-Footprints.zip", "assets/minecraft/textures/block/activator_rail.png"),
+            FOOTPRINTS["activator_rail.png"],
+        )
+        on = "assets/minecraft/textures/block/activator_rail_on.png"
+        self.assertNotIn(on, self.names_in("Human-Sodium-Footprints.zip"))
+        self.assertIn(on, self.names_in("Human-Lite-Footprints.zip"))
+
+    def test_converts_the_sodium_pack_with_the_26_2_assets(self):
+        self.release("releaseVanillaSodium.sh", *HUMAN)
+        vanilla, lite = [call["args"] for call in self.calls("generateVanilla")]
+        common = ["Human-Sodium", "release", "Vanilla-26.2", "--objmc", "ResourcePackScripts/generateVanilla/objmc.py"]
+        self.assertEqual(vanilla, common)
+        self.assertEqual(lite, [*common, "--limit", "2"])
+
+    def test_asks_for_debug_lines_only_under_the_wrapper(self):
+        # The wrapper sets RP_RELEASE_RUN and keeps --debug's lines out of the console; Lite never had them
+        self.release("releaseVanillaSodium.sh", *HUMAN, RP_RELEASE_RUN="20261010-120000-Human-v4.1.3")
+        vanilla, lite = [call["args"] for call in self.calls("generateVanilla")]
+        self.assertEqual(vanilla[-1], "--debug")
+        self.assertNotIn("--debug", lite)
+
+    def test_does_not_pull_resourcepackscripts(self):
+        # The launcher brought it up to date before the release started
+        self.release("releaseVanillaSodium.sh", *HUMAN)
+        self.assertEqual([call["cwd"] for call in self.calls("git")], ["Human-Sodium"])
+
+    def test_names_the_minecraft_versions_all_six_zips_support(self):
+        # The Sodium zips declare 15-255, the converted ones 88-97: the same versions, so no warning
+        result = self.release("releaseVanillaSodium.sh", *HUMAN)
+        [create] = self.gh("create")
+        self.assertIn("--notes=Version v4.1.3 for Minecraft 26.2 and 26.3", create)
+        self.assertNotIn("WARNING!!! release note", result.stdout)
+
+    def test_the_release_notes_warnings_count_as_warnings(self):
+        result = self.release("releaseVanillaSodium.sh", *HUMAN, FAKE_GENERATE_FORMATS="97 97")
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+        self.assertIn("WARNING!!! release note: the zips support different Minecraft versions", result.stdout)
+        [create] = self.gh("create")
+        self.assertIn("--notes=Version v4.1.3 for Minecraft 26.3", create)
+
+    def test_warns_when_lite_holds_the_same_files_as_vanilla(self):
+        result = self.release("releaseVanillaSodium.sh", *HUMAN, FAKE_GENERATE_SAME="1")
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+        self.assertIn("WARNING!!! Human-Lite.zip holds the same files as Human-Vanilla.zip", result.stdout)
+        self.assertEqual(len(self.gh("upload")), 1)
+
+    def test_stops_when_the_sodium_footprints_zip_holds_the_same_files(self):
+        textures = self.folder / "Human-Sodium" / "assets" / "minecraft" / "textures" / "block"
+        (textures / "activator_rail.png").write_bytes(FOOTPRINTS["activator_rail.png"])
+        result = self.release("releaseVanillaSodium.sh", *HUMAN)
+        self.assertEqual(result.returncode, 1)
+        self.assertIn("Human-Sodium-Footprints.zip holds the same files as Human-Sodium.zip", result.stderr)
+        # It stopped in its own step, before converting anything
+        self.assertEqual(self.calls("generateVanilla"), [])
+        self.assertEqual(self.gh("create"), [])
+
+    def test_stops_when_generatevanilla_fails(self):
+        result = self.release("releaseVanillaSodium.sh", *HUMAN, FAKE_GENERATE_FAIL="1")
+        self.assertEqual(result.returncode, 1)
+        self.assertIn("generateVanilla stopped", result.stderr)
+        self.assertEqual(len(self.calls("generateVanilla")), 1)
+        self.assertEqual(self.gh("create"), [])
+
+    def test_stops_when_the_vanilla_assets_are_missing(self):
+        # generateVanilla would find no blockstates, write none, and still end without an error
+        (self.folder / "Vanilla-26.2").rmdir()
+        result = self.release("releaseVanillaSodium.sh", *HUMAN)
+        self.assertEqual(result.returncode, 1)
+        self.assertIn("There's no Vanilla-26.2 folder here", result.stderr)
+        self.assertEqual(self.calls(), [])
+
+    def test_refuses_an_existing_release_before_building_when_replacing_is_off(self):
+        self.existing_release("MCME/RP-Human", "v4.1.3")
+        result = self.release("releaseVanillaSodium.sh", *HUMAN, RP_AUTOMATION_REPLACE_EXISTING="no")
+        self.assertEqual(result.returncode, 1)
+        self.assertIn("v4.1.3 already exists in MCME/RP-Human", result.stderr)
+        self.assertEqual([call["tool"] for call in self.calls()], ["gh"])
+
+    def test_stops_when_the_pack_has_no_sodium_checkout_here(self):
+        result = self.release("releaseVanillaSodium.sh", "Mordor", "MCME", "RP-Mordor", "v1.0", "x")
+        self.assertEqual(result.returncode, 1)
+        self.assertIn("There's no Mordor-Sodium checkout in this folder", result.stderr)
+        self.assertEqual(self.calls(), [])
+
+
 if __name__ == "__main__":
     unittest.main()
