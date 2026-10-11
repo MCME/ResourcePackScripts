@@ -36,4 +36,4 @@ flowchart LR
 | **Footprints** | A copy of a variant with the activator rail textures swapped for footprints. |
 | **Release repository** | The GitHub repository whose Releases hold the zips. It doesn't have to be the pack's own repository. |
 | **Slot** | One Minecraft version's entry for a pack in the server config, such as `26_2`. It holds a download URL and a SHA-1 per zip. |
-| **Automation folder** | The folder on the RP server where the release scripts, the server's checkouts of the packs and a checkout of this repository live. |
+| **Automation folder** | A folder on the server where releases are built: the release launchers and their `automation.conf`, the server's checkouts of the packs, and a checkout of this repository. There are two: test and production (see [What is where](server-setup.md#what-is-where)). |

@@ -6,7 +6,7 @@ What happens between `/rp release` in game and a player downloading the new pack
 - [1. Before you release](#1-before-you-release)
 - [2. Start the release in game](#2-start-the-release-in-game)
 - [3. The plugin starts the release script](#3-the-plugin-starts-the-release-script)
-- [4. The pipeline wrapper (RP server only)](#4-the-pipeline-wrapper-rp-server-only)
+- [4. The launcher, the lock and the wrapper](#4-the-launcher-the-lock-and-the-wrapper)
 - [5. The release script, step by step](#5-the-release-script-step-by-step)
 - [6. The result](#6-the-result)
 - [7. Put the release on a server](#7-put-the-release-on-a-server)
@@ -23,7 +23,9 @@ Every pack goes through the same steps twice. Once on the **RP server**, which i
 | ResourcePackScripts branch used | `development` | `master` |
 | Where the GitHub release goes | A test repository, such as `EriolEandur/RP-Gondor` for Human | The pack's own repository, such as `MCME/RP-Human` |
 | Who gets the pack | Players on the RP server | Players on the servers whose slots you update |
-| Pipeline wrapper (lock, run log, summary) | Yes | Not yet |
+| Release lock: one release at a time | Yes | Yes |
+| A release with a tag that exists | Replaces that release's zips | Refused before anything is built |
+| Pipeline wrapper (run log, summary) | Yes | Not yet |
 
 ```mermaid
 flowchart TD
@@ -45,19 +47,23 @@ The rest of this page follows one release through the steps. They're the same on
 sequenceDiagram
     actor Staff
     participant Architect as MCME-Architect
+    participant Launcher as Release launcher
+    participant Scripts as ResourcePackScripts
     participant Script as Release script
     participant Pack as Pack repo
-    participant Scripts as ResourcePackScripts
     participant GitHub as Release repo
 
     Staff->>Architect: /rp release h v4.1.3 Better leaves
-    Architect->>Script: sh releaseVanillaSodium.sh Human owner repo v4.1.3 "Better leaves"
+    Architect->>Launcher: sh releaseVanillaSodium.sh Human owner repo v4.1.3 "Better leaves"
+    Launcher->>Launcher: take the release lock
+    Launcher->>Scripts: git fetch, fast-forward
+    Launcher->>Script: hand over (ResourcePackScripts/automation/scripts)
+    Script->>GitHub: does v4.1.3 exist?
     Script->>Pack: git pull
-    Script->>Scripts: git pull
-    Script->>Script: Sodium zip, generateVanilla twice (Vanilla, Lite), 6 zips
+    Script->>Script: Sodium zip, generateVanilla twice (Vanilla, Lite), 6 zips, checks
     Script->>GitHub: gh release create v4.1.3, upload the zips
     Script-->>Architect: exit code
-    Architect-->>Staff: success or "Error while creating RP release!"
+    Architect-->>Staff: "RP release finished" or "Error while creating RP release!"
     Staff->>Architect: /rp server h v4.1.3 26.2
     Architect->>GitHub: download each zip to compute its SHA-1
     Note over Architect: 26.2 players now get v4.1.3
@@ -73,8 +79,8 @@ So you can look at a release before it reaches players, and going back to an old
 ## 1. Before you release
 
 - **Push your work to the branch the stage builds from**: `development` for the RP server, `master` for production. The server runs `git pull` on that branch at the start of every release. Work that is only on your computer, or on another branch, isn't in the release.
-- **Pick a new version tag**, for example `v4.1.4`. It becomes part of every download URL, so use only letters, digits, dots and dashes. Keep it short: the plugin stores each player's pack URL in a 100-character column, and today's longest URLs are already 96 characters.
-- **Use a new tag for every release.** Reusing a tag replaces that release's zips, except for vanilla-only packs on production, where the upload fails (see [Re-running a release](troubleshooting.md#re-running-a-release)).
+- **Pick a new version tag**, for example `v4.1.4`. It becomes part of every download URL, so use only letters, digits, dots, dashes and underscores, starting with a letter or digit: the release scripts refuse any other tag before they build anything. Keep it short: the plugin stores each player's pack URL in a 100-character column, and today's longest URLs are already 96 characters.
+- **Use a new tag for every release.** On the RP server, reusing a tag replaces that release's zips. On production, a tag that exists is refused before anything is built (see [Re-running a release](troubleshooting.md#re-running-a-release)).
 - **Optional but recommended:** run the conversion on your own computer with generateVanilla (see the [README](../README.md#generate-the-vanilla-pack)) and read the warnings. The server runs the same code.
 
 ## 2. Start the release in game
@@ -100,26 +106,37 @@ MCME-Architect looks the pack up in the `gitHubRpReleases` section of its config
 - **the script** that builds the pack:
   - `releaseVanillaSodium.sh` for a Sodium pack, which makes six zips;
   - `releaseGeneral.sh` for a vanilla-only pack, which makes two;
+  - `releaseDynmap.sh` for the dynmap texture pack, which makes one zip for dynmap and publishes nothing;
 - **the GitHub repository** that gets the release (owner and repo);
 - **the automation folder** the script runs in.
 
 It runs `sh <script> <Pack> <owner> <repo> <tag> <title>` in that folder and waits.
 
 > [!IMPORTANT]
-> The plugin waits **5 minutes**. A release that takes longer still finishes, but the chat message says `Process terminated=false`. Human takes a little over 5 minutes, so every Human release shows it. See [Error messages in game](troubleshooting.md#error-messages-in-game).
+> The plugin waits up to **30 minutes**, or `timeoutMinutes` from the pack's `gitHubRpReleases` entry. A release still running then is stopped, with everything it started, and the chat message says `Process terminated=false`. A Human release takes a little over 5 minutes (see [How long a release takes](#how-long-a-release-takes)).
 
-## 4. The pipeline wrapper (RP server only)
+## 4. The launcher, the lock and the wrapper
 
-On the RP server, the release scripts don't run on their own. Their first lines hand over to a wrapper, which runs the script and adds three things:
+The release scripts in the automation folder aren't the scripts themselves. Each is a copy of the **release launcher**, `automation/launcher.sh` in this repository, which `install.py` put there. Before anything is built, it:
 
-- **A lock.** Every release script builds in the same `release/` folder, so two releases at once would mix their files. While one release is running, the wrapper refuses a second and starts nothing. The console says which release is running, and the chat message shows `exitCode=75`. Run `/rp release` again once the first one has finished.
+1. **takes the release lock.** Every release script builds in the same `release/` folder, so two releases at once would mix their files. While one release runs, a second is refused and starts nothing: the console says which release is running, and the chat message shows `exitCode=75`. Run `/rp release` again once the first has finished. This holds on both stages.
+2. **brings the folder's ResourcePackScripts checkout up to date** with its branch on GitHub: `development` on the RP server, `master` on production. A change merged here reaches the next release on that stage. It refuses (`exitCode=3`) when the checkout was edited on the server, is on another branch, or has commits GitHub doesn't have. If GitHub can't be reached, it warns and uses what it fetched last.
+3. **reads the folder's settings**, `automation.conf` (see [The automation folder's settings](server-setup.md#the-automation-folders-settings)).
+4. **hands over** to the release script of the same name in `ResourcePackScripts/automation/scripts/`. On the RP server it goes through the pipeline wrapper.
+
+What `development` has that production's `master` doesn't yet: [compare `master...development`](https://github.com/MCME/ResourcePackScripts/compare/master...development).
+
+### The pipeline wrapper (RP server only)
+
+The wrapper, in `automation/pipeline/`, runs the script and adds:
+
 - **A log of every run.** Every output line is kept with a timestamp. The generator's `--debug` lines (about 120,000 per Human release) go only to the full log. Everything else still reaches the server console. Full logs are kept for the last 30 runs, the console part for the last 200, summaries for good.
-- **A summary of every run.** It records the steps and how long each took, every zip with its file count, warnings, errors, the GitHub release URL and a status:
+- **A summary of every run.** It records the steps and how long each took, every zip with its file count, warnings, errors, the GitHub release URL, the stage, branch and ResourcePackScripts commit the release ran with, and a status:
 
 | Status | Meaning |
 |---|---|
 | `ok` | Finished, with no warnings and no problems |
-| `warnings` | Finished, but the generator printed warnings. Normal for Human and Mordor; read them anyway. |
+| `warnings` | Finished, but the generator or the script printed warnings. Normal for Human and Mordor; read them anyway. |
 | `failed` | An error line, or a problem with a zip or the GitHub release (see below) |
 | `interrupted` | The run was cut off, for example by a server restart. The next release tidies up after it. |
 
@@ -132,15 +149,15 @@ The summary flags these problems even when the script ended with exit code 0:
 The verdict is the `Release run …` line near the end of the run's console output, followed by one line for each problem. For example:
 
 ```
-Release run 20260930-050612-Human-v4.1.3: OK with warnings. 10 warning(s), 0 error(s). Human-Sodium.zip 16,075 files, ...
+Release run 20260930-050612-Human-v4.1.3: OK with warnings, released. 10 warning(s), 0 error(s). Human-Sodium.zip 16,075 files, ...
 ```
 
 Staff with access to the admin dashboard can read every run there, with its steps, warnings and full log, on the **Resource packs** page.
 
 > [!NOTE]
-> Production releases don't have the wrapper yet. Two production releases at the same time can spoil each other, so agree in the team who releases when.
+> Production doesn't use the wrapper yet, so its releases have no log or summary. Read the console output there.
 
-The release scripts and the wrapper live on the server, not in this repository. This repository holds the converter they call.
+The launcher, the release scripts and the wrapper are in this repository, under `automation/`. The server runs them from its checkout and never edits them.
 
 ## 5. The release script, step by step
 
@@ -148,26 +165,30 @@ The release scripts and the wrapper live on the server, not in this repository. 
 
 Used by Human and Mordor. `<Pack>` is the pack's name in the config, for example `Human`. The server's checkout of the pack is the folder `<Pack>-Sodium`.
 
+Before the first step, the script checks its arguments and asks GitHub whether the tag exists. On production a tag that exists stops it there, and nothing is built.
+
 | Step (console line) | What happens | Output |
 |---|---|---|
 | `compiling <Pack> RP zips` | Start | |
-| `<Pack>-Sodium` | `git pull` in `<Pack>-Sodium`, then `git pull` in ResourcePackScripts. The pack is copied to `release/` and zipped as it is, **without** its `vanilla/` folder. The shader base is already in the repository, written by [the sync](shader-base.md#getting-it-into-a-pack). | `<Pack>-Sodium.zip` |
+| `<Pack>-Sodium` | `git pull` in `<Pack>-Sodium`. The pack is copied to `release/` and zipped as it is, **without** its `vanilla/` folder. The shader base is already in the repository, written by [the sync](shader-base.md#getting-it-into-a-pack). | `<Pack>-Sodium.zip` |
 | `<Pack>-Sodium-Footprints` | The footprints texture is copied over `activator_rail.png` and the folder is zipped again. | `<Pack>-Sodium-Footprints.zip` |
-| `<Pack>-Vanilla` | `release/` is emptied, then generateVanilla converts the Sodium pack into it. | `<Pack>-Vanilla.zip` |
+| `<Pack>-Vanilla` | `release/` is emptied, then generateVanilla converts the Sodium pack into it, walking `Vanilla-26.2`. Under the wrapper it also writes `--debug` lines, which go to the run's full log. | `<Pack>-Vanilla.zip` |
 | `<Pack>-Vanilla-Footprints` | Both footprints textures (`activator_rail.png`, `activator_rail_on.png`) are copied in and the folder is zipped again. | `<Pack>-Vanilla-Footprints.zip` |
 | `<Pack>-Lite` | `release/` is emptied, then generateVanilla runs again with `--limit 2`: at most two models per blockstate variant. | `<Pack>-Lite.zip` |
 | `<Pack>-Lite-Footprints` | Footprints again | `<Pack>-Lite-Footprints.zip` |
-| `releasing <Pack> RP zips` | `gh release create <tag>` in the release repository, with your title and the notes "Version `<tag>` for MC 1.21.4" (fixed text, whatever the real version). Then `gh release upload` of all six zips, and the release URL is printed. | GitHub release |
+| `releasing <Pack> RP zips` | `gh release create <tag>` in the release repository, with your title and a note worked out from the zips, such as "Version v4.1.3 for Minecraft 26.2 and 26.3": every Minecraft version all six zips support. Then `gh release upload` of all six zips, and the release URL is printed. | GitHub release |
+
+**Each Footprints zip must differ from the zip it was made from**, or the release stops before anything is published: the footprints textures didn't make it in. A Lite zip that holds the same files as the Vanilla zip only gives a warning, since a pack with at most two models per variant makes them equal. Any failed step stops the release before it publishes: 7-Zip, generateVanilla, a footprints texture, or the release note. Nothing from an earlier release is ever uploaded in its place.
 
 ```mermaid
 flowchart LR
-    pull["git pull:<br/>pack and ResourcePackScripts"] --> sodium["Sodium zip<br/>(pack as it is,<br/>without vanilla/)"]
+    pull["git pull<br/>of the pack"] --> sodium["Sodium zip<br/>(pack as it is,<br/>without vanilla/)"]
     sodium --> sfp["Sodium-Footprints zip"]
     sfp --> gen1["generateVanilla"]
     gen1 --> vanilla["Vanilla zip"] --> vfp["Vanilla-Footprints zip"]
     vfp --> gen2["generateVanilla --limit 2"]
     gen2 --> lite["Lite zip"] --> lfp["Lite-Footprints zip"]
-    lfp --> gh["GitHub release:<br/>create + upload 6 zips"]
+    lfp --> note["Release note<br/>from the zips"] --> gh["GitHub release:<br/>create + upload 6 zips"]
 ```
 
 ### Vanilla-only packs: `releaseGeneral.sh` (two zips)
@@ -177,22 +198,26 @@ Used by Rohan, Lothlorien, Dwarven and, for now, Paths of the Dead. There's no c
 | Step | What happens | Output |
 |---|---|---|
 | `compiling <Pack> RP zips` | `git pull` in `<Pack>-Vanilla`. The pack is copied to `release/` and zipped, leaving out any `inventories` folder. | `<Pack>.zip` |
-| (no console line) | Both footprints textures are copied in and the folder is zipped again. | `<Pack>-Footprints.zip` |
-| `releasing <Pack> RP zips` | `gh release create`, then `gh release upload` of both zips | GitHub release |
+| (no console line) | Both footprints textures are copied in and the folder is zipped again. That zip must differ from the first, or the release stops. | `<Pack>-Footprints.zip` |
+| `releasing <Pack> RP zips` | `gh release create` with the note worked out from the zips, then `gh release upload` of both zips | GitHub release |
+
+### The dynmap pack: `releaseDynmap.sh` (one zip, no release)
+
+It zips the checkout named exactly `<Pack>`, leaving out any `inventories` folder, and puts `<Pack>.zip` into the dynmap plugin's texture packs: `../../baseline-server/plugins/dynmap/texturepacks/`, seen from the automation folder. It publishes nothing. Where that folder doesn't exist, as seen from the production folder, it stops before building.
 
 ### Details that matter
 
 - **The server builds whatever is on its checkout's branch after `git pull`.** If the pull fails, for example on a merge conflict, the script carries on with the old files. On the RP server the run then shows an error and the status `failed`, but the zips may still have been uploaded. Check a failed run before you use its release.
 - **Files and folders at the top of the repository whose names start with a dot** (`.git`, `.gitignore`, `.github`) never end up in a zip. Deeper down they do, so don't commit `.DS_Store` and the like.
 - **Everything else at the top of your repository goes into the Sodium zip and the vanilla-only zips**: `README.md`, `changelog.txt`, `blockList.txt` and so on. Keep the top level tidy.
-- **ResourcePackScripts is pulled at the start of every Sodium release.** A change merged into `development` here is used by the next test release; a change merged into `master` by the next production release.
-- **The converter walks Minecraft 1.21.4's blocks and items.** Blocks added in later versions are dropped from the Vanilla and Lite zips. See [Known limits](pack-repository.md#known-limits).
+- **ResourcePackScripts is brought up to date at the start of every release**, by the launcher. A change merged into `development` here is used by the next test release; a change merged into `master` by the next production release.
+- **The converter walks Minecraft 26.2's blocks and items** (the folder `Vanilla-26.2`). Blocks added in later versions are dropped from the Vanilla and Lite zips. See [Known limits](pack-repository.md#known-limits).
 
 ## 6. The result
 
 **In game**, the plugin sends one message when the script ends:
 
-- the success message if the script ended within 5 minutes with exit code 0;
+- the success message, `RP release finished. You might want to do /rp server <pack> <tag>`, if the script ended with exit code 0 in the plugin's time (30 minutes, unless the pack's entry sets `timeoutMinutes`);
 - otherwise `Error while creating RP release! Process terminated=<true|false> exitCode=<n>`. That doesn't always mean it failed: see [Error messages in game](troubleshooting.md#error-messages-in-game).
 
 **On GitHub**, the release appears at `https://github.com/<owner>/<repo>/releases/tag/<tag>` with its zips.
