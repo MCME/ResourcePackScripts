@@ -147,15 +147,35 @@ release_note() {
 
 # Publish the zips as the release <tag>. With replace_existing=yes an existing
 # release keeps its page and gets the new zips (--clobber): gh's "already
-# exists" for the create is expected then, and the wrapper reads it as such
+# exists" (HTTP 422) for the create is expected then, and the wrapper reads it
+# as such, so the create still runs, after a line that says so. That line
+# avoids the words the wrapper counts as errors. Only a release gh said exists
+# goes on to the upload after a failed create
 publish() {
     release_note "$@"
-    if ! gh release create "$tag" --repo "$owner/$repo" --title="$title" --notes="$note" && [ "$exists" = no ]; then
+    if [ "$exists" = yes ]; then
+        echo "$tag already exists in $owner/$repo: its zips are replaced (replace_existing=yes). gh's 422 below is expected."
+    fi
+    if ! gh release create "$tag" --repo "$owner/$repo" --title="$title" --notes="$note" && [ "$exists" != yes ]; then
         stop "gh couldn't create the release $tag in $owner/$repo (see above). Nothing was uploaded."
     fi
     set -- "$@" --repo "$owner/$repo"
     if [ "$replace_existing" = yes ]; then
         set -- "$@" --clobber
     fi
-    gh release upload "$tag" "$@" || stop "gh couldn't upload every zip to the release $tag in $owner/$repo (see above)."
+    gh release upload "$tag" "$@" || upload_failed
+}
+
+# The upload failed after the release was created, or after it was found to
+# exist, so GitHub has it without all of this release's zips: say what state
+# it is in, and what to do
+upload_failed() {
+    failed="gh couldn't upload every zip to the release $tag in $owner/$repo (see above)."
+    if [ "$exists" = yes ]; then
+        stop "$failed The release existed before, so some of its zips may still be the earlier release's: release again with the same tag to replace them all."
+    fi
+    if [ "$replace_existing" = yes ]; then
+        stop "$failed The release is on GitHub now, without all its zips: release again with the same tag to finish it."
+    fi
+    stop "$failed The release is on GitHub now, without all its zips, and this folder never replaces a release's zips: delete the release (gh release delete $tag --repo $owner/$repo, or on its GitHub page), then release again, or use a new tag."
 }

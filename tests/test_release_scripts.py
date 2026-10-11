@@ -24,8 +24,10 @@ sys.path.insert(0, str(Path(__file__).resolve().parent))
 
 import release_helpers  # noqa: E402
 
+# The wrapper's rp-release.py, for the patterns it reads the output with
+RP_RELEASE = release_helpers.load_rp_release()
 # The lines the wrapper reads as steps (P4)
-STEP = release_helpers.load_rp_release().STEP
+STEP = RP_RELEASE.STEP
 
 TOOLS_PRESENT = os.name == "posix" and all(shutil.which(tool) for tool in ("sh", "python3"))
 FOOTPRINTS = {"activator_rail.png": b"footprints rail", "activator_rail_on.png": b"footprints rail, powered"}
@@ -112,6 +114,10 @@ class ReleaseScriptTest(unittest.TestCase):
         """The lines the wrapper reads as steps, in order."""
         return [line for line in output.splitlines() if STEP.match(line)]
 
+    def errors(self, result):
+        """The ERROR: lines of a run: a stop prints exactly one."""
+        return [line for line in result.stderr.splitlines() if line.startswith("ERROR: ")]
+
 
 class ReleaseGeneral(ReleaseScriptTest):
     def setUp(self):
@@ -126,6 +132,8 @@ class ReleaseGeneral(ReleaseScriptTest):
             [["release", "upload", "v1.0", "Rohan.zip", "Rohan-Footprints.zip", "--repo", "MCME/RP-Rohan", "--clobber"]],
         )
         self.assertIn("https://github.com/MCME/RP-Rohan/releases/tag/v1.0", result.stdout)
+        # A new release: gh creates it, so there's no 422 to explain
+        self.assertNotIn("already exists", result.stdout)
 
     def test_writes_the_release_note_from_the_zips(self):
         self.release("releaseGeneral.sh", *ROHAN)
@@ -229,6 +237,18 @@ class ReleaseGeneral(ReleaseScriptTest):
         [upload] = self.gh("upload")
         self.assertEqual(upload[-1], "--clobber")
 
+    def test_says_why_gh_answers_422_when_replacing(self):
+        # gh release create still runs, since the wrapper reads its 422 as "the release already existed".
+        # The line before it says so in words the wrapper counts as neither an error nor that 422
+        self.existing_release("MCME/RP-Rohan", "v1.0")
+        result = self.release("releaseGeneral.sh", *ROHAN)
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+        line = "v1.0 already exists in MCME/RP-Rohan: its zips are replaced (replace_existing=yes). gh's 422 below is expected."
+        self.assertIn(line + "\n", result.stdout)
+        self.assertIsNone(RP_RELEASE.ERROR.search(line))
+        self.assertIsNone(RP_RELEASE.TAG_EXISTS.search(line))
+        self.assertEqual(len(self.gh("create")), 1)
+
     def test_never_clobbers_when_replacing_is_off(self):
         result = self.release("releaseGeneral.sh", *ROHAN, RP_AUTOMATION_REPLACE_EXISTING="no")
         self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
@@ -248,9 +268,35 @@ class ReleaseGeneral(ReleaseScriptTest):
         self.assertEqual(self.gh("upload"), [])
 
     def test_stops_when_the_upload_fails(self):
+        # gh release create has published the new release, so it is on GitHub without all its zips
         result = self.release("releaseGeneral.sh", *ROHAN, FAKE_GH_FAIL="upload")
         self.assertEqual(result.returncode, 1)
-        self.assertIn("gh couldn't upload every zip to the release v1.0", result.stderr)
+        self.assertEqual(self.errors(result), [
+            "ERROR: gh couldn't upload every zip to the release v1.0 in MCME/RP-Rohan (see above). The release is on"
+            " GitHub now, without all its zips: release again with the same tag to finish it."
+        ])
+
+    def test_stops_when_the_upload_fails_where_zips_are_never_replaced(self):
+        # Production: the same tag would be refused, so the partial release has to go first
+        result = self.release("releaseGeneral.sh", *ROHAN, RP_AUTOMATION_REPLACE_EXISTING="no", FAKE_GH_FAIL="upload")
+        self.assertEqual(result.returncode, 1)
+        self.assertEqual(self.errors(result), [
+            "ERROR: gh couldn't upload every zip to the release v1.0 in MCME/RP-Rohan (see above). The release is on"
+            " GitHub now, without all its zips, and this folder never replaces a release's zips: delete the release"
+            " (gh release delete v1.0 --repo MCME/RP-Rohan, or on its GitHub page), then release again, or use a"
+            " new tag."
+        ])
+
+    def test_stops_when_the_upload_to_an_existing_release_fails(self):
+        # Replacing: the upload may have replaced some zips and not others
+        self.existing_release("MCME/RP-Rohan", "v1.0")
+        result = self.release("releaseGeneral.sh", *ROHAN, FAKE_GH_FAIL="upload")
+        self.assertEqual(result.returncode, 1)
+        self.assertEqual(self.errors(result), [
+            "ERROR: gh couldn't upload every zip to the release v1.0 in MCME/RP-Rohan (see above). The release"
+            " existed before, so some of its zips may still be the earlier release's: release again with the same"
+            " tag to replace them all."
+        ])
 
     def test_stops_when_a_footprints_texture_is_missing(self):
         (self.folder / "Footprints" / "activator_rail_on.png").unlink()
@@ -315,6 +361,30 @@ class ReleaseGeneral(ReleaseScriptTest):
                 current.write_text("releaseGeneral.sh Rohan MCME RP-Rohan v1.0 Better leaves (started 2026-10-10 12:00:00)\n")
                 self.release("releaseGeneral.sh", *ROHAN, **env)
                 self.assertFalse(current.exists())
+
+
+class Publish(ReleaseScriptTest):
+    """common.sh's publish on its own, in a script that never asked GitHub whether the release exists."""
+
+    def setUp(self):
+        super().setUp()
+        checkout = self.tmp / "checkout"
+        shutil.copytree(REPO_ROOT / "automation", checkout / "automation", ignore=shutil.ignore_patterns("__pycache__"))
+        (checkout / "generateVanilla").mkdir()
+        shutil.copy(REPO_ROOT / "generateVanilla" / "pack_formats.json", checkout / "generateVanilla")
+        self.script = checkout / "automation" / "scripts" / "releasePublishOnly.sh"
+        self.script.write_text('. "$(dirname "$0")/common.sh"\npublish "$pack.zip"\n')
+        with zipfile.ZipFile(self.folder / "Rohan.zip", "w") as archive:
+            archive.writestr("pack.mcmeta", json.dumps(VANILLA_MCMETA))
+
+    def test_a_failed_create_stops_unless_the_release_is_known_to_exist(self):
+        # Only a release gh said exists goes on to the upload after a failed create
+        result = self.release(str(self.script), *ROHAN, FAKE_GH_FAIL="create")
+        self.assertEqual(result.returncode, 1)
+        self.assertEqual(self.errors(result), [
+            "ERROR: gh couldn't create the release v1.0 in MCME/RP-Rohan (see above). Nothing was uploaded."
+        ])
+        self.assertEqual(self.gh("upload"), [])
 
 
 HUMAN = ("Human", "MCME", "RP-Human", "v4.1.3", "Better leaves")
