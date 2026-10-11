@@ -76,15 +76,53 @@ check_release() {
     fi
 }
 
-# Bring a pack checkout up to date. A failed pull carries on with the files
-# already there, as releases always have, and git's own error line marks the
-# run in the wrapper's summary. GIT_TERMINAL_PROMPT=0: a pull that wants a
-# password fails at once, and with the low speed limit one that stalls, under
-# 1000 bytes/s for 60 s, gives up, instead of holding the lock until Architect
-# stops the release. 9>&-: a detached `git maintenance` would hold the release
-# lock after the release
+# Bring a pack checkout up to date with its branch on GitHub, or stop: a
+# release builds exactly what GitHub has. As the launcher does for
+# ResourcePackScripts, the checkout must be on a branch that GitHub has, with
+# nothing edited or committed here, and it only ever fast-forwards: the server
+# never merges or rebases. git's own lines stay in the output, where the
+# wrapper reads what the update changed.
+# GIT_TERMINAL_PROMPT=0: a fetch that wants a password fails at once, and with
+# the low speed limit one that stalls, under 1000 bytes/s for 60 s, gives up,
+# instead of holding the lock until Architect stops the release. 9>&- on every
+# git command: a detached `git maintenance` would hold the release lock after
+# the release
 pull_pack() {
-    (cd "$1" && GIT_TERMINAL_PROMPT=0 GIT_HTTP_LOW_SPEED_LIMIT=1000 GIT_HTTP_LOW_SPEED_TIME=60 git pull 9>&-)
+    switch_back="An admin switches it back: git -C $1 switch ${RP_AUTOMATION_BRANCH:-<branch>}"
+    # symbolic-ref says nothing on a detached checkout (status 1)
+    branch=$(git -C "$1" symbolic-ref --quiet --short HEAD 9>&-)
+    case $? in
+    0) ;;
+    1) stop "$1 isn't on a branch, so the release can't follow GitHub. Nothing was built. $switch_back" ;;
+    *) stop "git can't read $1 (its reason is above). Nothing was built." ;;
+    esac
+    # Untracked files count too, whatever the server's git config says: they would be zipped
+    changes=$(git -C "$1" status --porcelain --untracked-files=normal 9>&-) \
+        || stop "git status failed in $1 (its reason is above). Nothing was built."
+    if [ -n "$changes" ]; then
+        # What changed, as git status shows it: the first 10 lines, so the admin
+        # knows what to take to GitHub or undo
+        {
+            printf 'What git status shows in %s:\n' "$1"
+            printf '%s\n' "$changes" | head -n 10 | sed 's/^/  /'
+            count=$(printf '%s\n' "$changes" | grep -c '')
+            if [ "$count" -gt 10 ]; then
+                printf '  and %s more: git -C %s status lists them all.\n' "$((count - 10))" "$1"
+            fi
+        } >&2
+        stop "Someone edited $1 on the server (git status above): the release would build files that aren't on GitHub. Nothing was built. An admin takes the change to the pack's repository on GitHub, or undoes it here."
+    fi
+    GIT_TERMINAL_PROMPT=0 GIT_HTTP_LOW_SPEED_LIMIT=1000 GIT_HTTP_LOW_SPEED_TIME=60 git -C "$1" fetch --prune 9>&- \
+        || stop "Couldn't fetch $1 from GitHub (git's reason is above), so the release would build old files. Nothing was built. Try again in a few minutes; if it keeps failing, an admin checks the server's access to GitHub."
+    # --prune has removed the remote branch of a branch deleted on GitHub,
+    # which would otherwise stay "up to date" with its last commit
+    git -C "$1" rev-parse --verify --quiet '@{upstream}' >/dev/null 9>&- \
+        || stop "$1 is on '$branch', which follows no branch on GitHub (deleted there, or made on the server), so the release can't follow it. Nothing was built. $switch_back"
+    # A fast-forward alone would call a checkout ahead of GitHub "already up to date"
+    git -C "$1" merge-base --is-ancestor HEAD '@{upstream}' 9>&- \
+        || stop "$1 has commits that GitHub's $branch doesn't. Either they were made on the server and belong on GitHub, or GitHub's history was rewritten and the checkout needs resetting to it. Nothing was built."
+    git -C "$1" merge --ff-only '@{upstream}' 9>&- \
+        || stop "Couldn't bring $1 up to date with GitHub's $branch (git's reason is above). Nothing was built."
 }
 
 # release/ is the scratch folder every release builds in

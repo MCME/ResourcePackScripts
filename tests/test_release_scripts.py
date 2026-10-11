@@ -3,11 +3,13 @@ runs them: `sh <script> <Pack> <owner> <repo> <tag> <title>` in the automation
 folder, with the folder's settings in RP_AUTOMATION_*.
 
 Linux only, as on the server, and plain unittest, so WSL can run it without
-pytest. 7-Zip, gh, git and generateVanilla are stand-ins from
-tests/release_helpers.py that log every call; zips.py and release_note.py are
-the real ones.
+pytest. 7-Zip, gh and generateVanilla are stand-ins from
+tests/release_helpers.py that log every call. git is the real one, behind a
+stand-in that logs its calls, and each pack checkout is a clone of a local
+repository that plays GitHub. zips.py and release_note.py are the real ones.
 """
 
+import datetime
 import json
 import os
 import shutil
@@ -29,14 +31,27 @@ RP_RELEASE = release_helpers.load_rp_release()
 # The lines the wrapper reads as steps, which the scripts must print exactly
 STEP = RP_RELEASE.STEP
 
-TOOLS_PRESENT = os.name == "posix" and all(shutil.which(tool) for tool in ("sh", "python3"))
+TOOLS_PRESENT = os.name == "posix" and all(shutil.which(tool) for tool in ("sh", "git", "python3"))
 FOOTPRINTS = {"activator_rail.png": b"footprints rail", "activator_rail_on.png": b"footprints rail, powered"}
 VANILLA_MCMETA = {"pack": {"min_format": 88, "max_format": 97, "description": "a vanilla-only pack"}}
 SODIUM_MCMETA = {"pack": {"pack_format": 15, "supported_formats": [15, 255], "description": "a Sodium pack"}}
 ROHAN = ("Rohan", "MCME", "RP-Rohan", "v1.0", "Better leaves")
 
+# git as on the server, with nothing from the developer's own config
+GIT_CONFIG = {"GIT_CONFIG_GLOBAL": os.devnull, "GIT_CONFIG_NOSYSTEM": "1"}
+# The tests' own git: commits a pack developer pushes to GitHub, or an admin makes on the server
+GIT_ENV = dict(
+    os.environ, **GIT_CONFIG,
+    GIT_AUTHOR_NAME="test", GIT_AUTHOR_EMAIL="test@example.com",
+    GIT_COMMITTER_NAME="test", GIT_COMMITTER_EMAIL="test@example.com",
+)
 
-@unittest.skipUnless(TOOLS_PRESENT, "needs Linux with sh and python3, as on the server")
+
+def git(*args, cwd):
+    subprocess.run(["git", *args], cwd=cwd, env=GIT_ENV, check=True, capture_output=True)
+
+
+@unittest.skipUnless(TOOLS_PRESENT, "needs Linux with sh, git and python3, as on the server")
 class ReleaseScriptTest(unittest.TestCase):
     """A throwaway automation folder inside a server folder, with Footprints/, Vanilla-26.2/ and runs/."""
 
@@ -58,6 +73,7 @@ class ReleaseScriptTest(unittest.TestCase):
         # Nothing from the developer's environment: a GIT_TERMINAL_PROMPT=0 there would pass the prompt test by itself
         self.env = {key: value for key, value in os.environ.items() if not key.startswith(("RP_", "FAKE_", "GIT_"))}
         self.env.update(
+            GIT_CONFIG,
             PATH=f"{self.tmp / 'bin'}:{os.environ['PATH']}",
             FAKE_LOG=str(self.log),
             FAKE_GH_RELEASES=str(self.tmp / "releases.txt"),
@@ -68,16 +84,44 @@ class ReleaseScriptTest(unittest.TestCase):
         )
 
     def make_pack(self, name, mcmeta, files=None):
-        """A pack checkout in the folder: pack.mcmeta, its activator rail texture, and files ({path: bytes})."""
-        pack = self.folder / name
-        textures = pack / "assets" / "minecraft" / "textures" / "block"
+        """A pack on "GitHub" with pack.mcmeta, its activator rail texture and files ({path: bytes}), and
+        the server's checkout of it in the folder, on development. Returns the checkout."""
+        seed = self.tmp / "seeds" / name
+        textures = seed / "assets" / "minecraft" / "textures" / "block"
         textures.mkdir(parents=True)
-        (pack / "pack.mcmeta").write_text(json.dumps(mcmeta))
+        (seed / "pack.mcmeta").write_text(json.dumps(mcmeta))
         (textures / "activator_rail.png").write_bytes(b"pack rail")
         for path, data in (files or {}).items():
-            (pack / path).parent.mkdir(parents=True, exist_ok=True)
-            (pack / path).write_bytes(data)
-        return pack
+            (seed / path).parent.mkdir(parents=True, exist_ok=True)
+            (seed / path).write_bytes(data)
+        git("init", "-q", "-b", "development", str(seed), cwd=self.tmp)
+        git("add", "-A", cwd=seed)
+        git("commit", "-q", "-m", name, cwd=seed)
+        github = self.tmp / "github" / f"{name}.git"
+        git("clone", "-q", "--bare", str(seed), str(github), cwd=self.tmp)
+        git("remote", "add", "origin", str(github), cwd=seed)
+        git("clone", "-q", "-b", "development", str(github), str(self.folder / name), cwd=self.tmp)
+        return self.folder / name
+
+    def push_to_github(self, name, files, branch="development"):
+        """Commit files ({path: bytes}) to the pack on "GitHub", as a pack developer does."""
+        seed = self.tmp / "seeds" / name
+        for path, data in files.items():
+            (seed / path).parent.mkdir(parents=True, exist_ok=True)
+            (seed / path).write_bytes(data)
+        git("add", "-A", cwd=seed)
+        git("commit", "-q", "-m", "on GitHub", cwd=seed)
+        git("push", "-q", "origin", f"HEAD:{branch}", cwd=seed)
+
+    def commit_on_the_server(self, checkout):
+        """A commit made in the server's checkout, which GitHub doesn't have."""
+        (checkout / "local.png").write_bytes(b"committed on the server")
+        git("add", "local.png", cwd=checkout)
+        git("commit", "-q", "-m", "a commit made on the server", cwd=checkout)
+
+    def unreachable_github(self, checkout):
+        """GitHub can't be reached from the checkout: its remote is a repository that isn't there."""
+        git("remote", "set-url", "origin", str(self.tmp / "gone.git"), cwd=checkout)
 
     def existing_release(self, repo, tag):
         with open(self.tmp / "releases.txt", "a") as releases:
@@ -160,20 +204,21 @@ class ReleaseGeneral(ReleaseScriptTest):
         result = self.release("releaseGeneral.sh", *ROHAN)
         self.assertEqual(self.steps(result.stdout), ["compiling Rohan RP zips", "releasing Rohan RP zips"])
 
-    def test_asks_github_first_then_pulls_the_pack(self):
+    def test_asks_github_first_then_updates_the_pack(self):
         self.release("releaseGeneral.sh", *ROHAN)
         first, second = self.calls()[:2]
         self.assertEqual((first["tool"], first["args"][:2]), ("gh", ["release", "view"]))
-        self.assertEqual((second["tool"], second["args"], second["cwd"]), ("git", ["pull"], "Rohan-Vanilla"))
+        self.assertEqual((second["tool"], second["repo"]), ("git", "Rohan-Vanilla"))
 
-    def test_pulls_the_pack_without_the_lock_and_without_prompting(self):
+    def test_updates_the_pack_without_the_lock_and_without_prompting(self):
         # Under the launcher descriptor 9 is the release lock: a detached git maintenance must not keep it.
-        # A pull that wants a password must fail at once, and one that stalls (under 1000 bytes/s for 60 s)
+        # A fetch that wants a password must fail at once, and one that stalls (under 1000 bytes/s for 60 s)
         # must give up, not wait for Architect's 30 minutes
         result = self.release("releaseGeneral.sh", *ROHAN, prefix='exec 9>>runs/.lock && exec sh "$@"')
         self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
-        [pull] = self.calls("git")
-        self.assertEqual((pull["fd9"], pull["prompt"], pull["lowSpeed"]), (False, "0", ["1000", "60"]))
+        self.assertEqual([call["args"] for call in self.calls("git") if call["fd9"]], [])
+        [fetch] = [call for call in self.calls("git") if "fetch" in call["args"]]
+        self.assertEqual((fetch["prompt"], fetch["lowSpeed"]), ("0", ["1000", "60"]))
         # 7-Zip did inherit descriptor 9, so the check above isn't vacuous
         self.assertTrue(all(call["fd9"] for call in self.calls("7z")))
 
@@ -308,20 +353,13 @@ class ReleaseGeneral(ReleaseScriptTest):
 
     def test_stops_when_the_footprints_zip_holds_the_same_files(self):
         # The pack has the footprints textures already, so the copy changes nothing
-        textures = self.folder / "Rohan-Vanilla" / "assets" / "minecraft" / "textures" / "block"
-        for name, data in FOOTPRINTS.items():
-            (textures / name).write_bytes(data)
+        self.push_to_github("Rohan-Vanilla", {
+            f"assets/minecraft/textures/block/{name}": data for name, data in FOOTPRINTS.items()
+        })
         result = self.release("releaseGeneral.sh", *ROHAN)
         self.assertEqual(result.returncode, 1)
         self.assertIn("Rohan-Footprints.zip holds the same files as Rohan.zip", result.stderr)
         self.assertEqual(self.gh("create"), [])
-
-    def test_a_failed_pull_of_the_pack_carries_on(self):
-        # As releases always have: the release builds what the checkout has, and git's error line marks the run
-        result = self.release("releaseGeneral.sh", *ROHAN, FAKE_GIT_FAIL="1")
-        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
-        self.assertIn("Could not resolve host", result.stderr)
-        self.assertEqual(len(self.gh("upload")), 1)
 
     def test_stops_when_the_pack_has_no_checkout_here(self):
         result = self.release("releaseGeneral.sh", "Gondor", "MCME", "RP-Gondor", "v1.0", "x")
@@ -348,7 +386,7 @@ class ReleaseGeneral(ReleaseScriptTest):
         self.assertEqual(self.gh("upload"), [])
 
     def test_stops_when_the_release_note_cannot_be_worked_out(self):
-        (self.folder / "Rohan-Vanilla" / "pack.mcmeta").write_text('{"pack": {"description": "no format"}}')
+        self.push_to_github("Rohan-Vanilla", {"pack.mcmeta": b'{"pack": {"description": "no format"}}'})
         result = self.release("releaseGeneral.sh", *ROHAN)
         self.assertEqual(result.returncode, 1)
         self.assertIn("Couldn't work out the release note", result.stderr)
@@ -362,6 +400,163 @@ class ReleaseGeneral(ReleaseScriptTest):
                 current.write_text("releaseGeneral.sh Rohan MCME RP-Rohan v1.0 Better leaves (started 2026-10-10 12:00:00)\n")
                 self.release("releaseGeneral.sh", *ROHAN, **env)
                 self.assertFalse(current.exists())
+
+
+class PackCheckout(ReleaseScriptTest):
+    """A release builds exactly what GitHub has: the pack's checkout is brought up to date with its branch
+    on GitHub, or the release stops before it builds anything. Through releaseGeneral.sh: all three
+    scripts update their pack with common.sh's pull_pack."""
+
+    EDITED = (
+        "ERROR: Someone edited Rohan-Vanilla on the server (git status above): the release would build files"
+        " that aren't on GitHub. Nothing was built. An admin takes the change to the pack's repository on"
+        " GitHub, or undoes it here."
+    )
+    AHEAD = (
+        "ERROR: Rohan-Vanilla has commits that GitHub's development doesn't. Either they were made on the"
+        " server and belong on GitHub, or GitHub's history was rewritten and the checkout needs resetting to"
+        " it. Nothing was built."
+    )
+
+    def setUp(self):
+        super().setUp()
+        self.pack = self.make_pack("Rohan-Vanilla", VANILLA_MCMETA)
+
+    def assert_stopped(self, result, error):
+        """Stopped with exactly this ERROR: line, before building or publishing anything."""
+        self.assertEqual(result.returncode, 1, result.stdout + result.stderr)
+        self.assertEqual(self.errors(result), [error])
+        self.assertEqual(self.calls("7z"), [])
+        self.assertEqual(self.gh("create"), [])
+
+    def test_builds_what_github_has(self):
+        self.push_to_github("Rohan-Vanilla", {"assets/minecraft/textures/block/stone.png": b"stone, pushed"})
+        result = self.release("releaseGeneral.sh", *ROHAN)
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+        self.assertEqual(self.read_in("Rohan.zip", "assets/minecraft/textures/block/stone.png"), b"stone, pushed")
+
+    def test_shows_what_the_update_changed_as_the_wrapper_reads_it(self):
+        # The wrapper turns git's update lines into the run's git event on the dashboard
+        self.push_to_github("Rohan-Vanilla", {"assets/minecraft/textures/block/stone.png": b"stone, pushed"})
+        result = self.release("releaseGeneral.sh", *ROHAN)
+        at = datetime.datetime(2026, 10, 11, 12, 0, 0)
+        events, _ = RP_RELEASE.fold([(at, line) for line in result.stdout.splitlines()])
+        [update] = [event for event in events if event["kind"] == "git"]
+        self.assertIn("1 file changed", update["text"])
+
+    def test_stops_when_github_cannot_be_reached(self):
+        self.unreachable_github(self.pack)
+        result = self.release("releaseGeneral.sh", *ROHAN)
+        self.assert_stopped(
+            result,
+            "ERROR: Couldn't fetch Rohan-Vanilla from GitHub (git's reason is above), so the release would build"
+            " old files. Nothing was built. Try again in a few minutes; if it keeps failing, an admin checks the"
+            " server's access to GitHub.",
+        )
+        # git's reason
+        self.assertIn("does not appear to be a git repository", result.stderr)
+
+    def test_stops_when_a_file_was_edited_on_the_server(self):
+        (self.pack / "pack.mcmeta").write_text("edited on the server")
+        result = self.release("releaseGeneral.sh", *ROHAN)
+        self.assert_stopped(result, self.EDITED)
+        # The admin sees which file changed, as git status shows it
+        self.assertIn("What git status shows in Rohan-Vanilla:\n   M pack.mcmeta\n", result.stderr)
+
+    def test_stops_when_a_file_was_added_on_the_server(self):
+        # It would go into the zips too, whatever the server's git config says
+        git("config", "status.showUntrackedFiles", "no", cwd=self.pack)
+        (self.pack / "extra.png").write_bytes(b"added on the server")
+        result = self.release("releaseGeneral.sh", *ROHAN)
+        self.assert_stopped(result, self.EDITED)
+        self.assertIn("\n  ?? extra.png\n", result.stderr)
+
+    def test_shows_at_most_ten_of_the_changes(self):
+        for n in range(12):
+            (self.pack / f"extra{n:02}.png").write_bytes(b"added on the server")
+        result = self.release("releaseGeneral.sh", *ROHAN)
+        self.assert_stopped(result, self.EDITED)
+        shown = [line for line in result.stderr.splitlines() if line.startswith("  ?? extra")]
+        self.assertEqual(shown, [f"  ?? extra{n:02}.png" for n in range(10)])
+        self.assertIn("\n  and 2 more: git -C Rohan-Vanilla status lists them all.\n", result.stderr)
+
+    def test_stops_when_a_commit_was_made_on_the_server(self):
+        # GitHub hasn't moved, so a fast-forward alone would call this "already up to date"
+        self.commit_on_the_server(self.pack)
+        result = self.release("releaseGeneral.sh", *ROHAN)
+        self.assert_stopped(result, self.AHEAD)
+
+    def test_stops_when_the_checkout_has_diverged_from_github(self):
+        self.commit_on_the_server(self.pack)
+        self.push_to_github("Rohan-Vanilla", {"assets/minecraft/textures/block/stone.png": b"stone, pushed"})
+        result = self.release("releaseGeneral.sh", *ROHAN)
+        self.assert_stopped(result, self.AHEAD)
+
+    def test_stops_when_the_checkout_is_not_on_a_branch(self):
+        # The fix names the folder's own branch
+        git("checkout", "-q", "--detach", cwd=self.pack)
+        for branch in ("development", "master"):
+            with self.subTest(branch=branch):
+                result = self.release("releaseGeneral.sh", *ROHAN, RP_AUTOMATION_BRANCH=branch)
+                self.assert_stopped(
+                    result,
+                    "ERROR: Rohan-Vanilla isn't on a branch, so the release can't follow GitHub. Nothing was built."
+                    f" An admin switches it back: git -C Rohan-Vanilla switch {branch}",
+                )
+
+    def test_stops_when_github_no_longer_has_the_branch(self):
+        # A branch tried on the server, then merged and deleted on GitHub: a plain fetch would keep its
+        # last commit as origin/feature, and every release would build that
+        self.push_to_github("Rohan-Vanilla", {"assets/minecraft/textures/block/stone.png": b"a feature"}, "feature")
+        git("fetch", "-q", cwd=self.pack)
+        git("switch", "-q", "feature", cwd=self.pack)
+        git("push", "-q", "origin", "--delete", "feature", cwd=self.tmp / "seeds" / "Rohan-Vanilla")
+        result = self.release("releaseGeneral.sh", *ROHAN)
+        self.assert_stopped(
+            result,
+            "ERROR: Rohan-Vanilla is on 'feature', which follows no branch on GitHub (deleted there, or made on"
+            " the server), so the release can't follow it. Nothing was built. An admin switches it back:"
+            " git -C Rohan-Vanilla switch development",
+        )
+
+    def test_stops_when_the_branch_was_made_on_the_server(self):
+        git("switch", "-q", "-c", "hotfix", cwd=self.pack)
+        result = self.release("releaseGeneral.sh", *ROHAN)
+        self.assert_stopped(
+            result,
+            "ERROR: Rohan-Vanilla is on 'hotfix', which follows no branch on GitHub (deleted there, or made on"
+            " the server), so the release can't follow it. Nothing was built. An admin switches it back:"
+            " git -C Rohan-Vanilla switch development",
+        )
+
+    def test_stops_when_git_cannot_read_the_checkout(self):
+        # A copy of the pack without its .git
+        shutil.rmtree(self.pack / ".git")
+        result = self.release("releaseGeneral.sh", *ROHAN)
+        self.assert_stopped(result, "ERROR: git can't read Rohan-Vanilla (its reason is above). Nothing was built.")
+        self.assertIn("not a git repository", result.stderr)
+
+    def test_stops_when_git_status_fails(self):
+        # Read as "nothing edited", a broken index would let the release build whatever is there
+        (self.pack / ".git" / "index").write_bytes(b"not an index")
+        result = self.release("releaseGeneral.sh", *ROHAN)
+        self.assert_stopped(
+            result, "ERROR: git status failed in Rohan-Vanilla (its reason is above). Nothing was built."
+        )
+
+    @unittest.skipIf(os.name == "posix" and os.geteuid() == 0, "root can write a read-only folder")
+    def test_stops_when_the_update_cannot_be_written(self):
+        # For example a folder the server's user can't write to
+        self.push_to_github("Rohan-Vanilla", {"assets/minecraft/textures/block/new.png": b"pushed"})
+        textures = self.pack / "assets" / "minecraft" / "textures" / "block"
+        textures.chmod(0o555)
+        self.addCleanup(textures.chmod, 0o755)
+        result = self.release("releaseGeneral.sh", *ROHAN)
+        self.assert_stopped(
+            result,
+            "ERROR: Couldn't bring Rohan-Vanilla up to date with GitHub's development (git's reason is above)."
+            " Nothing was built.",
+        )
 
 
 class Publish(ReleaseScriptTest):
@@ -448,10 +643,19 @@ class ReleaseVanillaSodium(ReleaseScriptTest):
         self.assertEqual(vanilla[-1], "--debug")
         self.assertNotIn("--debug", lite)
 
-    def test_does_not_pull_resourcepackscripts(self):
-        # The launcher brought it up to date before the release started
+    def test_updates_only_the_sodium_checkout(self):
+        # The launcher brought ResourcePackScripts up to date before the release started
         self.release("releaseVanillaSodium.sh", *HUMAN)
-        self.assertEqual([call["cwd"] for call in self.calls("git")], ["Human-Sodium"])
+        self.assertEqual({call["repo"] for call in self.calls("git")}, {"Human-Sodium"})
+
+    def test_stops_before_building_when_github_cannot_be_reached(self):
+        self.unreachable_github(self.folder / "Human-Sodium")
+        result = self.release("releaseVanillaSodium.sh", *HUMAN)
+        self.assertEqual(result.returncode, 1)
+        [error] = self.errors(result)
+        self.assertTrue(error.startswith("ERROR: Couldn't fetch Human-Sodium from GitHub"), error)
+        self.assertEqual(self.calls("7z") + self.calls("generateVanilla"), [])
+        self.assertEqual(self.gh("create"), [])
 
     def test_names_the_minecraft_versions_all_six_zips_support(self):
         # The Sodium zips declare 15-255, the converted ones 88-97: the same versions, so no warning
@@ -481,8 +685,9 @@ class ReleaseVanillaSodium(ReleaseScriptTest):
         self.assertEqual(self.gh("create"), [])
 
     def test_stops_when_the_sodium_footprints_zip_holds_the_same_files(self):
-        textures = self.folder / "Human-Sodium" / "assets" / "minecraft" / "textures" / "block"
-        (textures / "activator_rail.png").write_bytes(FOOTPRINTS["activator_rail.png"])
+        self.push_to_github("Human-Sodium", {
+            "assets/minecraft/textures/block/activator_rail.png": FOOTPRINTS["activator_rail.png"],
+        })
         result = self.release("releaseVanillaSodium.sh", *HUMAN)
         self.assertEqual(result.returncode, 1)
         self.assertIn("Human-Sodium-Footprints.zip holds the same files as Human-Sodium.zip", result.stderr)
@@ -567,14 +772,23 @@ class ReleaseDynmap(ReleaseScriptTest):
         result = self.release("releaseDynmap.sh", *GONDOR)
         self.assertEqual(self.steps(result.stdout), ["compiling Gondor RP zips"])
 
-    def test_pulls_the_checkout_named_after_the_pack(self):
+    def test_updates_the_checkout_named_after_the_pack(self):
         self.release("releaseDynmap.sh", *GONDOR)
-        self.assertEqual([call["cwd"] for call in self.calls("git")], ["Gondor"])
+        self.assertEqual({call["repo"] for call in self.calls("git")}, {"Gondor"})
 
     def test_replaces_the_zip_already_there(self):
         (self.texturepacks / "Gondor.zip").write_bytes(b"the last one")
         self.release("releaseDynmap.sh", *GONDOR)
         self.assertTrue(zipfile.is_zipfile(self.texturepacks / "Gondor.zip"))
+
+    def test_keeps_the_last_zip_when_github_cannot_be_reached(self):
+        (self.texturepacks / "Gondor.zip").write_bytes(b"the last one")
+        self.unreachable_github(self.folder / "Gondor")
+        result = self.release("releaseDynmap.sh", *GONDOR)
+        self.assertEqual(result.returncode, 1)
+        [error] = self.errors(result)
+        self.assertTrue(error.startswith("ERROR: Couldn't fetch Gondor from GitHub"), error)
+        self.assertEqual((self.texturepacks / "Gondor.zip").read_bytes(), b"the last one")
 
     def test_stops_where_there_is_no_dynmap_folder(self):
         # The production folder sits in the network folder, with no ../../baseline-server

@@ -130,24 +130,28 @@ elif command == "upload":
             sys.exit(1)
 '''
 
-# git, for a pack's `git pull`: logs where it ran, whether it inherited
-# descriptor 9, GIT_TERMINAL_PROMPT, and GIT_HTTP_LOW_SPEED_LIMIT and _TIME.
-# $FAKE_GIT_FAIL makes the pull fail.
+# git in front of the real one, the next git on PATH: logs the call, the
+# repository it works in (its -C, or where it runs), whether it inherited
+# descriptor 9, GIT_TERMINAL_PROMPT, and GIT_HTTP_LOW_SPEED_LIMIT and _TIME,
+# then hands over to the real git.
 FAKE_GIT = '''\
 #!/usr/bin/env python3
 import json, os, sys
 
+args = sys.argv[1:]
+where = args[1] if args[:1] == ["-C"] else "."
 fd9 = os.path.exists("/proc/self/fd/9")
 with open(os.environ["FAKE_LOG"], "a") as log:
-    print(json.dumps({"tool": "git", "args": sys.argv[1:], "cwd": os.path.basename(os.getcwd()), "fd9": fd9,
+    print(json.dumps({"tool": "git", "args": args, "repo": os.path.basename(os.path.abspath(where)), "fd9": fd9,
                       "prompt": os.environ.get("GIT_TERMINAL_PROMPT"),
                       "lowSpeed": [os.environ.get(f"GIT_HTTP_LOW_SPEED_{name}") for name in ("LIMIT", "TIME")]}),
           file=log)
-if os.environ.get("FAKE_GIT_FAIL"):
-    print("fatal: unable to access 'https://github.com/MCME/RP-Test.git/': Could not resolve host: github.com",
-          file=sys.stderr)
-    sys.exit(1)
-print("Already up to date.")
+here = os.path.dirname(os.path.abspath(__file__))
+for folder in os.environ["PATH"].split(os.pathsep):
+    real = os.path.join(folder, "git")
+    if folder and os.path.abspath(folder) != here and os.access(real, os.X_OK):
+        os.execv(real, [real, *args])
+sys.exit("the stand-in git found no real git on PATH")
 '''
 
 # generateVanilla.py <source> <output> <vanilla> --objmc <path> [--debug] [--limit N]:
