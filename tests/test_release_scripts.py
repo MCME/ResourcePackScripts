@@ -53,7 +53,8 @@ class ReleaseScriptTest(unittest.TestCase):
         (self.folder / "runs").mkdir()
         self.log = self.tmp / "calls.jsonl"
         release_helpers.install_fakes(self.tmp / "bin")
-        self.env = {key: value for key, value in os.environ.items() if not key.startswith(("RP_", "FAKE_"))}
+        # Nothing from the developer's environment: a GIT_TERMINAL_PROMPT=0 there would pass the prompt test by itself
+        self.env = {key: value for key, value in os.environ.items() if not key.startswith(("RP_", "FAKE_", "GIT_"))}
         self.env.update(
             PATH=f"{self.tmp / 'bin'}:{os.environ['PATH']}",
             FAKE_LOG=str(self.log),
@@ -409,6 +410,27 @@ class ReleaseVanillaSodium(ReleaseScriptTest):
         self.assertIn("Human-Sodium-Footprints.zip holds the same files as Human-Sodium.zip", result.stderr)
         # It stopped in its own step, before converting anything
         self.assertEqual(self.calls("generateVanilla"), [])
+        self.assertEqual(self.gh("create"), [])
+
+    def test_stops_when_the_vanilla_footprints_zip_holds_the_same_files(self):
+        # Both conversions come out with the footprints textures already in them
+        result = self.release("releaseVanillaSodium.sh", *HUMAN, FAKE_RAILS=str(self.folder / "Footprints"))
+        self.assertEqual(result.returncode, 1)
+        errors = [line for line in result.stderr.splitlines() if line.startswith("ERROR: ")]
+        self.assertEqual(len(errors), 1, result.stderr)
+        self.assertIn("Human-Vanilla-Footprints.zip holds the same files as Human-Vanilla.zip", errors[0])
+        # It stopped in its own step, before the Lite conversion
+        self.assertEqual(len(self.calls("generateVanilla")), 1)
+        self.assertEqual(self.gh("create"), [])
+
+    def test_stops_when_the_lite_footprints_zip_holds_the_same_files(self):
+        # Only the Lite conversion comes out with the footprints textures, so Lite still differs from Vanilla
+        result = self.release("releaseVanillaSodium.sh", *HUMAN, FAKE_LITE_RAILS=str(self.folder / "Footprints"))
+        self.assertEqual(result.returncode, 1)
+        errors = [line for line in result.stderr.splitlines() if line.startswith("ERROR: ")]
+        self.assertEqual(len(errors), 1, result.stderr)
+        self.assertIn("Human-Lite-Footprints.zip holds the same files as Human-Lite.zip", errors[0])
+        self.assertEqual(len(self.calls("generateVanilla")), 2)
         self.assertEqual(self.gh("create"), [])
 
     def test_stops_when_generatevanilla_fails(self):

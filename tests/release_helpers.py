@@ -151,8 +151,11 @@ print("Already up to date.")
 # writes a small converted pack (3 models; --limit N keeps N of them) with
 # pack formats $FAKE_GENERATE_FORMATS ("88 97"). $FAKE_GENERATE_SAME makes
 # --limit change nothing; $FAKE_GENERATE_FAIL stops it with a traceback.
+# $FAKE_RAILS names a folder whose activator_rail.png and activator_rail_on.png
+# every conversion copies in, as a pack that has those textures already would
+# give; $FAKE_LITE_RAILS does the same for the --limit conversion only.
 FAKE_GENERATE = '''\
-import json, os, sys
+import json, os, shutil, sys
 
 args = sys.argv[1:]
 with open(os.environ["FAKE_LOG"], "a") as log:
@@ -181,6 +184,10 @@ if "--limit" in args and not os.environ.get("FAKE_GENERATE_SAME"):
 for model in models:
     with open(os.path.join(assets, "models", "block", model + ".json"), "w") as f:
         f.write("{}")
+rails = os.environ.get("FAKE_RAILS") or ("--limit" in args and os.environ.get("FAKE_LITE_RAILS"))
+if rails:
+    for rail in ("activator_rail.png", "activator_rail_on.png"):
+        shutil.copyfile(os.path.join(rails, rail), os.path.join(assets, "textures", "block", rail))
 '''
 
 FAKES = {"7z": FAKE_7Z, "gh": FAKE_GH, "git": FAKE_GIT}

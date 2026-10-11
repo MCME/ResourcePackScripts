@@ -133,6 +133,15 @@ class Wrapper(unittest.TestCase):
             if path.name[:1].isdigit()
         ]
 
+    def write_progress(self, run_id):
+        """runs/current.json and the run's log, as a run writes them while it runs, and leaves them when stopped."""
+        runs = self.folder / "runs"
+        meta = {"id": run_id, "script": "releaseVanillaSodium.sh", "pack": "Human", "tag": "v4.1.3"}
+        (runs / "current.json").write_text(json.dumps({**meta, "updated": "2026-10-10T12:05:00+02:00"}))
+        (runs / f"{run_id}.log").write_text(
+            "#meta " + json.dumps(meta) + "\n2026-10-10T12:00:00.000 compiling Human RP zips\n"
+        )
+
     def test_runs_the_release_and_writes_its_summary(self):
         result = self.run_wrapper()
         self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
@@ -177,12 +186,19 @@ class Wrapper(unittest.TestCase):
         self.assertEqual(self.summaries(), [])
 
     def test_refuses_a_descriptor_9_that_is_another_file(self):
+        # runs/.lock exists, so only the check that descriptor 9 is that very file can refuse
+        (self.folder / "runs" / ".lock").touch()
         result = self.run_wrapper(prefix='exec 9>>other.lock && flock -n 9 && exec sh "$@"')
         self.assertEqual(result.returncode, 2)
         self.assertNotIn("compiling", result.stdout)
 
     def test_refuses_the_release_lock_held_by_another_process(self):
-        # Descriptor 9 is runs/.lock, but another process holds its lock
+        # Descriptor 9 is runs/.lock, but another process holds its lock. The release holding it owns
+        # runs/current.json and its log: the refusal comes before anything touches them
+        running = "20261010-120000-Human-v4.1.3"
+        self.write_progress(running)
+        runs = self.folder / "runs"
+        before = {name: (runs / name).read_bytes() for name in ("current.json", f"{running}.log")}
         holder = subprocess.Popen(
             ["flock", str(self.folder / "runs" / ".lock"), "sh", "-c", "echo held; sleep 30"],
             stdout=subprocess.PIPE, text=True, start_new_session=True,
@@ -193,19 +209,18 @@ class Wrapper(unittest.TestCase):
         result = self.run_wrapper(prefix='exec 9>>runs/.lock && exec sh "$@"')
         self.assertEqual(result.returncode, 2)
         self.assertNotIn("compiling", result.stdout)
+        self.assertEqual({name: (runs / name).read_bytes() for name in before}, before)
+        self.assertEqual(self.summaries(), [])
 
     def test_closes_the_summary_of_a_run_that_was_stopped(self):
         # Architect stopped it, or the server went down: its log and progress were left behind
         stale = "20261010-120000-Human-v4.1.3"
-        runs = self.folder / "runs"
-        meta = {"id": stale, "script": "releaseVanillaSodium.sh", "pack": "Human", "tag": "v4.1.3"}
-        (runs / "current.json").write_text(json.dumps({**meta, "updated": "2026-10-10T12:05:00+02:00"}))
-        (runs / f"{stale}.log").write_text(
-            "#meta " + json.dumps(meta) + "\n2026-10-10T12:00:00.000 compiling Human RP zips\n"
-        )
+        self.write_progress(stale)
         self.run_wrapper()
-        closed = json.loads((runs / f"{stale}.json").read_text(encoding="utf-8"))
+        closed = json.loads((self.folder / "runs" / f"{stale}.json").read_text(encoding="utf-8"))
         self.assertEqual(closed["status"], "interrupted")
+        # From the stopped run's #meta line, which has none, not from this run's launcher settings
+        self.assertIsNone(closed["automation"])
 
 
 if __name__ == "__main__":

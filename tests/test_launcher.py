@@ -212,6 +212,13 @@ class Launcher(unittest.TestCase):
         commit = git_output("rev-parse", "HEAD", cwd=self.seed)
         self.assertIn(f"settings: test development yes {commit}\n", self.launch().stdout)
 
+    def test_tells_the_release_it_runs_on_production(self):
+        # A production folder's settings, as the scripts read them. The branch stays development:
+        # the test checkout is on it
+        self.write_conf(side="production", branch="development", replace_existing="no", wrapper="no")
+        commit = git_output("rev-parse", "HEAD", cwd=self.seed)
+        self.assertIn(f"settings: production development no {commit}\n", self.launch().stdout)
+
     def test_follows_the_branch_when_github_has_a_tag_of_the_same_name(self):
         # "git fetch origin development" would fetch the tag, and the folder would stop following the branch
         git("tag", "development", "refs/heads/development", cwd=self.origin)
