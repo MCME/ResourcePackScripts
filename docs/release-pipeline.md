@@ -54,6 +54,7 @@ sequenceDiagram
     participant GitHub as Release repo
 
     Staff->>Architect: /rp release h v4.1.3 Better leaves
+    Architect-->>Staff: "Releasing Human v4.1.3 …"
     Architect->>Launcher: sh releaseVanillaSodium.sh Human owner repo v4.1.3 "Better leaves"
     Launcher->>Launcher: take the release lock
     Launcher->>Scripts: git fetch, fast-forward
@@ -61,9 +62,10 @@ sequenceDiagram
     Script->>GitHub: does v4.1.3 exist?
     Script->>Pack: git fetch, fast-forward
     Script->>Script: Sodium zip, generateVanilla twice (Vanilla, Lite), 6 zips, checks
+    Architect-->>Staff: a line as each group of zips is done
     Script->>GitHub: gh release create v4.1.3, upload the zips
     Script-->>Architect: exit code
-    Architect-->>Staff: "RP release finished" or "Error while creating RP release!"
+    Architect-->>Staff: "Human v4.1.3 is released", and Put it live buttons
     Staff->>Architect: /rp server h v4.1.3 26.2
     Architect->>GitHub: download each zip to compute its SHA-1
     Note over Architect: 26.2 players now get v4.1.3
@@ -97,7 +99,7 @@ So you can look at a release before it reaches players, and going back to an old
 
 - **You need the permission `architect.resourcePackAdmin`.** The command also works from the server console.
 - **Run it on the server of the stage you want**: the RP server for a test release, a main server for production.
-- **The build runs in the background.** Its output goes to that server's MCME-Architect log, not to your chat (see [Where the output goes](#where-the-output-goes)). You get one chat message when it ends (see [The result](#6-the-result)).
+- **The build runs in the background.** From MCME-Architect 3.2 you get a line when it starts, a line as each group of zips is done, and a closing message (see [The result](#6-the-result)). Its full output goes to that server's MCME-Architect log (see [Where the output goes](#where-the-output-goes)).
 
 ## 3. The plugin starts the release script
 
@@ -113,7 +115,7 @@ MCME-Architect looks the pack up in the `gitHubRpReleases` section of its config
 It runs `sh <script> <Pack> <owner> <repo> <tag> <title>` in that folder and waits.
 
 > [!IMPORTANT]
-> The plugin waits up to **30 minutes**, or `timeoutMinutes` from the pack's `gitHubRpReleases` entry. A release still running then is stopped, with everything it started, and the chat message says `Process terminated=false`. A Human release takes a little over 5 minutes (see [How long a release takes](#how-long-a-release-takes)).
+> The plugin waits up to **30 minutes**, or `timeoutMinutes` from the pack's `gitHubRpReleases` entry. A release still running then is stopped, with everything it started, and the closing message says it was stopped (before MCME-Architect 3.2: `Process terminated=false`). A Human release takes a little over 5 minutes (see [How long a release takes](#how-long-a-release-takes)).
 
 ### Where the output goes
 
@@ -131,12 +133,30 @@ grep -hF '[RP release Human]' plugins/MCME-Architect/logs/architect_*.log | tail
 
 The server console and `logs/latest.log` get these lines too only when `alsoServerLog` is `true` in the `logging.file` section of Architect's `config.yml`. It's `false` by default. With `enabled: false` in that section, Architect keeps no log of its own, and the lines go to the server console and `logs/latest.log` instead.
 
+### What MCME-Architect reads
+
+From MCME-Architect 3.2, the plugin reads the release's output as it comes, to tell the person who started the release how it goes: a line as each group of zips is done, and a closing message with the outcome, the first warnings, the reason for a stop, and buttons that fill in `/rp server`. These lines are a contract with the plugin (its `RpReleaseReport`): **change one only together with MCME-Architect**.
+
+| Line | Printed by | Architect uses it for |
+|---|---|---|
+| `compiling <Pack> RP zips`, `<Pack>-Sodium`, `<Pack>-Vanilla`, `<Pack>-Lite` (each also with `-Footprints`), `releasing <Pack> RP zips` | the scripts | the step lines in chat |
+| A line starting with `WARNING!`, after any spaces | the scripts, generateVanilla and the wrapper | the warning count, and the first 3 warnings |
+| `ERROR: <reason>` | the scripts, and 7-Zip | why a release stopped: the last such line. When it says "above", also the line before it |
+| `release launcher: <text>` | the launcher | why a release didn't start: the first 3 such lines |
+| `https://github.com/<owner>/<repo>/releases/tag/<tag>` | gh, once it has created the release | the `[Open on GitHub]` button |
+| A line starting with `release note: ` | the scripts, before `gh release create` | the Minecraft versions after `for Minecraft`, one `/rp server` button each. A note without `for Minecraft` (`Version <tag> for pack format <span>`, or just `Version <tag>`) gets one `[/rp server …]` button instead, which fills in `/rp server <Pack> <tag> ` for the releaser to finish |
+| `Release run <id>: <status>, <outcome>. <n> warning(s), <m> error(s). …` | the wrapper, at the end of a run | the run id, and counts that match the dashboard |
+| `Another resource pack release is running: …` | the wrapper, refusing a release | which release is running |
+| `release launcher: Another release is running …` | the launcher, refusing a release where no wrapper runs (production) | which release is running |
+
+The exit code says how the release ended: 0 published, or for `releaseDynmap.sh` built; 1 stopped; 2 or 3 the launcher refused; 75 another release is running.
+
 ## 4. The launcher, the lock and the wrapper
 
 The release scripts in the automation folder aren't the scripts themselves. Each is a copy of the **release launcher**, `automation/launcher.sh` in this repository, which `install.py` put there. Before anything is built, it:
 
-1. **takes the release lock.** Every release script builds in the same `release/` folder, so two releases at once would mix their files. While one release runs, a second is refused and starts nothing: Architect's log says which release is running, and the chat message shows `exitCode=75`. Run `/rp release` again once the first has finished. This holds on both stages.
-2. **brings the folder's ResourcePackScripts checkout up to date** with its branch on GitHub: `development` on the RP server, `master` on production. A change merged here reaches the next release on that stage. It refuses (`exitCode=3`) when the checkout was edited on the server, is on another branch, or has commits GitHub doesn't have. If GitHub can't be reached, it warns and uses what it fetched last.
+1. **takes the release lock.** Every release script builds in the same `release/` folder, so two releases at once would mix their files. While one release runs, a second is refused and starts nothing: Architect's log and its closing message say which release is running (before MCME-Architect 3.2, the chat showed only `exitCode=75`). Run `/rp release` again once the first has finished. This holds on both stages.
+2. **brings the folder's ResourcePackScripts checkout up to date** with its branch on GitHub: `development` on the RP server, `master` on production. A change merged here reaches the next release on that stage. It refuses (exit code 3) when the checkout was edited on the server, is on another branch, or has commits GitHub doesn't have. If GitHub can't be reached, it warns and uses what it fetched last.
 3. **reads the folder's settings**, `automation.conf` (see [The automation folder's settings](server-setup.md#the-automation-folders-settings)).
 4. **hands over** to the release script of the same name in `ResourcePackScripts/automation/scripts/`. On the RP server it goes through the pipeline wrapper.
 
@@ -236,10 +256,9 @@ It brings the checkout named exactly `<Pack>` up to date with GitHub, as the oth
 
 ## 6. The result
 
-**In game**, the plugin sends one message when the script ends:
+**In game**, from MCME-Architect 3.2, the closing message says how the release went: published (with its first warnings), stopped (with the reason), or not started (with why). After a release on GitHub, its `Put it live:` line has a button for each Minecraft version the release note names: a click fills in `/rp server <Pack> <tag> <version>` for you to send. A note that names no version gets one `[/rp server …]` button, for you to finish. `[Open on GitHub]` opens the release, when gh printed its address: not when an existing release only had its zips replaced. A releaser who left the server gets the message when they next join it, unless the server restarts first. Every closing message and refusal is listed in [Error messages in game](troubleshooting.md#error-messages-in-game).
 
-- the success message, `RP release finished. You might want to do /rp server <pack> <tag>`, if the script ended with exit code 0 in the plugin's time (30 minutes, unless the pack's entry sets `timeoutMinutes`);
-- otherwise `Error while creating RP release! Process terminated=<true|false> exitCode=<n>`. That doesn't always mean it failed: see [Error messages in game](troubleshooting.md#error-messages-in-game).
+Before 3.2, the plugin sends one message when the script ends: `RP release finished. …` after exit code 0 in the plugin's time, or otherwise `Error while creating RP release! Process terminated=<true|false> exitCode=<n>`.
 
 **On GitHub**, the release appears at `https://github.com/<owner>/<repo>/releases/tag/<tag>` with its zips. `gh release create` publishes it before the zips are uploaded, so when the upload fails the release is there without all of them, and the release's `ERROR:` line says what to do (see [Messages from the launcher and the scripts](troubleshooting.md#messages-from-the-launcher-and-the-scripts)).
 

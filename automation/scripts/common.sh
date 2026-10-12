@@ -10,8 +10,8 @@
 # MCME-Architect writes the output to its own log, where staff read it. A
 # warning starts with WARNING!!!, which the wrapper counts; a stop is one ERROR:
 # line, then exit 1.
-# Exit codes 2, 3 and 75 belong to the launcher: Architect shows staff only the
-# number, so the scripts never use them.
+# Exit codes 2, 3 and 75 belong to the launcher: MCME-Architect tells staff
+# what each of them means, so the scripts never use them.
 
 warn() {
     printf 'WARNING!!! %s\n' "$*"
@@ -202,6 +202,10 @@ release_note() {
     if [ "$status" -ne 0 ] || [ -z "$note" ]; then
         stop "Couldn't work out the release note (see above). Nothing was published."
     fi
+    # The text of this line is a contract: MCME-Architect reads the Minecraft
+    # versions in it for its /rp server buttons (see "What MCME-Architect
+    # reads" in docs/release-pipeline.md).
+    printf 'release note: %s\n' "$note"
 }
 
 # Publish the zips as the release <tag>. With replace_existing=yes an existing

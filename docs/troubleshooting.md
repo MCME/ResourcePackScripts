@@ -10,7 +10,27 @@
 
 ## Error messages in game
 
-`/rp release` ends with one chat message. MCME-Architect only knows whether the script ended in time and its exit code, so check the run's summary (the `Release run …` line near the end of the run, or the dashboard's Resource packs page) before you act on an error. Every line the release printed is in MCME-Architect's log, on the server where you ran `/rp release` (see [Where the output goes](release-pipeline.md#where-the-output-goes)). The server console has them only when Architect's `alsoServerLog` is `true`.
+From MCME-Architect 3.2, `/rp release` says when it starts, sends a line as each group of zips is done, and ends with a message that says how the release went. A releaser who left the server gets that last message about 2 seconds after they next join it, under `While you were away:`, unless the server restarts first. Every line the release printed is also in MCME-Architect's log, on the server where you ran `/rp release` (see [Where the output goes](release-pipeline.md#where-the-output-goes)).
+
+| Message | What it means | What to do |
+|---|---|---|
+| `Releasing <Pack> <tag> ("<title>"). …` | The release started. | Wait for the result: it comes in chat. |
+| `<Pack> <tag> is released.`, or `… is released, with <n> warnings:` | Published on GitHub. The first 3 warnings follow, and where to read the rest: the dashboard's Resource packs page on the RP server, or Architect's log. | Read the warnings, then put the release live with a button of the `Put it live:` line. |
+| `<Pack> <tag> is released, but its checks found …` | Published, but the pipeline wrapper's checks found errors or problems (RP server only). | Look at the run on the dashboard before you put the release live. |
+| `<Pack>'s dynmap pack is built and in place.`, or `… is built and in place, with <n> warnings:` | The dynmap texture pack was rebuilt. The first 3 warnings follow, if it had any. | Nothing, unless there are warnings: read them before you rely on the pack. |
+| `<Pack> <tag> failed.`, or `… failed with exit code <n>.` | The release script stopped (exit code 1), or it ended with an exit code the scripts don't use, so the script itself failed. The lines under it give its last `ERROR:` reason, and the output just before it when that reason says "above", or else its last line of output. | See [Messages from the launcher and the scripts](#messages-from-the-launcher-and-the-scripts). |
+| `<Pack> <tag> didn't start: another release is running.` | Nothing was built or uploaded. The line under it says which release runs. | Wait until it has finished, then run `/rp release` again. |
+| `<Pack> <tag> didn't start: the release system on this server needs an admin.` | The launcher refused: the automation folder isn't installed or its settings are invalid (exit code 2), or its ResourcePackScripts checkout isn't as GitHub has it (exit code 3). The launcher's own words follow. | An admin reads them (see [Messages from the launcher and the scripts](#messages-from-the-launcher-and-the-scripts)). |
+| `<Pack> <tag> was stopped after <n> minutes, during …` | The release ran longer than the plugin allows, so the plugin stopped it and everything it started. | Check the release on GitHub, and ask an admin. A pack that needs longer can get `timeoutMinutes` in its `gitHubRpReleases` entry. |
+| `<Pack> <tag> couldn't be started: …` | The script couldn't be started, usually because the automation folder in the pack's `gitHubRpReleases` entry doesn't exist. | Ask an admin to check the `path`. |
+| `<Pack> can't be released from this server: …` | The pack's `gitHubRpReleases` entry lacks its owner, repo, script or path. Nothing started. | Ask an admin (see [Add a pack to the automation](server-setup.md#2-tell-mcme-architect-about-the-pack)). |
+| `Releases only run on Linux servers.` | The server runs Windows. Nothing started. | Release from a Linux server. |
+| `Unknown resource pack: <name>. Use one of: …` | No pack in the server's config starts with what you typed. | Use one of the names it lists. |
+| `Command syntax: /rp release <rpName> <Version> <Title>` | Fewer than three arguments after `release`. | Give the pack, the tag and a title. |
+
+### Before MCME-Architect 3.2
+
+A server that still runs MCME-Architect 3.1 sends one message, when the script ends. It only knows whether the script ended in time and its exit code, so check the run's summary (the `Release run …` line near the end of the run, or the dashboard's Resource packs page) before you act on an error.
 
 | Message | What it means | What to do |
 |---|---|---|
@@ -23,7 +43,6 @@
 | `Process terminated=false` after 30 minutes | The release ran longer than the plugin allows, so the plugin stopped it and everything it started. Architect's log then says `The RP release script for '<Pack>' version <tag> still ran after <n> minutes, so it was stopped.` | Look for the cause in the release's lines before it. A pack that needs longer can get `timeoutMinutes` in its `gitHubRpReleases` entry. |
 | `Process terminated=false exitCode=-1` straight away | The script couldn't be started, usually because the automation folder in the pack's `gitHubRpReleases` entry doesn't exist. | Ask an admin to check the `path`. |
 | `Process terminated=true exitCode=-1` | The pack has no complete `gitHubRpReleases` entry (owner, repo, script and path), or the server runs on Windows. | Ask an admin to check the pack's entry (see [Add a pack to the automation](server-setup.md#2-tell-mcme-architect-about-the-pack)). |
-| `Command syntax: /rp release <rpName> <Version> <Title>` | Fewer than three arguments after `release`. | Give the pack, the tag and a title. |
 
 ## Messages from the launcher and the scripts
 

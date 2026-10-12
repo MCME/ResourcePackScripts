@@ -7,6 +7,7 @@ without pytest.
 
 import json
 import os
+import re
 import shutil
 import signal
 import subprocess
@@ -154,6 +155,14 @@ class Wrapper(unittest.TestCase):
         )
         self.assertIn(f"Release run {summary['id']}: ", result.stdout)
         self.assertFalse((self.folder / "runs" / "current.json").exists())
+
+    def test_prints_the_verdict_line_mcme_architect_reads(self):
+        # Its whole shape is a contract (docs/release-pipeline.md, What MCME-Architect reads)
+        result = self.run_wrapper()
+        [summary] = self.summaries()
+        self.assertRegex(result.stdout, r"(?m)^Release run " + re.escape(summary["id"]) + r": "
+                         r"(OK|OK with warnings|FAILED|INTERRUPTED), (released|nothing released|cut off)\. "
+                         r"\d+ warning\(s\), \d+ error\(s\)\.")
 
     def test_records_what_the_launcher_released_with(self):
         self.run_wrapper()

@@ -194,6 +194,16 @@ class ReleaseGeneral(ReleaseScriptTest):
               "--notes=Version v1.0 for Minecraft 26.2 and 26.3"]],
         )
 
+    def test_prints_the_release_note_before_publishing_for_mcme_architect(self):
+        # MCME-Architect reads it for the /rp server buttons (docs/release-pipeline.md, What MCME-Architect reads)
+        result = self.release("releaseGeneral.sh", *ROHAN)
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+        lines = result.stdout.splitlines()
+        self.assertEqual([line for line in lines if line.startswith("release note: ")],
+                         ["release note: Version v1.0 for Minecraft 26.2 and 26.3"])
+        self.assertLess(lines.index("release note: Version v1.0 for Minecraft 26.2 and 26.3"),
+                        lines.index("https://github.com/MCME/RP-Rohan/releases/tag/v1.0"))
+
     def test_zips_the_pack_without_its_inventories_or_top_level_dot_files(self):
         self.release("releaseGeneral.sh", *ROHAN)
         names = self.names_in("Rohan.zip")
@@ -713,6 +723,12 @@ class ReleaseVanillaSodium(ReleaseScriptTest):
         [create] = self.gh("create")
         self.assertIn("--notes=Version v4.1.3 for Minecraft 26.2 and 26.3", create)
         self.assertNotIn("WARNING!!! release note", result.stdout)
+
+    def test_prints_the_release_note_for_mcme_architect(self):
+        result = self.release("releaseVanillaSodium.sh", *HUMAN)
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+        self.assertEqual([line for line in result.stdout.splitlines() if line.startswith("release note: ")],
+                         ["release note: Version v4.1.3 for Minecraft 26.2 and 26.3"])
 
     def test_the_release_notes_warnings_count_as_warnings(self):
         result = self.release("releaseVanillaSodium.sh", *HUMAN, FAKE_GENERATE_FORMATS="97 97")

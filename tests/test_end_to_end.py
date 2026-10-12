@@ -161,6 +161,8 @@ class EndToEnd(unittest.TestCase):
         later = ["Rohan", "MCME", "RP-Rohan", "v1.1", "Later"]
         result = self.run_in_folder("sh", "releaseGeneral.sh", *later, env=self.as_architect)
         self.assertEqual(result.returncode, 75)
+        # MCME-Architect shows this line to the releaser who was refused (docs/release-pipeline.md)
+        self.assertRegex(result.stdout, r"(?m)^Another resource pack release is running: ")
         refused = (self.folder / "runs" / "refused.jsonl").read_text(encoding="utf-8").splitlines()
         self.assertEqual(json.loads(refused[-1])["tag"], "v1.1")
         stop(holder)
