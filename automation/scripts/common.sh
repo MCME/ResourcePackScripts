@@ -202,6 +202,8 @@ release_note() {
     if [ "$status" -ne 0 ] || [ -z "$note" ]; then
         stop "Couldn't work out the release note (see above). Nothing was published."
     fi
+    # MCME-Architect reads the Minecraft versions in it for its /rp server buttons
+    printf 'release note: %s\n' "$note"
 }
 
 # Publish the zips as the release <tag>. With replace_existing=yes an existing
