@@ -202,7 +202,9 @@ release_note() {
     if [ "$status" -ne 0 ] || [ -z "$note" ]; then
         stop "Couldn't work out the release note (see above). Nothing was published."
     fi
-    # MCME-Architect reads the Minecraft versions in it for its /rp server buttons
+    # The text of this line is a contract: MCME-Architect reads the Minecraft
+    # versions in it for its /rp server buttons (see "What MCME-Architect
+    # reads" in docs/release-pipeline.md).
     printf 'release note: %s\n' "$note"
 }
 

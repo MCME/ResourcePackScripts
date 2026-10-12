@@ -156,7 +156,7 @@ class Wrapper(unittest.TestCase):
         self.assertIn(f"Release run {summary['id']}: ", result.stdout)
         self.assertFalse((self.folder / "runs" / "current.json").exists())
 
-    def test_ends_with_the_verdict_line_mcme_architect_reads(self):
+    def test_prints_the_verdict_line_mcme_architect_reads(self):
         # Its whole shape is a contract (docs/release-pipeline.md, What MCME-Architect reads)
         result = self.run_wrapper()
         [summary] = self.summaries()

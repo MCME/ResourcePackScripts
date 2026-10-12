@@ -133,24 +133,20 @@ The server console and `logs/latest.log` get these lines too only when `alsoServ
 
 ### What MCME-Architect reads
 
-From MCME-Architect 3.2, the plugin reads the release's output as it comes, to tell the person who started the
-release how it goes: a line as each group of zips is done, and a closing message with the outcome, the first
-warnings, the reason for a stop, and buttons that fill in `/rp server`. These lines are a contract with the plugin
-(its `RpReleaseReport`): **change one only together with MCME-Architect**.
+From MCME-Architect 3.2, the plugin reads the release's output as it comes, to tell the person who started the release how it goes: a line as each group of zips is done, and a closing message with the outcome, the first warnings, the reason for a stop, and buttons that fill in `/rp server`. These lines are a contract with the plugin (its `RpReleaseReport`): **change one only together with MCME-Architect**.
 
 | Line | Printed by | Architect uses it for |
 |---|---|---|
 | `compiling <Pack> RP zips`, `<Pack>-Sodium`, `<Pack>-Vanilla`, `<Pack>-Lite` (each also with `-Footprints`), `releasing <Pack> RP zips` | the scripts | the step lines in chat |
-| A line starting with `WARNING!`, after any spaces | the scripts and generateVanilla | the warning count, and the first 3 warnings |
+| A line starting with `WARNING!`, after any spaces | the scripts, generateVanilla and the wrapper | the warning count, and the first 3 warnings |
 | `ERROR: <reason>` | the scripts, and 7-Zip | why a release stopped: the last such line. When it says "above", also the line before it |
 | `release launcher: <text>` | the launcher | why a release didn't start: the first 3 such lines |
 | `https://github.com/<owner>/<repo>/releases/tag/<tag>` | gh, once it has created the release | the `[Open on GitHub]` button |
-| `release note: <note>` | the scripts, before `gh release create` | the Minecraft versions after `for Minecraft`, one `/rp server` button each |
+| A line starting with `release note: ` | the scripts, before `gh release create` | the Minecraft versions after `for Minecraft`, one `/rp server` button each. A note that names pack formats instead (`Version <tag> for pack format <span>`) gets no buttons |
 | `Release run <id>: <status>, <outcome>. <n> warning(s), <m> error(s). …` | the wrapper, at the end of a run | the run id, and counts that match the dashboard |
 | `Another resource pack release is running: …` | the wrapper, refusing a release | which release is running |
 
-The exit code says how the release ended: 0 published, or for `releaseDynmap.sh` built; 1 stopped; 2 or 3 the
-launcher refused; 75 another release is running.
+The exit code says how the release ended: 0 published, or for `releaseDynmap.sh` built; 1 stopped; 2 or 3 the launcher refused; 75 another release is running.
 
 ## 4. The launcher, the lock and the wrapper
 
