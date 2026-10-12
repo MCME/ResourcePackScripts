@@ -10,8 +10,8 @@
 # MCME-Architect writes the output to its own log, where staff read it. A
 # warning starts with WARNING!!!, which the wrapper counts; a stop is one ERROR:
 # line, then exit 1.
-# Exit codes 2, 3 and 75 belong to the launcher: Architect shows staff only the
-# number, so the scripts never use them.
+# Exit codes 2, 3 and 75 belong to the launcher: MCME-Architect tells staff
+# what each of them means, so the scripts never use them.
 
 warn() {
     printf 'WARNING!!! %s\n' "$*"
