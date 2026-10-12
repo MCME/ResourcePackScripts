@@ -10,7 +10,7 @@
 
 ## Error messages in game
 
-From MCME-Architect 3.2, `/rp release` says when it starts, sends a line as each group of zips is done, and ends with a message that says how the release went. A releaser who left the server gets that last message when they next join it, unless the server restarts first. Every line the release printed is also in MCME-Architect's log, on the server where you ran `/rp release` (see [Where the output goes](release-pipeline.md#where-the-output-goes)).
+From MCME-Architect 3.2, `/rp release` says when it starts, sends a line as each group of zips is done, and ends with a message that says how the release went. A releaser who left the server gets that last message about 2 seconds after they next join it, under `While you were away:`, unless the server restarts first. Every line the release printed is also in MCME-Architect's log, on the server where you ran `/rp release` (see [Where the output goes](release-pipeline.md#where-the-output-goes)).
 
 | Message | What it means | What to do |
 |---|---|---|
