@@ -59,7 +59,7 @@ sequenceDiagram
     Launcher->>Scripts: git fetch, fast-forward
     Launcher->>Script: hand over (ResourcePackScripts/automation/scripts)
     Script->>GitHub: does v4.1.3 exist?
-    Script->>Pack: git pull
+    Script->>Pack: git fetch, fast-forward
     Script->>Script: Sodium zip, generateVanilla twice (Vanilla, Lite), 6 zips, checks
     Script->>GitHub: gh release create v4.1.3, upload the zips
     Script-->>Architect: exit code
@@ -78,7 +78,7 @@ So you can look at a release before it reaches players, and going back to an old
 
 ## 1. Before you release
 
-- **Push your work to the branch the stage builds from**: `development` for the RP server, `master` for production. The server runs `git pull` on that branch at the start of every release. Work that is only on your computer, or on another branch, isn't in the release.
+- **Push your work to the branch the stage builds from**: `development` for the RP server, `master` for production. At the start of every release the server brings its checkout of the pack up to date with that branch on GitHub, and builds what GitHub has. Work that is only on your computer, or on another branch, isn't in the release.
 - **Pick a new version tag**, for example `v4.1.4`. It becomes part of every download URL, so use only letters, digits, dots, dashes and underscores, starting with a letter or digit: the release scripts refuse any other tag before they build anything. Keep it short: the plugin stores each player's pack URL in a 100-character column, and today's longest URLs are already 96 characters.
 - **Use a new tag for every release.** On the RP server, reusing a tag replaces that release's zips. On production, a tag that exists is refused before anything is built (see [Re-running a release](troubleshooting.md#re-running-a-release)).
 - **Optional but recommended:** run the conversion on your own computer with generateVanilla (see the [README](../README.md#generate-the-vanilla-pack)) and read the warnings. The server runs the same code.
@@ -186,7 +186,7 @@ Before the first step, the script checks its arguments and asks GitHub whether t
 | Step (line in the output) | What happens | Output |
 |---|---|---|
 | `compiling <Pack> RP zips` | Start | |
-| `<Pack>-Sodium` | `git pull` in `<Pack>-Sodium`. The pack is copied to `release/` and zipped as it is, **without** its `vanilla/` folder. The shader base is already in the repository, written by [the sync](shader-base.md#getting-it-into-a-pack). | `<Pack>-Sodium.zip` |
+| `<Pack>-Sodium` | `<Pack>-Sodium` is brought up to date with GitHub, or the release stops (see [Details that matter](#details-that-matter)). The pack is copied to `release/` and zipped as it is, **without** its `vanilla/` folder. The shader base is already in the repository, written by [the sync](shader-base.md#getting-it-into-a-pack). | `<Pack>-Sodium.zip` |
 | `<Pack>-Sodium-Footprints` | The footprints texture is copied over `activator_rail.png` and the folder is zipped again. | `<Pack>-Sodium-Footprints.zip` |
 | `<Pack>-Vanilla` | `release/` is emptied, then generateVanilla converts the Sodium pack into it, walking `Vanilla-26.2`. Under the wrapper it also writes `--debug` lines, which go to the run's full log. | `<Pack>-Vanilla.zip` |
 | `<Pack>-Vanilla-Footprints` | Both footprints textures (`activator_rail.png`, `activator_rail_on.png`) are copied in and the folder is zipped again. | `<Pack>-Vanilla-Footprints.zip` |
@@ -194,11 +194,11 @@ Before the first step, the script checks its arguments and asks GitHub whether t
 | `<Pack>-Lite-Footprints` | Footprints again | `<Pack>-Lite-Footprints.zip` |
 | `releasing <Pack> RP zips` | `gh release create <tag>` in the release repository, with your title and a note worked out from the zips, such as "Version v4.1.3 for Minecraft 26.2 and 26.3": every Minecraft version all six zips support. Then `gh release upload` of all six zips, and the release URL is printed. | GitHub release |
 
-**Each Footprints zip must differ from the zip it was made from**, or the release stops before anything is published: the footprints textures didn't make it in. **The Lite zip must differ from the Vanilla zip** in the same way. generateVanilla sets the shader base's `MCME_LITE` flag in every Lite conversion, so the two differ even for a pack with at most two models per variant, and the same files mean Lite mode didn't apply. Any failed step stops the release before it publishes: 7-Zip, generateVanilla, a footprints texture, or the release note. Nothing from an earlier release is ever uploaded in its place.
+**Each Footprints zip must differ from the zip it was made from**, or the release stops before anything is published: the footprints textures didn't make it in. **The Lite zip must differ from the Vanilla zip** in the same way. generateVanilla sets the shader base's `MCME_LITE` flag in every Lite conversion, so the two differ even for a pack with at most two models per variant, and the same files mean Lite mode didn't apply. Any failed step stops the release before it publishes: the pack's update, 7-Zip, generateVanilla, a footprints texture, or the release note. Nothing from an earlier release is ever uploaded in its place.
 
 ```mermaid
 flowchart LR
-    pull["git pull<br/>of the pack"] --> sodium["Sodium zip<br/>(pack as it is,<br/>without vanilla/)"]
+    pull["Pack brought up to date<br/>with GitHub"] --> sodium["Sodium zip<br/>(pack as it is,<br/>without vanilla/)"]
     sodium --> sfp["Sodium-Footprints zip"]
     sfp --> gen1["generateVanilla"]
     gen1 --> vanilla["Vanilla zip"] --> vfp["Vanilla-Footprints zip"]
@@ -213,17 +213,22 @@ Used by Rohan, Lothlorien, Dwarven and, for now, Paths of the Dead. There's no c
 
 | Step | What happens | Output |
 |---|---|---|
-| `compiling <Pack> RP zips` | `git pull` in `<Pack>-Vanilla`. The pack is copied to `release/` and zipped, leaving out any `inventories` folder. | `<Pack>.zip` |
+| `compiling <Pack> RP zips` | `<Pack>-Vanilla` is brought up to date with GitHub, or the release stops (see [Details that matter](#details-that-matter)). The pack is copied to `release/` and zipped, leaving out any `inventories` folder. | `<Pack>.zip` |
 | (no step line) | Both footprints textures are copied in and the folder is zipped again. That zip must differ from the first, or the release stops. | `<Pack>-Footprints.zip` |
 | `releasing <Pack> RP zips` | `gh release create` with the note worked out from the zips, then `gh release upload` of both zips | GitHub release |
 
 ### The dynmap pack: `releaseDynmap.sh` (one zip, no release)
 
-It zips the checkout named exactly `<Pack>`, leaving out any `inventories` folder, and puts `<Pack>.zip` into the dynmap plugin's texture packs: `../../baseline-server/plugins/dynmap/texturepacks/`, seen from the automation folder. It publishes nothing. Where that folder doesn't exist, as seen from the production folder, it stops before building.
+It brings the checkout named exactly `<Pack>` up to date with GitHub, as the other scripts do, then zips it, leaving out any `inventories` folder, and puts `<Pack>.zip` into the dynmap plugin's texture packs: `../../baseline-server/plugins/dynmap/texturepacks/`, seen from the automation folder. It publishes nothing. Where that folder doesn't exist, as seen from the production folder, it stops before building. A stop leaves the zip already in the texture packs in place.
 
 ### Details that matter
 
-- **The server builds whatever is on its checkout's branch after `git pull`.** If the pull fails, for example on a merge conflict, the script carries on with the old files. On the RP server the run then shows an error and the status `failed`, but the zips may still have been uploaded. Check a failed run before you use its release.
+- **The server builds what GitHub has on its checkout's branch.** Before it builds anything, the script fetches that branch from GitHub and fast-forwards the pack's checkout to it: it never merges or rebases on the server. It stops the release instead, with an `ERROR:` line that says why and who fixes it, when:
+  - GitHub can't be reached;
+  - someone edited or added files in the checkout on the server, or made commits there;
+  - the checkout is on no branch, or on a branch that follows none on GitHub, for example one deleted there.
+
+  See [Messages from the launcher and the scripts](troubleshooting.md#messages-from-the-launcher-and-the-scripts). Files that the pack's `.gitignore` ignores aren't checked, and would still be zipped: leave none in the checkout.
 - **Files and folders at the top of the repository whose names start with a dot** (`.git`, `.gitignore`, `.github`) never end up in a zip. Deeper down they do, so don't commit `.DS_Store` and the like.
 - **Everything else at the top of your repository goes into the Sodium zip and the vanilla-only zips**: `README.md`, `changelog.txt`, `blockList.txt` and so on. Keep the top level tidy.
 - **ResourcePackScripts is brought up to date at the start of every release**, by the launcher. A change merged into `development` here is used by the next test release; a change merged into `master` by the next production release.
