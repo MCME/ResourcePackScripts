@@ -97,7 +97,7 @@ So you can look at a release before it reaches players, and going back to an old
 
 - **You need the permission `architect.resourcePackAdmin`.** The command also works from the server console.
 - **Run it on the server of the stage you want**: the RP server for a test release, a main server for production.
-- **The build runs in the background.** Its output goes to that server's MCME-Architect log, not to your chat (see [Where the output goes](#where-the-output-goes)). You get one chat message when it ends (see [The result](#6-the-result)).
+- **The build runs in the background.** From MCME-Architect 3.2 you get a line when it starts, a line as each group of zips is done, and a closing message (see [The result](#6-the-result)). Its full output goes to that server's MCME-Architect log (see [Where the output goes](#where-the-output-goes)).
 
 ## 3. The plugin starts the release script
 
@@ -113,7 +113,7 @@ MCME-Architect looks the pack up in the `gitHubRpReleases` section of its config
 It runs `sh <script> <Pack> <owner> <repo> <tag> <title>` in that folder and waits.
 
 > [!IMPORTANT]
-> The plugin waits up to **30 minutes**, or `timeoutMinutes` from the pack's `gitHubRpReleases` entry. A release still running then is stopped, with everything it started, and the chat message says `Process terminated=false`. A Human release takes a little over 5 minutes (see [How long a release takes](#how-long-a-release-takes)).
+> The plugin waits up to **30 minutes**, or `timeoutMinutes` from the pack's `gitHubRpReleases` entry. A release still running then is stopped, with everything it started, and the closing message says it was stopped (before MCME-Architect 3.2: `Process terminated=false`). A Human release takes a little over 5 minutes (see [How long a release takes](#how-long-a-release-takes)).
 
 ### Where the output goes
 
@@ -257,10 +257,9 @@ It brings the checkout named exactly `<Pack>` up to date with GitHub, as the oth
 
 ## 6. The result
 
-**In game**, the plugin sends one message when the script ends:
+**In game**, from MCME-Architect 3.2, the closing message says how the release went: published (with its first warnings), stopped (with the reason), or not started (with why). After a release on GitHub, its `Put it live:` line has a button for each Minecraft version the release note names: a click fills in `/rp server <Pack> <tag> <version>` for you to send, and `[Open on GitHub]` opens the release. A releaser who left the server gets the message when they next join it. Every message is listed in [Error messages in game](troubleshooting.md#error-messages-in-game).
 
-- the success message, `RP release finished. You might want to do /rp server <pack> <tag>`, if the script ended with exit code 0 in the plugin's time (30 minutes, unless the pack's entry sets `timeoutMinutes`);
-- otherwise `Error while creating RP release! Process terminated=<true|false> exitCode=<n>`. That doesn't always mean it failed: see [Error messages in game](troubleshooting.md#error-messages-in-game).
+Before 3.2, the plugin sends one message when the script ends: `RP release finished. …` after exit code 0 in the plugin's time, or otherwise `Error while creating RP release! Process terminated=<true|false> exitCode=<n>`.
 
 **On GitHub**, the release appears at `https://github.com/<owner>/<repo>/releases/tag/<tag>` with its zips. `gh release create` publishes it before the zips are uploaded, so when the upload fails the release is there without all of them, and the release's `ERROR:` line says what to do (see [Messages from the launcher and the scripts](troubleshooting.md#messages-from-the-launcher-and-the-scripts)).
 
