@@ -14,7 +14,10 @@
 # scripts with sh.
 
 tool="$(cd "$(dirname "$0")" && pwd)/rp-release.py" || exit 2
-server_log=${RP_SERVER_LOG:-../logs/latest.log}
+# Who ran /rp release is in the log of the server that started the release:
+# "auto" finds it (rp-release.py starting_server_log), also from the production
+# folder, which every main server shares
+server_log=${RP_SERVER_LOG:-auto}
 runs=runs
 script=$1
 shift

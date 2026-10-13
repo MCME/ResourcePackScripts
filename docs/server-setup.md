@@ -25,9 +25,9 @@ There are two automation folders, both called `resourcePackAutomation/`:
 | Used by `/rp release` on | the RP server | every other server: the shared config, hub, eventserver |
 | Pack checkouts are on | `development` | `master` |
 | `ResourcePackScripts/` is on | `development` | `master` |
-| `automation.conf` | `side=test`, `branch=development`, `replace_existing=yes`, `wrapper=yes` | `side=production`, `branch=master`, `replace_existing=no`, `wrapper=no` |
+| `automation.conf` | `side=test`, `branch=development`, `replace_existing=yes`, `wrapper=yes` | `side=production`, `branch=master`, `replace_existing=no`, `wrapper=yes` |
 | Release lock (`runs/.lock`) | Yes | Yes |
-| Pipeline wrapper: a log and a summary of every run, in `runs/` | Yes | No |
+| Pipeline wrapper: a log and a summary of every run, in `runs/` | Yes | Yes |
 
 Each folder holds:
 
@@ -40,7 +40,7 @@ Each folder holds:
 | `Footprints/` | `activator_rail.png` and `activator_rail_on.png`, copied into every Footprints zip |
 | `Vanilla-26.2/` | The `assets/` of the Minecraft 26.2 client, which generateVanilla walks |
 | `release/` | Scratch folder each release builds in. Its zips stay next to it until the next release. |
-| `runs/` | The release lock (`runs/.lock`; never touch it: a release that finds it held refuses to start), which release is running (`runs/current`), every refused release with why (`runs/refused.jsonl`, which the dashboard's Resource packs page lists for the RP server), and in the test folder the wrapper's log and summary of every run |
+| `runs/` | The release lock (`runs/.lock`; never touch it: a release that finds it held refuses to start), which release is running (`runs/current`), every refused release with why (`runs/refused.jsonl`, which the dashboard's Resource packs page lists for the RP server), and the wrapper's log and summary of every run |
 | `pre-automation-backup-<stamp>/` | What `install.py` replaced, to undo the install with `--restore` |
 | `*-Inventories/`, `*-Common/`, `*-Vanilla` of Sodium packs | Older or separate tools. Not used by the release scripts. |
 
@@ -55,7 +55,7 @@ Each automation folder has an `automation.conf`, which `install.py` writes:
 | `side` | `test` | `production` | Which stage the folder is |
 | `branch` | `development` | `master` | The branch `ResourcePackScripts/` follows |
 | `replace_existing` | `yes` | `no` | Whether a release with a tag that exists replaces that release's zips. With `no` it's refused before anything is built. |
-| `wrapper` | `yes` | `no` | Whether releases go through the pipeline wrapper (a log and a summary of every run) |
+| `wrapper` | `yes` | `yes` | Whether releases go through the pipeline wrapper (a log and a summary of every run) |
 
 Every setting is required. A setting or value the launcher doesn't know stops every release in the folder, so a typo can't change a release silently. `automation/automation.conf.example` explains the file.
 
@@ -217,7 +217,7 @@ To fix it, remove the bad slot from every variant of that pack in the config fil
 - **Player URLs are stored in a 100-character database column.** `https://github.com/<owner>/<repo>/releases/download/<tag>/<zip>` must stay under 100 characters. Today's longest is 96. Keep pack names, repository names and tags short.
 - **MCME-Architect gives a release 30 minutes**, or `timeoutMinutes` from the pack's `gitHubRpReleases` entry. A release still running then is stopped, with everything it started, and the closing message says it was stopped (before MCME-Architect 3.2: `terminated=false`).
 - **A release's output goes to MCME-Architect's log**, `plugins/MCME-Architect/logs/architect_<date>_<time>_<n>.log` on the server that ran `/rp release`. The server console gets it only with `alsoServerLog: true` in the `logging.file` section of Architect's config (see [Where the output goes](release-pipeline.md#where-the-output-goes)).
-- **Both folders run the same scripts.** What differs is in `automation.conf`: production never replaces an existing release's zips, and refuses the tag before building. Production also has no pipeline wrapper yet.
+- **Both folders run the same scripts.** What differs is in `automation.conf`: production never replaces an existing release's zips, and refuses the tag before building.
 - **Each launcher is a copy.** A change to `automation/launcher.sh` reaches a folder only when `install.py` runs there again. `--check` says when a copy is out of date.
 - **The release note names the Minecraft versions every zip supports**, from their `pack.mcmeta` and `generateVanilla/pack_formats.json`. When Minecraft gets a new pack format, add it to that map. Until the shader base's range covers it, every Sodium release then warns that its zips support different versions, and that is expected.
 - **generateVanilla walks `Vanilla-26.2`**, so blocks newer than 26.2 are dropped from Vanilla and Lite zips. To move to a newer version:

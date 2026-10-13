@@ -16,7 +16,7 @@ From MCME-Architect 3.2, `/rp release` says when it starts, sends a line as each
 |---|---|---|
 | `Releasing <Pack> <tag> ("<title>"). …` | The release started. | Wait for the result: it comes in chat. |
 | `<Pack> <tag> is released.`, or `… is released, with <n> warnings:` | Published on GitHub. The first 3 warnings follow, and where to read the rest: the dashboard's Resource packs page on the RP server, or Architect's log. | Read the warnings, then put the release live with a button of the `Put it live:` line. |
-| `<Pack> <tag> is released, but its checks found …` | Published, but the pipeline wrapper's checks found errors or problems (RP server only). | Look at the run on the dashboard before you put the release live. |
+| `<Pack> <tag> is released, but its checks found …` | Published, but the pipeline wrapper's checks found errors or problems. | Look at the run on the dashboard before you put the release live. |
 | `<Pack>'s dynmap pack is built and in place.`, or `… is built and in place, with <n> warnings:` | The dynmap texture pack was rebuilt. The first 3 warnings follow, if it had any. | Nothing, unless there are warnings: read them before you rely on the pack. |
 | `<Pack> <tag> failed.`, or `… failed with exit code <n>.` | The release script stopped (exit code 1), or it ended with an exit code the scripts don't use, so the script itself failed. The lines under it give its last `ERROR:` reason, and the output just before it when that reason says "above", or else its last line of output. | See [Messages from the launcher and the scripts](#messages-from-the-launcher-and-the-scripts). |
 | `<Pack> <tag> didn't start: another release is running.` | Nothing was built or uploaded. The line under it says which release runs. | Wait until it has finished, then run `/rp release` again. |
@@ -103,7 +103,7 @@ In the rows about a pack's checkout, `<checkout>` is the pack's folder: `<Pack>-
 
 A problem with one model or file is skipped with a message and the run carries on, so a release can succeed with broken blocks in it. Read them after every run. Not all of them start with `WARNING`.
 
-On the RP server, the run's summary counts the lines that start with `WARNING!` as warnings, the release scripts' own included. Lines containing `Error` count as errors, so **one model objmc couldn't bake (`Error running process script`) makes the whole run `failed`**, even though the release went out. `Missing .mtl file`, `Missing texture for`, `Unexpected namespace` and `Note:` lines don't count at all. Search the run's log for them, or on production Architect's log.
+The run's summary counts the lines that start with `WARNING!` as warnings, the release scripts' own included. Lines containing `Error` count as errors, so **one model objmc couldn't bake (`Error running process script`) makes the whole run `failed`**, even though the release went out. `Missing .mtl file`, `Missing texture for`, `Unexpected namespace` and `Note:` lines don't count at all. Search the run's log for them.
 
 | Message | Meaning | What to do |
 |---|---|---|

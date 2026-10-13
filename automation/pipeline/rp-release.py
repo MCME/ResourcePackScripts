@@ -5,18 +5,20 @@ the dashboard's Resource packs page. Standard library only.
 pipeline/run.sh uses it around each release script. ARGS are the release
 script's own: <pack> <owner> <repo> <tag> <release name>.
 
-    rp-release.py log --runs DIR --id ID --script NAME [--server-log FILE] -- ARGS
+    rp-release.py log --runs DIR --id ID --script NAME [--server-log FILE|auto] -- ARGS
         The script's output, stdout and stderr together, on stdin. Every line
         goes to DIR/ID.log with a timestamp. All but the generator's --debug
         lines also go to DIR/ID.console.log and to stdout, which the plugin
-        writes to its log. DIR/current.json says what is running.
+        writes to its log. DIR/current.json says what is running. The server
+        log tells who ran /rp release; "auto" reads the log of the server that
+        started the release (see starting_server_log).
 
     rp-release.py summary --runs DIR --id ID --exit CODE|interrupted
         DIR/ID.json from DIR/ID.log: steps, zips, warnings, errors and the
         release. Then the log is gzipped, current.json removed and old logs
         pruned. Prints one line for the plugin's log.
 
-    rp-release.py refused --runs DIR --script NAME [--server-log FILE] -- ARGS
+    rp-release.py refused --runs DIR --script NAME [--server-log FILE|auto] -- ARGS
         Another release holds the lock: says which, and notes the attempt in
         DIR/refused.jsonl.
 
@@ -50,6 +52,9 @@ KEEP_FULL_LOGS = 30
 KEEP_CONSOLE_LOGS = 200
 MAX_EVENTS = 3000
 SERVER_LOG_TAIL = 1024 * 1024
+# A server's log, seen from an automation folder inside the server's folder
+# (the RP server's); the last resort of --server-log auto
+DEFAULT_SERVER_LOG = "../logs/latest.log"
 # A zip with fewer files than this share of the baseline's is a notice, not a
 # problem. The converter getting better looks exactly like the converter
 # breaking half-way, and only a person can tell those apart, so this reports
@@ -137,6 +142,41 @@ def last_segment(text):
     return parts[-1] if parts else ""
 
 
+def starting_server_log(fallback, proc="/proc", pid=None):
+    """The log of the Minecraft server that started this release.
+
+    MCME-Architect starts a release script from the server's own Java process,
+    whose working folder is the server's folder: the first java up the chain of
+    parents (from pid, by default this process's parent) is that server. The
+    production folder sits next to the servers' folders and every main server
+    releases through it, so its ../logs/latest.log is the proxy's log, never the
+    log of the server where /rp release was typed. Without a java among the
+    parents (a run by hand, a test), or a server without logs/latest.log: fallback.
+    """
+    pid = os.getppid() if pid is None else pid
+    for _ in range(32):
+        if pid <= 1:
+            break
+        base = os.path.join(proc, str(pid))
+        try:
+            if os.path.basename(os.readlink(os.path.join(base, "exe"))).startswith("java"):
+                log = os.path.join(os.readlink(os.path.join(base, "cwd")), "logs", "latest.log")
+                return log if os.path.isfile(log) else fallback
+            with open(os.path.join(base, "stat"), encoding="utf-8", errors="replace") as fh:
+                # "pid (name) state ppid ...": the name may hold spaces and brackets
+                pid = int(fh.read().rsplit(")", 1)[1].split()[1])
+        except (OSError, ValueError, IndexError):
+            break
+    return fallback
+
+
+def server_log_path(value):
+    """--server-log as given; "auto": the starting server's log."""
+    if value == "auto":
+        return starting_server_log(DEFAULT_SERVER_LOG)
+    return value
+
+
 def find_user(server_log, tag, at, window=300):
     """Who ran /rp release for this tag, from the server log's tail."""
     if not server_log or not tag:
@@ -174,7 +214,7 @@ def cmd_log(opts):
     runs, run_id = opts.runs, opts.id
     started = now()
     meta = {"version": VERSION, "id": run_id, "script": opts.script, **release_args(opts.args),
-            "user": find_user(opts.server_log, release_args(opts.args)["tag"], started),
+            "user": find_user(server_log_path(opts.server_log), release_args(opts.args)["tag"], started),
             "started": iso(started), "pid": os.getppid(), "automation": automation_info()}
     progress = {**meta, "step": None, "stepStarted": None, "lines": 0, "consoleLines": 0,
                 "debugLines": 0, "warnings": 0, "errors": 0, "updated": iso(started),
@@ -703,7 +743,7 @@ def cmd_refused(opts):
     attempt = release_args(opts.args)
     at = now()
     current = read_json(os.path.join(runs, "current.json")) or {}
-    user = find_user(opts.server_log, attempt["tag"], at)
+    user = find_user(server_log_path(opts.server_log), attempt["tag"], at)
     since = current.get("started", "")[11:19]
     who = f" by {current['user']}" if current.get("user") else ""
     step = f", now at {current['step']}" if current.get("step") else ""

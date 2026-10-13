@@ -15,4 +15,4 @@ wrapper=yes                 # run releases through the pipeline wrapper? yes | n
 #   side=production
 #   branch=master
 #   replace_existing=no     # a replaced zip would no longer match a live slot's checksum
-#   wrapper=no              # until the wrapper comes to production
+#   wrapper=yes
