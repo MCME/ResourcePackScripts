@@ -40,7 +40,7 @@ Each folder holds:
 | `Footprints/` | `activator_rail.png` and `activator_rail_on.png`, copied into every Footprints zip |
 | `Vanilla-26.2/` | The `assets/` of the Minecraft 26.2 client, which generateVanilla walks |
 | `release/` | Scratch folder each release builds in. Its zips stay next to it until the next release. |
-| `runs/` | The release lock (`runs/.lock`; never touch it: a release that finds it held refuses to start), which release is running (`runs/current`), and in the test folder the wrapper's log and summary of every run |
+| `runs/` | The release lock (`runs/.lock`; never touch it: a release that finds it held refuses to start), which release is running (`runs/current`), every refused release with why (`runs/refused.jsonl`, which the dashboard's Resource packs page lists for the RP server), and in the test folder the wrapper's log and summary of every run |
 | `pre-automation-backup-<stamp>/` | What `install.py` replaced, to undo the install with `--restore` |
 | `*-Inventories/`, `*-Common/`, `*-Vanilla` of Sodium packs | Older or separate tools. Not used by the release scripts. |
 

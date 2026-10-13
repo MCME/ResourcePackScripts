@@ -160,6 +160,8 @@ The release scripts in the automation folder aren't the scripts themselves. Each
 3. **reads the folder's settings**, `automation.conf` (see [The automation folder's settings](server-setup.md#the-automation-folders-settings)).
 4. **hands over** to the release script of the same name in `ResourcePackScripts/automation/scripts/`. On the RP server it goes through the pipeline wrapper.
 
+Every refusal also leaves a note in `runs/refused.jsonl`: when, which release, the exit code and why. On the RP server the dashboard's **Resource packs** page lists them, because a refused release leaves no run to read.
+
 What `development` has that production's `master` doesn't yet: [compare `master...development`](https://github.com/MCME/ResourcePackScripts/compare/master...development).
 
 ### The pipeline wrapper (RP server only)

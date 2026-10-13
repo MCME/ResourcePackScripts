@@ -16,7 +16,8 @@
 #
 # Its own exit codes: 2 the folder isn't installed or can't release, 3 the
 # checkout isn't as GitHub has it, 75 another release holds the lock. Any
-# other code is the release's own.
+# other code is the release's own. Each of its refusals also leaves a note for
+# the dashboard's Resource packs page in runs/refused.jsonl.
 
 folder=$(cd "$(dirname "$0")" && pwd) || exit 2
 cd "$folder" || exit 2
@@ -27,23 +28,61 @@ say() {
     printf 'release launcher: %s\n' "$*" >&2
 }
 
+# The release's own arguments, for the note a refusal leaves
+arg_pack=${1-} arg_owner=${2-} arg_repo=${3-} arg_tag=${4-} arg_title=
+if [ $# -gt 4 ]; then
+    arg_title=$(shift 4; printf '%s' "$*")
+fi
+
+# A refusal's note for the dashboard, one JSON line in runs/refused.jsonl, as
+# the wrapper writes for a release the lock refused. Only once runs/ exists, so
+# an uninstalled folder gets none; with python3 -I, so nothing in this folder
+# or the checkout runs; without "(see above)" and the like, which mean nothing
+# on the dashboard. A note that can't be written changes nothing about the
+# refusal itself
+note() {
+    [ -d "$folder/runs" ] || return 0
+    python3 -I -c '
+import datetime, json, re, sys
+path, script, code, reason, pack, owner, repo, tag, title = sys.argv[1:]
+reason = re.sub(r" ?\([^()]*above\)", "", reason)
+entry = {"at": datetime.datetime.now().astimezone().isoformat(timespec="seconds"), "script": script,
+         "pack": pack or None, "owner": owner or None, "repo": repo or None, "tag": tag or None,
+         "name": title or None, "user": None, "by": "launcher", "code": int(code), "reason": reason}
+with open(path, "a", encoding="utf-8") as fh:
+    fh.write(json.dumps(entry, ensure_ascii=False) + "\n")
+' "$folder/runs/refused.jsonl" "$name" "$1" "$2" \
+        "$arg_pack" "$arg_owner" "$arg_repo" "$arg_tag" "$arg_title" 9>&- 2>/dev/null || true
+}
+
+# Say why no release runs ($2, then any further lines), note it, and stop with
+# the launcher's exit code ($1)
+refuse() {
+    code=$1 reason=$2
+    shift 2
+    say "$reason"
+    for line in "$@"; do
+        say "$line"
+    done
+    note "$code" "$reason"
+    exit "$code"
+}
+
 setting() {
     python3 "$checkout/automation/automation_conf.py" get "$folder/automation.conf" "$1"
 }
 
 # The checkout must be on the branch the folder follows ($1, when known)
 wrong_branch() {
-    say "ResourcePackScripts is on '${current:-no branch}', but automation.conf says '${1:-?}'. Switch it with: git -C ResourcePackScripts switch ${1:-<branch>}"
-    exit 3
+    refuse 3 "ResourcePackScripts is on '${current:-no branch}', but automation.conf says '${1:-?}'. Switch it with: git -C ResourcePackScripts switch ${1:-<branch>}"
 }
 
 # 1. An installed folder. Its settings are read only once the checkout is up
 #    to date (step 4), so that a fix to the reader on GitHub reaches this
 #    folder by itself
 if [ ! -f "$folder/automation.conf" ] || [ ! -e "$checkout/.git" ]; then
-    say "This automation folder isn't installed: it has no automation.conf, or no ResourcePackScripts checkout."
-    say "Install it with: python3 ResourcePackScripts/automation/install.py --side <test|production>"
-    exit 2
+    refuse 2 "This automation folder isn't installed: it has no automation.conf, or no ResourcePackScripts checkout." \
+        "Install it with: python3 ResourcePackScripts/automation/install.py --side <test|production>"
 fi
 
 # 2. The release lock, on descriptor 9. Every process that inherits the
@@ -64,12 +103,10 @@ case $? in
             --server-log "${RP_SERVER_LOG:-../logs/latest.log}" -- "$@" 9>&- && exit 75
     fi
     running=$(cat "$folder/runs/current" 2>/dev/null)
-    say "Another release is running${running:+: $running}. Start this one again once it has finished."
-    exit 75
+    refuse 75 "Another release is running${running:+: $running}. Start this one again once it has finished."
     ;;
 *)
-    say "Couldn't take the release lock (flock's reason is above), so no release runs here."
-    exit 2
+    refuse 2 "Couldn't take the release lock (flock's reason is above), so no release runs here."
     ;;
 esac
 # Which release holds the lock, for one refused meanwhile. The release script
@@ -84,8 +121,7 @@ trap 'rm -f "$folder/runs/current"' EXIT
 head=$(git -C "$checkout" symbolic-ref --quiet HEAD 9>&-)
 status=$?
 if [ "$status" -gt 1 ]; then
-    say "git can't read ResourcePackScripts (its reason is above), so no release runs here."
-    exit 3
+    refuse 3 "git can't read ResourcePackScripts (its reason is above), so no release runs here."
 fi
 current=${head#refs/heads/}
 if [ -z "$head" ]; then
@@ -94,18 +130,19 @@ fi
 # Untracked files count too, whatever the server's git config says: a script
 # dropped into the checkout must not run unreviewed
 if ! changes=$(git -C "$checkout" status --porcelain --untracked-files=normal 9>&-); then
-    say "git status failed in ResourcePackScripts (its reason is above), so no release runs here."
-    exit 3
+    refuse 3 "git status failed in ResourcePackScripts (its reason is above), so no release runs here."
 fi
 if [ -n "$changes" ]; then
     # What changed, as git status shows it: the first 10 lines, so the admin
     # knows what to take to a pull request or undo
-    say "Someone edited ResourcePackScripts on the server. That change must go through a pull request; until then no release runs here. What git status shows:"
+    edited="Someone edited ResourcePackScripts on the server. That change must go through a pull request; until then no release runs here."
+    say "$edited What git status shows:"
     printf '%s\n' "$changes" | head -n 10 | sed 's/^/release launcher:   /' >&2
     count=$(printf '%s\n' "$changes" | grep -c '')
     if [ "$count" -gt 10 ]; then
         say "and $((count - 10)) more: git -C ResourcePackScripts status lists them all."
     fi
+    note 3 "$edited git status shows $count changed or new file(s)."
     exit 3
 fi
 # GIT_TERMINAL_PROMPT=0: a fetch that wants a password fails at once. The low
@@ -121,8 +158,7 @@ if ! git -C "$checkout" rev-parse --verify --quiet "refs/remotes/origin/$current
     if [ -n "$declared" ] && [ "$declared" != "$current" ]; then
         wrong_branch "$declared"
     fi
-    say "GitHub has no branch '$current' (or can't be reached, and it was never fetched here), so ResourcePackScripts can't follow it."
-    exit 3
+    refuse 3 "GitHub has no branch '$current' (or can't be reached, and it was never fetched here), so ResourcePackScripts can't follow it."
 fi
 if [ "$fetched" = no ]; then
     say "Couldn't fetch '$current' from GitHub ($(printf '%s\n' "$fetch_error" | head -n 1)), so this release uses the version fetched last."
@@ -130,12 +166,10 @@ fi
 # merge --ff-only alone would take a checkout that is ahead of GitHub as
 # "already up to date", and a commit made here would go out unreviewed
 if ! git -C "$checkout" merge-base --is-ancestor HEAD "refs/remotes/origin/$current" 9>&-; then
-    say "ResourcePackScripts has commits that GitHub's $current doesn't. Either they were made on the server and need a pull request, or GitHub's history was rewritten and the checkout needs resetting to it. Until then no release runs here."
-    exit 3
+    refuse 3 "ResourcePackScripts has commits that GitHub's $current doesn't. Either they were made on the server and need a pull request, or GitHub's history was rewritten and the checkout needs resetting to it. Until then no release runs here."
 fi
 if ! git -C "$checkout" merge --ff-only --quiet "refs/remotes/origin/$current" >/dev/null 9>&-; then
-    say "Couldn't bring ResourcePackScripts up to date with GitHub's $current (git's reason is above)."
-    exit 3
+    refuse 3 "Couldn't bring ResourcePackScripts up to date with GitHub's $current (git's reason is above)."
 fi
 
 # 4. This folder's settings, read by the reader just brought up to date. It
@@ -146,12 +180,10 @@ side=$(setting side) && branch=$(setting branch) \
 case $? in
 0) ;;
 2)
-    say "This folder's automation.conf is invalid (see above). Fix the line named there, or rewrite the file: python3 ResourcePackScripts/automation/install.py --side <test|production> --force"
-    exit 2
+    refuse 2 "This folder's automation.conf is invalid (see above). Fix the line named there, or rewrite the file: python3 ResourcePackScripts/automation/install.py --side <test|production> --force"
     ;;
 *)
-    say "ResourcePackScripts's automation/automation_conf.py failed (see above), as it is on GitHub's $current, so no release can start. Once a fix is on GitHub, the next release picks it up."
-    exit 2
+    refuse 2 "ResourcePackScripts's automation/automation_conf.py failed (see above), as it is on GitHub's $current, so no release can start. Once a fix is on GitHub, the next release picks it up."
     ;;
 esac
 if [ "$branch" != "$current" ]; then
@@ -165,17 +197,16 @@ fi
 #    them needs the executable bit
 script="$checkout/automation/scripts/$name"
 if [ ! -f "$script" ]; then
-    say "ResourcePackScripts has no release script called $name."
-    exit 2
+    refuse 2 "ResourcePackScripts has no release script called $name."
 fi
 entry="$checkout/automation/pipeline/run.sh"
 if [ "$wrapper" = yes ] && [ ! -f "$entry" ]; then
-    say "automation.conf asks for the pipeline wrapper, but ResourcePackScripts has no automation/pipeline/run.sh."
-    exit 2
+    refuse 2 "automation.conf asks for the pipeline wrapper, but ResourcePackScripts has no automation/pipeline/run.sh."
 fi
 # What the release runs with: the scripts read replace_existing, and the
 # wrapper records the side, the branch and the commit in the run's summary
-RP_AUTOMATION_COMMIT=$(git -C "$checkout" rev-parse HEAD 9>&-) || exit 3
+RP_AUTOMATION_COMMIT=$(git -C "$checkout" rev-parse HEAD 9>&-) \
+    || refuse 3 "git couldn't read which commit ResourcePackScripts is on (its reason is above)."
 RP_AUTOMATION_SIDE=$side
 RP_AUTOMATION_BRANCH=$branch
 RP_AUTOMATION_REPLACE_EXISTING=$replace_existing

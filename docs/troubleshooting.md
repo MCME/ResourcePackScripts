@@ -46,7 +46,7 @@ A server that still runs MCME-Architect 3.1 sends one message, when the script e
 
 ## Messages from the launcher and the scripts
 
-The launcher's lines start with `release launcher:`, and the release scripts' stops with `ERROR:`. MCME-Architect writes all of them to its log (see [Where the output goes](release-pipeline.md#where-the-output-goes)), and to the server console only when its `alsoServerLog` is `true`. The launcher's lines are only there: it prints them before the run starts, so a refused start leaves no run to read. On the RP server the scripts' lines are in the run's log too.
+The launcher's lines start with `release launcher:`, and the release scripts' stops with `ERROR:`. MCME-Architect writes all of them to its log (see [Where the output goes](release-pipeline.md#where-the-output-goes)), and to the server console only when its `alsoServerLog` is `true`. The launcher's lines are only there: it prints them before the run starts, so a refused start leaves no run to read. It does leave a note of the refusal and its reason in `runs/refused.jsonl`, which the dashboard's Resource packs page lists for the RP server. On the RP server the scripts' lines are in the run's log too.
 
 In the rows about a pack's checkout, `<checkout>` is the pack's folder: `<Pack>-Sodium`, `<Pack>-Vanilla`, or `<Pack>` for the dynmap pack.
 

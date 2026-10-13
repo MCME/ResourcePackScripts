@@ -7,6 +7,8 @@ automation folder whose ResourcePackScripts checkout is a clone of a local
 settings reader.
 """
 
+import datetime
+import json
 import os
 import shutil
 import signal
@@ -290,6 +292,81 @@ class Launcher(unittest.TestCase):
         result = self.launch(env=dict(GIT_ENV, FAKE_RP_RELEASE_EXIT="1"))
         self.assertEqual(result.returncode, 75)
         self.assertIn("Another release is running", result.stderr)
+
+    def notes(self):
+        """The refusals noted for the dashboard in runs/refused.jsonl, oldest first."""
+        path = self.folder / "runs" / "refused.jsonl"
+        if not path.exists():
+            return []
+        return [json.loads(line) for line in path.read_text(encoding="utf-8").splitlines()]
+
+    def test_a_refusal_leaves_a_note_for_the_dashboard(self):
+        script = self.checkout / "automation" / "scripts" / "releaseGeneral.sh"
+        script.write_text(script.read_text() + "echo edited on the server\n")
+        self.assertEqual(self.launch().returncode, 3)
+        [note] = self.notes()
+        self.assertEqual(note["by"], "launcher")
+        self.assertEqual(note["code"], 3)
+        self.assertEqual(note["script"], "releaseGeneral.sh")
+        self.assertEqual(
+            [note["pack"], note["owner"], note["repo"], note["tag"], note["name"]],
+            ["Rohan", "MCME", "RP-Rohan", "v1.0", "Better leaves"],
+        )
+        self.assertIsNone(note["user"])
+        self.assertIn("Someone edited ResourcePackScripts on the server.", note["reason"])
+        self.assertIn("git status shows 1 changed or new file(s).", note["reason"])
+        self.assertIsNotNone(datetime.datetime.fromisoformat(note["at"]).tzinfo)
+
+    def test_a_note_leaves_out_what_only_the_log_shows(self):
+        # "(its reason is above)" points at lines the dashboard doesn't have
+        (self.checkout / ".git" / "index").write_bytes(b"not an index")
+        self.assertEqual(self.launch().returncode, 3)
+        [note] = self.notes()
+        self.assertEqual(note["reason"], "git status failed in ResourcePackScripts, so no release runs here.")
+
+    def test_a_wrong_branch_leaves_a_note(self):
+        git("checkout", "-q", "-b", "hotfix", cwd=self.checkout)
+        self.assertEqual(self.launch().returncode, 3)
+        [note] = self.notes()
+        self.assertIn("ResourcePackScripts is on 'hotfix', but automation.conf says 'development'.", note["reason"])
+
+    def test_a_lock_refusal_without_the_wrapper_leaves_a_note(self):
+        (self.folder / "runs").mkdir()
+        (self.folder / "runs" / "current").write_text(
+            "releaseVanillaSodium.sh Human MCME RP-Human v4.1.3 Leaves (started 2026-10-10 12:00:00)\n"
+        )
+        self.hold_the_lock()
+        self.assertEqual(self.launch().returncode, 75)
+        [note] = self.notes()
+        self.assertEqual(note["code"], 75)
+        self.assertIn("Another release is running: releaseVanillaSodium.sh Human", note["reason"])
+
+    def test_a_refusal_through_the_wrapper_is_noted_once(self):
+        # The wrapper notes a lock refusal itself (the fake one here notes nothing)
+        self.write_conf(wrapper="yes")
+        self.hold_the_lock()
+        self.assertEqual(self.launch().returncode, 75)
+        self.assertEqual(self.notes(), [])
+
+    def test_a_release_that_runs_leaves_no_note(self):
+        self.assertEqual(self.launch().returncode, 0)
+        self.assertEqual(self.notes(), [])
+
+    def test_a_note_keeps_awkward_arguments_intact(self):
+        script = self.checkout / "automation" / "scripts" / "releaseGeneral.sh"
+        script.write_text(script.read_text() + "echo edited on the server\n")
+        title = 'It\'s "Mordor" \u2014 \u00fcn\u00efcode $HOME `id` \\ end'
+        self.assertEqual(self.launch(args=ARGS[:4] + title.split(" ")).returncode, 3)
+        [note] = self.notes()
+        self.assertEqual(note["name"], title)
+
+    def test_a_note_that_cannot_be_written_changes_nothing(self):
+        (self.folder / "runs" / "refused.jsonl").mkdir(parents=True)
+        script = self.checkout / "automation" / "scripts" / "releaseGeneral.sh"
+        script.write_text(script.read_text() + "echo edited on the server\n")
+        result = self.launch()
+        self.assertEqual(result.returncode, 3)
+        self.assertIn("edited ResourcePackScripts on the server", result.stderr)
 
     def test_the_lock_comes_free_when_architect_stops_a_release(self):
         # At its timeout Architect stops the release and everything it started (TERM, then KILL)
