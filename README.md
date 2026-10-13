@@ -183,6 +183,14 @@ pip install -r requirements.txt
 | `generateVanilla/util.py` | Identifier-to-path helpers, `contained_path`, logging |
 | `generateVanilla/constants.py` | Folder names, the folders rebuilt instead of copied, namespaces |
 | `generateVanilla/hardcodedFiles.py` | Files that are always copied: the water and lava textures, still and flowing |
+| `generateVanilla/pack_formats.json` | Pack format → Minecraft version: the one map, which the release note reads |
+| `automation/launcher.sh` | The release launcher. `install.py` copies it into each automation folder under every release script's name. It takes the release lock, brings the folder's checkout up to date and hands over to the script. |
+| `automation/scripts/` | The release scripts, `releaseVanillaSodium.sh`, `releaseGeneral.sh` and `releaseDynmap.sh`, and `common.sh`, which they share |
+| `automation/pipeline/` | The pipeline wrapper: `run.sh` runs a release with a log and a summary, which `rp-release.py` writes for the dashboard |
+| `automation/install.py` | Installs the launchers into an automation folder, checks one (`--check`) or restores its backup (`--restore`) |
+| `automation/automation_conf.py` | Reads and checks an automation folder's `automation.conf`. `automation.conf.example` documents the file. |
+| `automation/release_note.py` | The GitHub release's note, from the zips' `pack.mcmeta` and `pack_formats.json` |
+| `automation/zips.py` | Whether two zips hold the same files, so a variant that should differ does |
 
 ### Tests
 
@@ -192,10 +200,22 @@ python -m pytest tests --objmc generateVanilla/objmc.py
 
 Name `tests` on the command line. `--objmc` is defined in `tests/conftest.py`, and pytest only loads that early enough when the folder is named.
 
+**The release automation's tests** are plain `unittest`, so the server's Python runs them without pytest:
+`test_pack_formats`, `test_release_note`, `test_automation_conf`, `test_zips`, `test_launcher`, `test_install`,
+`test_pipeline`, `test_release_scripts` and `test_end_to_end`. The shell tests need Linux with `flock`, as on the
+server, and skip elsewhere. On Linux, or in WSL:
+
+```bash
+python3 -m unittest tests.test_pack_formats tests.test_release_note tests.test_automation_conf tests.test_zips tests.test_launcher tests.test_install tests.test_pipeline tests.test_release_scripts tests.test_end_to_end
+```
+
+Name the modules: a bare `python3 -m unittest` finds nothing, because `tests/` has no `__init__.py`, and adding one
+would break `test_util.py`'s `from conftest import`.
+
 - **Most tests fake objmc** and check our own logic.
 - **The golden tests** (`tests/test_objmc_golden.py`) run the real objmc over the fixture pack in `tests/fixtures/sodium_pack`, which has [its own README](tests/fixtures/README.md). They compare the output with `tests/goldens/`: model JSON in full, textures as a hash and a size. When an objmc or conversion change is intended, review the diff and rerun with `--update-goldens`. Pass `--objmc` twice to compare two objmc versions.
 - **Tests that need symlinks** are skipped where the OS doesn't allow them, such as Windows without Developer Mode.
-- **Known issue:** the 9 golden tests currently fail. They predate the parent rework (#4) and the mipmapping and cutout changes (#13, #14), and need regenerating once that output is accepted.
+- **Known issue:** the golden tests currently fail. They predate the parent rework (#4) and the mipmapping and cutout changes (#13, #14), and need regenerating once that output is accepted.
 
 ### Rules the code follows
 

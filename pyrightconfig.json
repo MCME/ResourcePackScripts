@@ -1,7 +1,7 @@
 {
-  "include": ["generateVanilla", "tests", "*.py"],
+  "include": ["generateVanilla", "automation", "tests", "*.py"],
   "exclude": ["**/node_modules", "**/__pycache__", "**/.*", ".venv"],
-  "extraPaths": ["generateVanilla"],
+  "extraPaths": ["generateVanilla", "automation"],
   "typeCheckingMode": "standard",
   "venvPath": ".",
   "venv": ".venv"
