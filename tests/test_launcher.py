@@ -280,7 +280,7 @@ class Launcher(unittest.TestCase):
         result = self.launch()
         self.assertEqual(result.returncode, 75)
         self.assertIn(
-            "rp-release.py refused --runs runs --script releaseGeneral.sh --server-log ../logs/latest.log"
+            "rp-release.py refused --runs runs --script releaseGeneral.sh --server-log auto"
             " -- Rohan MCME RP-Rohan v1.0 Better leaves",
             result.stdout,
         )

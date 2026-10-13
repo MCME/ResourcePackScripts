@@ -5,6 +5,7 @@ as on the server, and is skipped elsewhere. Plain unittest, so WSL can run it
 without pytest.
 """
 
+import datetime
 import json
 import os
 import re
@@ -66,6 +67,81 @@ class AutomationInfo(unittest.TestCase):
     def test_is_none_outside_the_launcher(self):
         with mock.patch.dict(os.environ, without_launcher_variables(), clear=True):
             self.assertIsNone(rp_release.automation_info())
+
+
+class StartingServerLog(unittest.TestCase):
+    """Whose log says who ran /rp release: the server whose Java process started the release."""
+
+    def setUp(self):
+        self.root = Path(tempfile.mkdtemp())
+        self.addCleanup(shutil.rmtree, self.root, True)
+        self.proc = self.root / "proc"
+        self.server = self.root / "servers-mcme" / "mainworld"
+        (self.server / "logs").mkdir(parents=True)
+        (self.server / "logs" / "latest.log").write_text("", encoding="utf-8")
+        self.log = str(self.server / "logs" / "latest.log")
+
+    def process(self, pid, exe, parent, name="sh", cwd=None):
+        """A process as /proc shows it: its program, its parent in stat, its working folder."""
+        folder = self.proc / str(pid)
+        folder.mkdir(parents=True)
+        os.symlink(exe, folder / "exe")
+        (folder / "stat").write_text(f"{pid} ({name}) S {parent} {pid} {pid} 0 -1 4194304", encoding="utf-8")
+        if cwd:
+            os.symlink(cwd, folder / "cwd")
+
+    def find(self, pid):
+        return rp_release.starting_server_log("FALLBACK", proc=str(self.proc), pid=pid)
+
+    def started_by_mainworld(self):
+        # As MCME-Architect starts a release: the server's java, the launcher's
+        # shell (the wrapper by now), and rp-release.py
+        self.process(100, "/usr/lib/jvm/java-25-openjdk-amd64/bin/java", 1, name="java", cwd=self.server)
+        self.process(200, "/usr/bin/dash", 100)
+        self.process(300, "/usr/bin/python3.12", 200, name="python3")
+
+    def test_finds_the_log_of_the_server_whose_java_started_the_release(self):
+        self.started_by_mainworld()
+        self.assertEqual(self.find(300), self.log)
+
+    def test_a_process_name_with_brackets_and_spaces_still_leads_to_its_parent(self):
+        self.process(100, "/usr/lib/jvm/java-25-openjdk-amd64/bin/java", 1, name="java", cwd=self.server)
+        self.process(200, "/usr/bin/dash", 100, name="odd (name) here")
+        self.assertEqual(self.find(200), self.log)
+
+    def test_no_java_among_the_parents_falls_back(self):
+        self.process(200, "/usr/bin/dash", 1)
+        self.process(300, "/usr/bin/python3.12", 200, name="python3")
+        self.assertEqual(self.find(300), "FALLBACK")
+
+    def test_a_server_without_a_log_falls_back(self):
+        self.started_by_mainworld()
+        (self.server / "logs" / "latest.log").unlink()
+        self.assertEqual(self.find(300), "FALLBACK")
+
+    def test_a_parent_that_is_gone_falls_back(self):
+        self.process(300, "/usr/bin/python3.12", 200, name="python3")
+        self.assertEqual(self.find(300), "FALLBACK")
+
+    def test_auto_outside_a_server_reads_the_folder_relative_log(self):
+        # This test's parents hold no java: as on the RP server, where the
+        # automation folder lies inside the server's folder
+        self.assertEqual(rp_release.server_log_path("auto"), "../logs/latest.log")
+
+    def test_a_named_log_is_used_as_it_is(self):
+        self.assertEqual(rp_release.server_log_path("/srv/logs/latest.log"), "/srv/logs/latest.log")
+
+    def test_the_user_comes_from_the_starting_servers_log(self):
+        self.started_by_mainworld()
+        Path(self.log).write_text(
+            "[09:27:59] [Server thread/INFO]: Toti issued server command: /rp release h v4.1.3 Human\n"
+            "[09:28:01] [Server thread/INFO]: Nicky issued server command: /rp release h v4.1.4 Human\n",
+            encoding="utf-8",
+        )
+        at = datetime.datetime(2026, 10, 13, 9, 29, 0)
+        self.assertEqual(rp_release.find_user(self.find(300), "v4.1.3", at), "Toti")
+        self.assertEqual(rp_release.find_user(self.find(300), "v4.1.4", at), "Nicky")
+        self.assertIsNone(rp_release.find_user(self.find(300), "v9.9.9", at))
 
 
 class Records(unittest.TestCase):

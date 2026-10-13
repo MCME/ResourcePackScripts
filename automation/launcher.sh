@@ -100,7 +100,7 @@ case $? in
     # the attempt for the dashboard (runs/refused.jsonl)
     if [ "$(setting wrapper 2>/dev/null)" = yes ] && [ -f "$checkout/automation/pipeline/rp-release.py" ]; then
         python3 "$checkout/automation/pipeline/rp-release.py" refused --runs runs --script "$name" \
-            --server-log "${RP_SERVER_LOG:-../logs/latest.log}" -- "$@" 9>&- && exit 75
+            --server-log "${RP_SERVER_LOG:-auto}" -- "$@" 9>&- && exit 75
     fi
     running=$(cat "$folder/runs/current" 2>/dev/null)
     refuse 75 "Another release is running${running:+: $running}. Start this one again once it has finished."
