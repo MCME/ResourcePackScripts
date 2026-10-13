@@ -31,7 +31,7 @@ SETTINGS = {
 # What install.py writes for each side
 DEFAULTS = {
     "test": {"side": "test", "branch": "development", "replace_existing": "yes", "wrapper": "yes"},
-    "production": {"side": "production", "branch": "master", "replace_existing": "no", "wrapper": "no"},
+    "production": {"side": "production", "branch": "master", "replace_existing": "no", "wrapper": "yes"},
 }
 
 _EXPLAINED = {

@@ -65,11 +65,11 @@ class Render(unittest.TestCase):
             with self.subTest(side=side):
                 self.assertEqual(automation_conf.parse(automation_conf.render(settings)), settings)
 
-    def test_production_never_replaces_and_has_no_wrapper_yet(self):
+    def test_production_never_replaces_and_goes_through_the_wrapper(self):
         production = automation_conf.DEFAULTS["production"]
         self.assertEqual(
             (production["side"], production["branch"], production["replace_existing"], production["wrapper"]),
-            ("production", "master", "no", "no"),
+            ("production", "master", "no", "yes"),
         )
 
     def test_refuses_to_write_invalid_settings(self):

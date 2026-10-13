@@ -25,7 +25,7 @@ Every pack goes through the same steps twice. Once on the **RP server**, which i
 | Who gets the pack | Players on the RP server | Players on the servers whose slots you update |
 | Release lock: one release at a time | Yes | Yes |
 | A release with a tag that exists | Replaces that release's zips | Refused before anything is built |
-| Pipeline wrapper (run log, summary) | Yes | Not yet |
+| Pipeline wrapper (run log, summary) | Yes | Yes |
 
 ```mermaid
 flowchart TD
@@ -147,7 +147,7 @@ From MCME-Architect 3.2, the plugin reads the release's output as it comes, to t
 | A line starting with `release note: ` | the scripts, before `gh release create` | the Minecraft versions after `for Minecraft`, one `/rp server` button each. A note without `for Minecraft` (`Version <tag> for pack format <span>`, or just `Version <tag>`) gets one `[/rp server …]` button instead, which fills in `/rp server <Pack> <tag> ` for the releaser to finish |
 | `Release run <id>: <status>, <outcome>. <n> warning(s), <m> error(s). …` | the wrapper, at the end of a run | the run id, and counts that match the dashboard |
 | `Another resource pack release is running: …` | the wrapper, refusing a release | which release is running |
-| `release launcher: Another release is running …` | the launcher, refusing a release where no wrapper runs (production) | which release is running |
+| `release launcher: Another release is running …` | the launcher, refusing a release in a folder with `wrapper=no` | which release is running |
 
 The exit code says how the release ended: 0 published, or for `releaseDynmap.sh` built; 1 stopped; 2 or 3 the launcher refused; 75 another release is running.
 
@@ -158,18 +158,18 @@ The release scripts in the automation folder aren't the scripts themselves. Each
 1. **takes the release lock.** Every release script builds in the same `release/` folder, so two releases at once would mix their files. While one release runs, a second is refused and starts nothing: Architect's log and its closing message say which release is running (before MCME-Architect 3.2, the chat showed only `exitCode=75`). Run `/rp release` again once the first has finished. This holds on both stages.
 2. **brings the folder's ResourcePackScripts checkout up to date** with its branch on GitHub: `development` on the RP server, `master` on production. A change merged here reaches the next release on that stage. It refuses (exit code 3) when the checkout was edited on the server, is on another branch, or has commits GitHub doesn't have. If GitHub can't be reached, it warns and uses what it fetched last.
 3. **reads the folder's settings**, `automation.conf` (see [The automation folder's settings](server-setup.md#the-automation-folders-settings)).
-4. **hands over** to the release script of the same name in `ResourcePackScripts/automation/scripts/`. On the RP server it goes through the pipeline wrapper.
+4. **hands over** to the release script of the same name in `ResourcePackScripts/automation/scripts/`, through the pipeline wrapper (`wrapper=yes`, as in both folders).
 
 Every refusal also leaves a note in `runs/refused.jsonl`: when, which release, the exit code and why. On the RP server the dashboard's **Resource packs** page lists them, because a refused release leaves no run to read.
 
 What `development` has that production's `master` doesn't yet: [compare `master...development`](https://github.com/MCME/ResourcePackScripts/compare/master...development).
 
-### The pipeline wrapper (RP server only)
+### The pipeline wrapper
 
 The wrapper, in `automation/pipeline/`, runs the script and adds:
 
 - **A log of every run.** Every output line is kept with a timestamp. The generator's `--debug` lines (about 120,000 per Human release) go only to the full log. Everything else still reaches MCME-Architect, and so its log. Full logs are kept for the last 30 runs, the part without the `--debug` lines for the last 200, summaries for good.
-- **A summary of every run.** It records the steps and how long each took, every zip with its file count, warnings, errors, the GitHub release URL, the stage, branch and ResourcePackScripts commit the release ran with, and a status:
+- **A summary of every run.** It records the steps and how long each took, every zip with its file count, warnings, errors, the GitHub release URL, who started the release (from the log of the server where `/rp release` was typed), the stage, branch and ResourcePackScripts commit the release ran with, and a status:
 
 | Status | Meaning |
 |---|---|
@@ -193,7 +193,7 @@ Release run 20260930-050612-Human-v4.1.3: OK with warnings, released. 10 warning
 Staff with access to the admin dashboard can read every run there, with its steps, warnings and full log, on the **Resource packs** page.
 
 > [!NOTE]
-> Production doesn't use the wrapper yet, so its releases have no run log or summary. Read the release's lines in Architect's log there (see [Where the output goes](#where-the-output-goes)).
+> The dashboard's Resource packs page shows the RP server's runs. A production run's log and summary are in the production folder's `runs/`, and its lines in Architect's log on the server where it ran (see [Where the output goes](#where-the-output-goes)).
 
 The launcher, the release scripts and the wrapper are in this repository, under `automation/`. The server runs them from its checkout and never edits them.
 
