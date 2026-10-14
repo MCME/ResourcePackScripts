@@ -1,12 +1,13 @@
 #!/bin/sh
 # Release a vanilla-only pack: <Pack>-Vanilla zipped as it is, and again with
-# the footprints textures, published as one GitHub release.
+# the footprints textures, published as one GitHub release with the Bedrock
+# pack and Geyser's mappings that generateBedrock makes from it.
 #
 #     sh releaseGeneral.sh <Pack> <owner> <repo> <tag> <title>
 #
 # Started by the launcher in the automation folder, never directly. The lines
-# "compiling <Pack> RP zips" and "releasing <Pack> RP zips" are the steps the
-# wrapper reports: keep them exactly.
+# "compiling <Pack> RP zips", "<Pack>-Bedrock" and "releasing <Pack> RP zips"
+# are the steps the wrapper reports: keep them exactly.
 
 . "$(dirname "$0")/common.sh"
 
@@ -21,6 +22,9 @@ zip_release "$pack.zip" '*' '-x!inventories'
 footprints activator_rail.png activator_rail_on.png
 zip_release "$pack-Footprints.zip" '*' '-x!inventories'
 must_differ "$pack.zip" "$pack-Footprints.zip"
+
+echo "$pack-Bedrock"
+bedrock "$pack-Vanilla"
 
 echo "releasing $pack RP zips"
 publish "$pack.zip" "$pack-Footprints.zip"

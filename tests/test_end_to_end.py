@@ -4,7 +4,7 @@ one holds the lock, and undo the install with the command install.py printed.
 
 The launcher, installer, wrapper and release scripts are the real ones, in a
 checkout of a local copy of this repository that the launcher fetches as it
-would fetch GitHub. Only 7-Zip, gh and generateVanilla are stand-ins
+would fetch GitHub. Only 7-Zip, gh, generateVanilla and generateBedrock are stand-ins
 (tests/release_helpers.py). Plain unittest, so WSL can run it without pytest.
 """
 
@@ -63,13 +63,15 @@ class EndToEnd(unittest.TestCase):
         self.addCleanup(shutil.rmtree, self.tmp, True)
         github = self.tmp / "github"
 
-        # "GitHub's" ResourcePackScripts: this repository's automation/, with a stand-in generateVanilla
+        # "GitHub's" ResourcePackScripts: this repository's automation/, with stand-ins for the converters
         seed = self.tmp / "seed"
         shutil.copytree(REPO_ROOT / "automation", seed / "automation", ignore=shutil.ignore_patterns("__pycache__"))
         (seed / "generateVanilla").mkdir()
         shutil.copy(REPO_ROOT / "generateVanilla" / "pack_formats.json", seed / "generateVanilla")
         (seed / "generateVanilla" / "generateVanilla.py").write_text(release_helpers.FAKE_GENERATE)
         (seed / "generateVanilla" / "objmc.py").write_text("")
+        (seed / "generateBedrock").mkdir()
+        (seed / "generateBedrock" / "generateBedrock.py").write_text(release_helpers.FAKE_BEDROCK)
         shutil.copy(REPO_ROOT / ".gitignore", seed / ".gitignore")
         git("init", "-q", "-b", "development", str(seed), cwd=self.tmp)
         git("add", "-A", cwd=seed)
@@ -102,6 +104,7 @@ class EndToEnd(unittest.TestCase):
         (self.folder / "Footprints").mkdir()
         (self.folder / "Footprints" / "activator_rail.png").write_bytes(b"footprints rail")
         (self.folder / "Footprints" / "activator_rail_on.png").write_bytes(b"footprints rail, powered")
+        (self.folder / "Vanilla-26.2").mkdir()
         (self.folder / "releaseGeneral.sh").write_text("# the hand-edited copy\n")
         (self.folder / "pipeline").mkdir()
         (self.folder / "pipeline" / "run.sh").write_text("# the old wrapper\n")

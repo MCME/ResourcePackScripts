@@ -59,6 +59,11 @@ fi
 # This checkout's automation/ folder, which holds the scripts' Python helpers
 automation=$(cd "$(dirname "$0")/.." && pwd) || stop "Couldn't find ResourcePackScripts's automation folder."
 
+# The vanilla client's assets generateVanilla walks: only blocks and items in
+# this version's lists reach the Vanilla and Lite zips. generateBedrock reads
+# vanilla's models and textures from it too
+vanilla_assets=Vanilla-26.2
+
 # Does the release exist on GitHub already? gh says "release not found" when it
 # doesn't; any other failure would hide the answer, so it stops the release.
 # With replace_existing=no an existing release is refused before anything is
@@ -190,6 +195,34 @@ must_differ() {
     esac
 }
 
+# The Bedrock pack and Geyser's block mappings, made by generateBedrock from
+# the checkout <checkout> into release/ (docs/bedrock.md): <Pack>-Bedrock.mcpack
+# and <Pack>-Geyser.json, uploaded with the zips. The files an earlier release
+# left are removed first, so a failed build can never publish them.
+# A conversion that stops, or that the pack's .mcme-bedrock.json turns off,
+# leaves the release without them, the first with a WARNING!!! line: the Java
+# zips are what the servers give their players, and a problem on the Bedrock
+# side mustn't hold them back. A 7-Zip failure stops the release, as for any zip
+bedrock_assets=
+bedrock() {
+    rm -f "$pack-Bedrock.mcpack" "$pack-Geyser.json"
+    if [ ! -d "$vanilla_assets" ]; then
+        warn "There's no $vanilla_assets folder here, so no Bedrock pack is made. The Java zips are released as usual."
+        return 0
+    fi
+    fresh_release
+    if ! python3 ResourcePackScripts/generateBedrock/generateBedrock.py "$1" release "$vanilla_assets" \
+        --name "$pack" --tag "$tag" --mappings "$pack-Geyser.json"; then
+        rm -f "$pack-Geyser.json"
+        warn "generateBedrock stopped (see above), so this release has no Bedrock pack. The Java zips are released as usual."
+        return 0
+    fi
+    # Turned off by the pack: generateBedrock said so, and wrote nothing
+    [ -f release/manifest.json ] || return 0
+    zip_release "$pack-Bedrock.mcpack" -tzip '*'
+    bedrock_assets="$pack-Bedrock.mcpack $pack-Geyser.json"
+}
+
 # The release note, worked out from the zips by release_note.py. Its warnings
 # become WARNING!!! lines, which the wrapper counts. Without a note nothing is
 # published
@@ -208,7 +241,9 @@ release_note() {
     printf 'release note: %s\n' "$note"
 }
 
-# Publish the zips as the release <tag>. With replace_existing=yes an existing
+# Publish the zips as the release <tag>, with the Bedrock files bedrock()
+# made; the note comes from the zips alone, as the Bedrock pack has no
+# pack.mcmeta. With replace_existing=yes an existing
 # release keeps its page and gets the new zips (--clobber): gh's "already
 # exists" (HTTP 422) for the create is expected then, and the wrapper reads it
 # as such, so the create still runs, after a line that says so. That line
@@ -222,7 +257,9 @@ publish() {
     if ! gh release create "$tag" --repo "$owner/$repo" --title="$title" --notes="$note" && [ "$exists" != yes ]; then
         stop "gh couldn't create the release $tag in $owner/$repo (see above). Nothing was uploaded."
     fi
-    set -- "$@" --repo "$owner/$repo"
+    # The Bedrock files' names are the pack's, a safe_name, with fixed endings: they split safely
+    # shellcheck disable=SC2086
+    set -- "$@" $bedrock_assets --repo "$owner/$repo"
     if [ "$replace_existing" = yes ]; then
         set -- "$@" --clobber
     fi

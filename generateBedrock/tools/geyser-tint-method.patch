@@ -1,0 +1,33 @@
+Geyser: read tint_method from a custom block's material instances in custom_mappings.
+
+Geyser's API and core already carry a material's tint method to the Bedrock client
+(CustomBlockRegistryPopulator writes it into the block definition); only the JSON
+mappings reader, BlockMappingsReader_v1, never reads it. With this, the mappings
+generateBedrock writes tint grass and foliage by biome. Made against GeyserMC/Geyser
+master 50a464d (2026-10-10); apply in a Geyser checkout with: git apply geyser-tint-method.patch
+
+diff --git a/core/src/main/java/org/geysermc/geyser/registry/mappings/versions/block/BlockMappingsReader_v1.java b/core/src/main/java/org/geysermc/geyser/registry/mappings/versions/block/BlockMappingsReader_v1.java
+index e4ae55e..13b2364 100644
+--- a/core/src/main/java/org/geysermc/geyser/registry/mappings/versions/block/BlockMappingsReader_v1.java
++++ b/core/src/main/java/org/geysermc/geyser/registry/mappings/versions/block/BlockMappingsReader_v1.java
+@@ -570,6 +570,12 @@ public class BlockMappingsReader_v1 implements MappingsReader<String, CustomBloc
+             renderMethod = node.get("render_method").getAsString();
+         }
+ 
++        // Biome tinting, such as "grass" or "default_foliage" (Bedrock 1.21.80 and later)
++        String tintMethod = null;
++        if (node.has("tint_method")) {
++            tintMethod = node.get("tint_method").getAsString();
++        }
++
+         boolean faceDimming = true;
+         if (node.has("face_dimming")) {
+             faceDimming = node.get("face_dimming").getAsBoolean();
+@@ -585,6 +591,7 @@ public class BlockMappingsReader_v1 implements MappingsReader<String, CustomBloc
+         return new GeyserMaterialInstance.Builder()
+             .texture(texture)
+             .renderMethod(renderMethod)
++            .tintMethod(tintMethod)
+             .faceDimming(faceDimming)
+             .ambientOcclusionExponent(ambientOcclusion)
+             .build();

@@ -2,19 +2,16 @@
 # Release a Sodium pack: six zips made from <Pack>-Sodium, published as one
 # GitHub release. Sodium is the pack as it is; Vanilla is generateVanilla's
 # conversion of it; Lite the conversion with at most two models per variant;
-# and each of the three again with the footprints textures.
+# and each of the three again with the footprints textures. generateBedrock
+# makes the Bedrock pack and Geyser's mappings from the same checkout.
 #
 #     sh releaseVanillaSodium.sh <Pack> <owner> <repo> <tag> <title>
 #
 # Started by the launcher in the automation folder, never directly. The lines
 # from "compiling <Pack> RP zips" through "releasing <Pack> RP zips" are the
-# steps the wrapper reports: keep them exactly.
+# steps the wrapper reports, "<Pack>-Bedrock" among them: keep them exactly.
 
 . "$(dirname "$0")/common.sh"
-
-# The vanilla client's assets generateVanilla walks: only blocks and items in
-# this version's lists reach the Vanilla and Lite zips
-vanilla_assets=Vanilla-26.2
 
 [ -d "$pack-Sodium" ] || stop "There's no $pack-Sodium checkout in this folder, so $pack can't be released here."
 # Without it generateVanilla would find no blockstates, write none, and still end without an error
@@ -66,6 +63,9 @@ echo "$pack-Lite-Footprints"
 footprints activator_rail.png activator_rail_on.png
 zip_release "$pack-Lite-Footprints.zip" '*'
 must_differ "$pack-Lite.zip" "$pack-Lite-Footprints.zip"
+
+echo "$pack-Bedrock"
+bedrock "$pack-Sodium"
 
 echo "releasing $pack RP zips"
 publish "$pack-Vanilla.zip" "$pack-Vanilla-Footprints.zip" "$pack-Sodium.zip" \

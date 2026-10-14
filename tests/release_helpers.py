@@ -197,6 +197,40 @@ if rails:
         shutil.copyfile(os.path.join(rails, rail), os.path.join(assets, "textures", "block", rail))
 '''
 
+# generateBedrock.py <source> <output> <vanilla> --name <Pack> --tag <tag> --mappings <file>:
+# writes a small Bedrock pack (manifest.json and a texture) and the mappings.
+# $FAKE_BEDROCK_FAIL stops it with a traceback, after writing half the
+# mappings as a crash might; $FAKE_BEDROCK_OFF turns the conversion off, as a
+# pack's .mcme-bedrock.json can, and writes nothing.
+FAKE_BEDROCK = '''\
+import json, os, sys
+
+args = sys.argv[1:]
+with open(os.environ["FAKE_LOG"], "a") as log:
+    print(json.dumps({"tool": "generateBedrock", "args": args}), file=log)
+source, output, vanilla = args[:3]
+mappings = args[args.index("--mappings") + 1]
+print("Bedrock source: " + source)
+print("Bedrock output: " + output)
+if os.environ.get("FAKE_BEDROCK_FAIL"):
+    with open(mappings, "w") as f:
+        f.write("{")
+    print("Traceback (most recent call last):")
+    print('  File "generateBedrock.py", line 1, in <module>')
+    print("ValueError: the tests told generateBedrock to fail")
+    sys.exit(1)
+if os.environ.get("FAKE_BEDROCK_OFF"):
+    print("The Bedrock conversion is turned off for this pack (.mcme-bedrock.json), so no Bedrock pack is made.")
+    sys.exit(0)
+os.makedirs(os.path.join(output, "textures", "java"), exist_ok=True)
+with open(os.path.join(output, "manifest.json"), "w") as f:
+    json.dump({"format_version": 2, "header": {"name": "converted"}}, f)
+with open(os.path.join(output, "textures", "java", "stone.png"), "wb") as f:
+    f.write(b"bedrock stone")
+with open(mappings, "w") as f:
+    json.dump({"format_version": 1, "blocks": {}}, f)
+'''
+
 FAKES = {"7z": FAKE_7Z, "gh": FAKE_GH, "git": FAKE_GIT}
 
 

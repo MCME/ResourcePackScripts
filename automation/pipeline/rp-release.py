@@ -63,7 +63,7 @@ SHRINK_LIMIT = 0.9
 
 ID_RE = re.compile(r"^\d{8}-\d{6}-[A-Za-z0-9._-]+$")
 STAMP = re.compile(r"^(\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d+)?) (.*)$")
-STEP = re.compile(r"^(compiling \S+ RP zips|releasing \S+ RP zips|\S+-(?:Sodium|Vanilla|Lite)(?:-Footprints)?)$")
+STEP = re.compile(r"^(compiling \S+ RP zips|releasing \S+ RP zips|\S+-(?:Sodium|Vanilla|Lite)(?:-Footprints)?|\S+-Bedrock)$")
 # generateVanilla --debug: one line per model and texture, ~120,000 per run
 DEBUG = [
     ("blockstates", re.compile(r"^Working on blockstate file: ")),

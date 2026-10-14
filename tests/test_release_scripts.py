@@ -4,7 +4,7 @@ folder, with the folder's settings in RP_AUTOMATION_*.
 
 Linux only, as on the server, and plain unittest, so WSL can run it without
 pytest. 7-Zip, gh and generateVanilla are stand-ins from
-tests/release_helpers.py that log every call. git is the real one, behind a
+tests/release_helpers.py that log every call, and so is generateBedrock. git is the real one, behind a
 stand-in that logs its calls, and each pack checkout is a clone of a local
 repository that plays GitHub. zips.py and release_note.py are the real ones.
 """
@@ -36,6 +36,7 @@ FOOTPRINTS = {"activator_rail.png": b"footprints rail", "activator_rail_on.png":
 VANILLA_MCMETA = {"pack": {"min_format": 88, "max_format": 97, "description": "a vanilla-only pack"}}
 SODIUM_MCMETA = {"pack": {"pack_format": 15, "supported_formats": [15, 255], "description": "a Sodium pack"}}
 ROHAN = ("Rohan", "MCME", "RP-Rohan", "v1.0", "Better leaves")
+ROHAN_BEDROCK = ["Rohan-Bedrock.mcpack", "Rohan-Geyser.json"]
 
 # git as on the server, with nothing from the developer's own config
 GIT_CONFIG = {"GIT_CONFIG_GLOBAL": os.devnull, "GIT_CONFIG_NOSYSTEM": "1"}
@@ -70,6 +71,9 @@ class ReleaseScriptTest(unittest.TestCase):
         generate.mkdir(parents=True)
         (generate / "generateVanilla.py").write_text(release_helpers.FAKE_GENERATE)
         (generate / "objmc.py").write_text("")
+        bedrock = self.folder / "ResourcePackScripts" / "generateBedrock"
+        bedrock.mkdir()
+        (bedrock / "generateBedrock.py").write_text(release_helpers.FAKE_BEDROCK)
         (self.folder / "Footprints").mkdir()
         for name, data in FOOTPRINTS.items():
             (self.folder / "Footprints" / name).write_bytes(data)
@@ -180,7 +184,8 @@ class ReleaseGeneral(ReleaseScriptTest):
         self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
         self.assertEqual(
             self.gh("upload"),
-            [["release", "upload", "v1.0", "Rohan.zip", "Rohan-Footprints.zip", "--repo", "MCME/RP-Rohan", "--clobber"]],
+            [["release", "upload", "v1.0", "Rohan.zip", "Rohan-Footprints.zip", *ROHAN_BEDROCK,
+              "--repo", "MCME/RP-Rohan", "--clobber"]],
         )
         self.assertIn("https://github.com/MCME/RP-Rohan/releases/tag/v1.0", result.stdout)
         # A new release: gh creates it, so there's no 422 to explain
@@ -219,7 +224,59 @@ class ReleaseGeneral(ReleaseScriptTest):
 
     def test_prints_the_wrappers_step_lines_exactly(self):
         result = self.release("releaseGeneral.sh", *ROHAN)
-        self.assertEqual(self.steps(result.stdout), ["compiling Rohan RP zips", "releasing Rohan RP zips"])
+        self.assertEqual(self.steps(result.stdout), ["compiling Rohan RP zips", "Rohan-Bedrock", "releasing Rohan RP zips"])
+
+    def test_makes_the_bedrock_pack_from_the_checkout(self):
+        result = self.release("releaseGeneral.sh", *ROHAN)
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+        [call] = self.calls("generateBedrock")
+        self.assertEqual(call["args"], ["Rohan-Vanilla", "release", "Vanilla-26.2", "--name", "Rohan", "--tag", "v1.0",
+                                        "--mappings", "Rohan-Geyser.json"])
+        # A Bedrock pack is a zip with its manifest at the top
+        self.assertEqual(self.names_in("Rohan-Bedrock.mcpack"), ["manifest.json", "textures/java/stone.png"])
+        self.assertEqual(json.loads((self.folder / "Rohan-Geyser.json").read_text()), {"format_version": 1, "blocks": {}})
+        # The note comes from the Java zips: the Bedrock pack has no pack.mcmeta to read
+        [create] = self.gh("create")
+        self.assertIn("--notes=Version v1.0 for Minecraft 26.2 and 26.3", create)
+
+    def test_a_stopped_bedrock_conversion_releases_the_java_zips_with_a_warning(self):
+        # Without an ERROR: line, which MCME-Architect would read as the reason the release stopped
+        result = self.release("releaseGeneral.sh", *ROHAN, FAKE_BEDROCK_FAIL="1")
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+        self.assertIn("WARNING!!! generateBedrock stopped (see above), so this release has no Bedrock pack.", result.stdout)
+        self.assertEqual(self.errors(result), [])
+        [upload] = self.gh("upload")
+        self.assertEqual(upload[3:5], ["Rohan.zip", "Rohan-Footprints.zip"])
+        self.assertNotIn("Rohan-Bedrock.mcpack", upload)
+        self.assertNotIn("Rohan-Geyser.json", upload)
+        # Nor is the half-written mappings file left to be taken for a good one
+        self.assertFalse((self.folder / "Rohan-Geyser.json").exists())
+
+    def test_a_pack_can_turn_the_bedrock_pack_off(self):
+        result = self.release("releaseGeneral.sh", *ROHAN, FAKE_BEDROCK_OFF="1")
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+        self.assertNotIn("WARNING!!!", result.stdout)
+        [upload] = self.gh("upload")
+        self.assertNotIn("Rohan-Bedrock.mcpack", upload)
+
+    def test_never_publishes_bedrock_files_left_by_an_earlier_release(self):
+        (self.folder / "Rohan-Bedrock.mcpack").write_bytes(b"an earlier release's")
+        (self.folder / "Rohan-Geyser.json").write_text("{}")
+        self.release("releaseGeneral.sh", *ROHAN, FAKE_BEDROCK_OFF="1")
+        [upload] = self.gh("upload")
+        self.assertNotIn("Rohan-Bedrock.mcpack", upload)
+        self.assertFalse((self.folder / "Rohan-Bedrock.mcpack").exists())
+        self.assertFalse((self.folder / "Rohan-Geyser.json").exists())
+
+    def test_releases_without_the_bedrock_pack_when_the_vanilla_assets_are_missing(self):
+        # A vanilla-only pack needs them only for its Bedrock pack
+        (self.folder / "Vanilla-26.2").rmdir()
+        result = self.release("releaseGeneral.sh", *ROHAN)
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+        self.assertIn("WARNING!!! There's no Vanilla-26.2 folder here, so no Bedrock pack is made.", result.stdout)
+        self.assertEqual(self.calls("generateBedrock"), [])
+        [upload] = self.gh("upload")
+        self.assertNotIn("Rohan-Bedrock.mcpack", upload)
 
     def test_asks_github_first_then_updates_the_pack(self):
         self.release("releaseGeneral.sh", *ROHAN)
@@ -648,6 +705,7 @@ SIX_ZIPS = [
     "Human-Vanilla.zip", "Human-Vanilla-Footprints.zip", "Human-Sodium.zip",
     "Human-Sodium-Footprints.zip", "Human-Lite.zip", "Human-Lite-Footprints.zip",
 ]
+HUMAN_BEDROCK = ["Human-Bedrock.mcpack", "Human-Geyser.json"]
 
 
 class ReleaseVanillaSodium(ReleaseScriptTest):
@@ -662,15 +720,32 @@ class ReleaseVanillaSodium(ReleaseScriptTest):
         result = self.release("releaseVanillaSodium.sh", *HUMAN)
         self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
         self.assertEqual(
-            self.gh("upload"), [["release", "upload", "v4.1.3", *SIX_ZIPS, "--repo", "MCME/RP-Human", "--clobber"]]
+            self.gh("upload"),
+            [["release", "upload", "v4.1.3", *SIX_ZIPS, *HUMAN_BEDROCK, "--repo", "MCME/RP-Human", "--clobber"]],
         )
 
     def test_prints_the_wrappers_step_lines_exactly(self):
         result = self.release("releaseVanillaSodium.sh", *HUMAN)
         self.assertEqual(self.steps(result.stdout), [
             "compiling Human RP zips", "Human-Sodium", "Human-Sodium-Footprints", "Human-Vanilla",
-            "Human-Vanilla-Footprints", "Human-Lite", "Human-Lite-Footprints", "releasing Human RP zips",
+            "Human-Vanilla-Footprints", "Human-Lite", "Human-Lite-Footprints", "Human-Bedrock",
+            "releasing Human RP zips",
         ])
+
+    def test_makes_the_bedrock_pack_from_the_sodium_checkout_without_debug_lines(self):
+        # The Sodium variant has the .obj models; generateBedrock prints no --debug lines for the wrapper to keep
+        self.release("releaseVanillaSodium.sh", *HUMAN, RP_RELEASE_RUN="20261010-120000-Human-v4.1.3")
+        [call] = self.calls("generateBedrock")
+        self.assertEqual(call["args"], ["Human-Sodium", "release", "Vanilla-26.2", "--name", "Human", "--tag", "v4.1.3",
+                                        "--mappings", "Human-Geyser.json"])
+
+    def test_stops_when_7zip_cannot_make_the_bedrock_pack(self):
+        result = self.release("releaseVanillaSodium.sh", *HUMAN, FAKE_7Z_FAIL="Human-Bedrock.mcpack")
+        self.assertEqual(result.returncode, 1)
+        self.assertEqual(self.errors(result), [
+            "ERROR: 7-Zip couldn't make Human-Bedrock.mcpack (its report is above). Nothing was published."
+        ])
+        self.assertEqual(self.gh("create"), [])
 
     def test_the_sodium_zip_is_the_pack_without_its_vanilla_folder(self):
         self.release("releaseVanillaSodium.sh", *HUMAN)
