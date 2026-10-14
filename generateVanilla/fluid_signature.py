@@ -24,6 +24,10 @@ KINDS = {"lava_still": 0, "lava_flow": 1, "water_still": 2, "water_flow": 3, "ic
 WATER = ("water_still", "water_flow")
 LAVA = ("lava_still", "lava_flow")
 ICE = ("ice",)
+# the marble module's kind: its textures are each pack's own (its config's
+# "marble"), not fixed names
+MARBLE = 8
+KIND_COUNT = 9   # fluid.glsl's FLUID_KINDS
 OPAQUE = set(LAVA)
 FOLDER = Path("assets/minecraft/textures/block")
 _M = 0xFFFFFFFF
@@ -89,7 +93,7 @@ def fluid_kinds(image) -> set[int]:
     # where a texel can't hold a code: transparent, or for lava not opaque
     unseen = {False: a.point(lambda v: 0 if v > 0 else 255), True: a.point(lambda v: 0 if v == 255 else 255)}
     kinds = set()
-    for kind in range(8):
+    for kind in range(KIND_COUNT):
         expected = _tiled(bytes(fluid_code(kind, x, y) for y in range(4) for x in range(4)), width, height)
         wrong = ImageChops.lighter(
             ImageChops.difference(code, expected).point(lambda v: 255 if v else 0),

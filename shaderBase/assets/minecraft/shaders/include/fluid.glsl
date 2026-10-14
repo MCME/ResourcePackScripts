@@ -33,9 +33,10 @@
 #define FLUID_WATER_STILL 2
 #define FLUID_WATER_FLOWING 3
 #define FLUID_ICE 4
+#define FLUID_MARBLE 8     // the marble module's stone (not a fluid, but told apart the same way)
 // 5 to 7 are a pack's own, which it names in its hooks: RP-Mordor's fog
 // block, tar pits and waterfall spray (its mordor_fluid.glsl)
-#define FLUID_KINDS 8
+#define FLUID_KINDS 9
 
 uint fluidHash(ivec4 p) {
     uint h = uint(p.x) * 73856093u ^ uint(p.y) * 19349663u ^ uint(p.z) * 83492791u ^ uint(p.w) * 2654435761u;

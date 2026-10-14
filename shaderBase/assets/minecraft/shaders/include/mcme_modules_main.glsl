@@ -11,6 +11,13 @@ if (fluid == LAVA_STILL || fluid == LAVA_FLOWING) {
 }
 #endif
 
+#ifdef MCME_MODULE_MARBLE
+// marble: veins over the pack's marble textures, lit as the stone is
+if (fluid == MARBLE) {
+    color.rgb = marbleColor(color.rgb, vertexColor.rgb * lightColor.rgb, fluidHere);
+}
+#endif
+
 #ifdef MCME_MODULE_ICE
 // ice: seen into, lit and shaded as any block - its frost by its face's own
 // shade, not the occlusion that puts it there

@@ -62,6 +62,8 @@ class Module:
 MODULES = {
     "lava": Module("MCME_MODULE_LAVA", ("lava_config.glsl", "lava.glsl"), fluid_signature.LAVA),
     "ice": Module("MCME_MODULE_ICE", ("ice_config.glsl", "ice.glsl"), fluid_signature.ICE),
+    # its textures are the pack's own, named in its config's "marble"
+    "marble": Module("MCME_MODULE_MARBLE", ("marble_config.glsl", "marble.glsl"), ()),
 }
 
 # The includes vanilla 26.2 has of its own, which a pack shader may import
@@ -121,6 +123,7 @@ class Config:
     modules: list = field(default_factory=list)   # names in MODULES
     own: list = field(default_factory=list)       # base or module files the pack keeps its own of, such as a module's settings
     fluids: dict = field(default_factory=dict)    # its own fluid textures to sign: name -> kind, 5 to 7
+    marble: list = field(default_factory=list)    # its textures the marble module draws over, to sign
 
 
 def load_config(pack_root) -> Config:
@@ -136,6 +139,7 @@ def load_config(pack_root) -> Config:
         modules=list(data.get("modules", [])),
         own=[Path(p) for p in data.get("own", [])],
         fluids=dict(data.get("fluids", {})),
+        marble=list(data.get("marble", [])),
     )
     unknown = [m for m in config.modules if m not in MODULES]
     if unknown:
@@ -143,6 +147,8 @@ def load_config(pack_root) -> Config:
     wrong = {n: k for n, k in config.fluids.items() if not (isinstance(k, int) and 5 <= k <= 7)}
     if wrong:
         raise ShaderBaseError(f"{path}: a pack's own fluids are kinds 5 to 7, not {wrong}")
+    if config.marble and "marble" not in config.modules:
+        raise ShaderBaseError(f"{path}: names marble textures but doesn't turn the marble module on")
     return config
 
 
@@ -505,6 +511,11 @@ def sign(pack_path, config: Config, check=False) -> tuple[list[str], bool]:
         more, good = fluid_signature.sign_pack(pack_path, tuple(config.fluids), check, config.fluids)
         messages += more
         ok &= good
+    if config.marble:
+        more, good = fluid_signature.sign_pack(pack_path, tuple(config.marble), check,
+                                               {n: fluid_signature.MARBLE for n in config.marble})
+        messages += more
+        ok &= good
     return messages, ok
 
 
@@ -654,7 +665,7 @@ def finish(pack_path, config: Config = None):
             + "\n".join(f"  {m}" for m in messages if not m.endswith(("signed", "now"))),
             flush=True,
         )
-    strays = fluid_signature.strays(pack_path, config.fluids)
+    strays = fluid_signature.strays(pack_path, {**config.fluids, **{n: fluid_signature.MARBLE for n in config.marble}})
     if strays:
         raise ShaderBaseError(
             "Textures the terrain shaders would draw over as a fluid (water, lava...), "
