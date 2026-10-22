@@ -1,0 +1,37 @@
+# Checks the pack's models on every push and pull request that touches them,
+# with ResourcePackScripts' fixModelShade.py (docs/conversion.md, "Unshaded
+# elements"): every "shade": false element needs "shade_direction_override":
+# "up" as well, or 26.3 shades it 20-40% darker. Vanilla-only packs never go
+# through generateVanilla, which stops a Sodium pack's release for the same.
+#
+# The same file in every pack repository, as .github/workflows/check-models.yml;
+# its master copy is ResourcePackScripts/ci/check-models.yml.
+name: Check models
+
+on:
+  push:
+    paths: ["**/models/**.json", ".github/workflows/check-models.yml"]
+  pull_request:
+    paths: ["**/models/**.json", ".github/workflows/check-models.yml"]
+  workflow_dispatch:
+
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          path: pack
+
+      - uses: actions/checkout@v4
+        with:
+          repository: MCME/ResourcePackScripts
+          ref: development
+          path: scripts
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Check
+        run: python scripts/generateVanilla/fixModelShade.py pack --check

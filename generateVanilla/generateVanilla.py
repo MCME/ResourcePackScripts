@@ -7,6 +7,7 @@ from pathlib import Path
 
 import constants
 import hardcodedFiles
+import model_shade
 import objmc_conversion
 import objmc_merge
 import processBlockstate
@@ -252,6 +253,17 @@ try:
     )
 except shader_base.ShaderBaseError as e:
     sys.exit(f"ERROR: {e}")
+
+# ---------------------------------------------
+# Unshaded elements (model_shade): 26.3 reads only "shade_direction_override",
+# so a "shade": false without it ships 20-40% darker. The Sodium zip is the
+# pack as it is, so the pack is fixed, not the output.
+# ---------------------------------------------
+unshaded = model_shade.check(input_path)
+if unshaded:
+    for model_path, count in unshaded.items():
+        print(f"{model_path}: {count} element(s) lack {model_shade.OVERRIDE_KEY}")
+    sys.exit(f"ERROR: {len(unshaded)} model(s) lack {model_shade.OVERRIDE_KEY}: run generateVanilla/fixModelShade.py on the pack")
 
 # ---------------------------------------------
 # Process vanilla blockstates and item models
