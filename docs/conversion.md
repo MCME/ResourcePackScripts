@@ -168,6 +168,21 @@ A texture with a `.png.mcmeta` that has an `animation` section is treated as a f
 - **objmc bakes the model once, then the bake is repeated for every frame**, each copy with that frame's picture, and stacked into one tall texture. Frames are read left to right, then top to bottom, so grid sheets work.
 - **The output `.mcmeta`** is a copy of yours with the frame size of the bake. Frame numbers past the end of the sheet are dropped, and `interpolate` is turned off. You get a `Note:` line for each.
 
+## Unshaded elements
+
+Up to 26.2, a model element with `"shade": false` is drawn at full brightness. 26.3 no longer reads that key. It reads `"shade_direction_override"` instead: the face direction whose brightness the element takes. Vanilla's own models moved to `"up"`, full brightness as before. An element with only `"shade": false` is shaded by the direction its faces point, on vanilla and Sodium alike: north and south faces at 80%, east and west at 60%. Grass, leaves and other tinted vegetation come out 20-40% darker.
+
+26.2 ignores the new key and 26.3 the old one, so every unshaded element carries both:
+
+```json
+"shade": false,
+"shade_direction_override": "up",
+```
+
+`generateVanilla/fixModelShade.py <pack>` adds the second line wherever it's missing, in every `models/` folder of the pack, overlays included. It keeps each file's indentation and line endings. `--check` changes nothing and only reports.
+
+A Sodium pack's zip is the pack as it is, so the pack itself is fixed, not the output: generateVanilla stops the run when a model lacks the key. Vanilla-only packs never go through generateVanilla, so each pack repository also checks on GitHub (`.github/workflows/check-models.yml`, copied from `ci/check-models.yml`), on every push and pull request that touches a model.
+
 ## What stops a run, and what doesn't
 
 **A problem with one model or file normally doesn't stop the run.** It prints a warning, skips that model or file, and carries on. Read the warnings after every run. The table in [Troubleshooting](troubleshooting.md#generator-warnings) lists them all.
@@ -176,7 +191,8 @@ A texture with a `.png.mcmeta` that has an `animation` section is treated as a f
 - invalid JSON in any blockstate, item definition or model the walk reaches, or in the `.png.mcmeta` of a texture that gets baked;
 - a text-component pack description;
 - an empty `.objmeta`, or an `offset` that isn't three numbers in a string;
-- a missing input pack folder.
+- a missing input pack folder;
+- a model with `"shade": false` but no `"shade_direction_override"` (see [Unshaded elements](#unshaded-elements)). This one prints `ERROR:` and the fix, not a Python error.
 
 A missing or wrong **vanilla resources** folder doesn't stop anything: the walk finds no blockstates or items, writes none, and the run ends normally. Check the folder if a Vanilla variant comes out with none.
 

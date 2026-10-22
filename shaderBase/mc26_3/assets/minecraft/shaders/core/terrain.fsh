@@ -82,7 +82,9 @@ vec4 calculateFinalColor(vec4 color) {
 }
 
 void main() {
-    vec4 color = mix(sampleColor(texCoord), sampleColor(texCoord2), transition);
+    // the second sample only for objmc's fading frames: transition is 0 on every other face, the same at all its vertices
+    vec4 color = sampleColor(texCoord);
+    if (transition > 0.0) color = mix(color, sampleColor(texCoord2), transition);
 
     //custom lighting
     #define BLOCK
