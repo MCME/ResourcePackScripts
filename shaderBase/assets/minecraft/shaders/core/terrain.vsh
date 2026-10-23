@@ -52,6 +52,7 @@ out float waterWindSet;
 // the water's, for its wind (waterWindHere), without what needs derivatives
 #define FLUID_VERTEX
 #moj_import <minecraft:mcme_lite.glsl>
+#moj_import <minecraft:mcme_clock.glsl>
 #moj_import <minecraft:fluid.glsl>
 #moj_import <minecraft:water_config.glsl>
 #moj_import <minecraft:water.glsl>
@@ -69,7 +70,8 @@ out float waterWindSet;
 #moj_import <minecraft:mcme_hook_vertex_globals.glsl>
 
 vec4 minecraft_sample_lightmap(sampler2D lightMap, ivec2 uv) {
-    return texture(lightMap, clamp(uv / 256.0, vec2(0.5 / 16.0), vec2(15.5 / 16.0)));
+    // without the clock in it (mcme_clock.glsl); light level n is n*16, its texel centre n/16 + 0.5/16, as vanilla samples it
+    return mcmeLightmap(lightMap, clamp(uv / 256.0 + 0.5 / 16.0, vec2(0.5 / 16.0), vec2(15.5 / 16.0)));
 }
 
 void main() {
