@@ -123,7 +123,7 @@ void main() {
     }
 
     vertexColor = _vert_color;
-    lightColor = texture(u_LightTex, _vert_tex_light_coord);
+    lightColor = mcmeLightmap(u_LightTex, _vert_tex_light_coord);     // without the clock in it
     v_TexCoord = (_vert_tex_diffuse_coord_bias * u_TexCoordShrink) + _vert_tex_diffuse_coord; // FMA for precision
     texCoord2 = v_TexCoord;
     noshadow = 0;

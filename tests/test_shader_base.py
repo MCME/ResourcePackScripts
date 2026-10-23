@@ -75,7 +75,7 @@ def test_every_pack_gets_the_whole_base_and_no_module(tmp_path, pack):
         if relative != shader_base.MODULES_FILE:
             assert (out / relative).read_bytes() == (shader_base.BASE_PATH / relative).read_bytes()
     assert not (out / LAVA).exists()
-    assert "#define" not in (out / shader_base.MODULES_FILE).read_text()
+    assert "#define MCME_MODULE_" not in (out / shader_base.MODULES_FILE).read_text()
 
 
 def test_only_the_lite_zip_defines_mcme_lite(tmp_path, pack):
@@ -301,6 +301,60 @@ def test_a_water_texture_that_cant_carry_codes_warns_but_builds(tmp_path, pack, 
     config = shader_base.apply([pack], out)
     shader_base.finish(out, config)
     assert "10 wide, not a multiple of 4" in capsys.readouterr().out
+
+
+def _passes(path: Path) -> dict[str, int]:
+    """The kinds mcme_modules.glsl gives each pass, as bits."""
+    return {d: int(v, 16) for d, v in shader_base.PASS_DEFINE.findall(path.read_text())}
+
+
+def test_a_texture_can_go_to_each_pass_one_of_its_texels_could():
+    def passes(alphas):
+        image = Image.new("RGBA", (len(alphas), 1))
+        for x, a in enumerate(alphas):
+            image.putpixel((x, 0), (0, 0, 0, a))
+        return fluid_signature.texture_passes(image)
+
+    assert passes([255, 255]) == {"solid"}
+    assert passes([255, 0]) == {"solid", "cutout"}
+    assert passes([180]) == {"translucent"}
+    assert passes([0, 180, 255]) == {"solid", "cutout", "translucent"}
+
+
+def test_sync_compiles_each_fluid_into_the_passes_its_textures_reach(pack):
+    textures = pack / fluid_signature.FOLDER
+    _texture(textures / "water_still.png")
+    _texture(textures / "lava_still.png", alpha=255)
+    _config(pack, modules=["lava"])
+    shader_base.sync(pack)
+    # lava in the solid pass, water nowhere but the translucent, where any kind can be forced
+    assert _passes(pack / shader_base.MODULES_FILE) == {
+        "MCME_SOLID_KINDS": 1 << 0, "MCME_CUTOUT_KINDS": 0, "MCME_TRANSLUCENT_KINDS": 1 << 0 | 1 << 2}
+    assert shader_base.stale_passes(pack, shader_base.load_config(pack)) == []
+
+
+def test_the_build_takes_each_pass_its_fluids_from_the_finished_pack(tmp_path, pack):
+    out = tmp_path / "out"
+    config = shader_base.apply([pack], out)
+    _texture(out / fluid_signature.FOLDER / "water_still.png")
+    shader_base.finish(out, config)
+    assert _passes(out / shader_base.MODULES_FILE)["MCME_TRANSLUCENT_KINDS"] == 1 << 2
+
+
+def test_the_build_warns_of_a_repository_whose_passes_are_out_of_date(tmp_path, pack, capsys):
+    shader_base.sync(pack)
+    _texture(pack / fluid_signature.FOLDER / "water_still.png")
+    shader_base.apply([pack], tmp_path / "out")
+    assert "MCME_TRANSLUCENT_KINDS lacks kind 2" in capsys.readouterr().out
+
+
+def test_the_terrain_shaders_draw_each_fluid_only_in_its_passes():
+    for shader in ("assets/minecraft/shaders/core/terrain.fsh", "assets/sodium/shaders/blocks/block_layer_opaque.fsh",
+                   "mc26_3/assets/minecraft/shaders/core/terrain.fsh",
+                   "mc26_3/assets/sodium/shaders/blocks/block_layer_opaque.fsh"):
+        text = (shader_base.BASE_PATH / shader).read_text()
+        assert "MCME_PASS_KINDS != 0u ? fluidKind(" in text
+        assert "fluid == WATER_STILL && MCME_PASS_HAS(WATER_STILL)" in text
 
 
 def test_an_import_nothing_provides_is_reported(pack):

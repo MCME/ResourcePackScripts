@@ -64,6 +64,7 @@ layout(location = 20) out float waterWindSet;
 // the water's, for its wind (waterWindHere), without what needs derivatives
 #define FLUID_VERTEX
 #include <minecraft:mcme_lite.glsl>
+#include <minecraft:mcme_clock.glsl>
 #include <minecraft:fluid.glsl>
 #include <minecraft:water_config.glsl>
 #include <minecraft:water.glsl>
@@ -83,7 +84,8 @@ layout(location = 20) out float waterWindSet;
 #define minecraft_sample_lightmap(lightMap, uv) vec4(1.0)
 #else
 vec4 minecraft_sample_lightmap(sampler2D lightMap, ivec2 uv) {
-    return texture(lightMap, clamp(uv / 256.0, vec2(0.5 / 16.0), vec2(15.5 / 16.0)));
+    // without the clock in it (mcme_clock.glsl); light level n is n*16, its texel centre n/16 + 0.5/16, as vanilla samples it
+    return mcmeLightmap(lightMap, clamp(uv / 256.0 + 0.5 / 16.0, vec2(0.5 / 16.0), vec2(15.5 / 16.0)));
 }
 #endif
 
