@@ -171,6 +171,18 @@ Shaders a feature adds that the base doesn't have, such as Mordor's `sky.fsh`, o
 
 A feature every pack should have, such as water, belongs in the base itself. Its includes go in `shaderBase/`, and the base's terrain shaders import them directly, next to the hooks, so that the hooks stay free for each pack. A feature some packs want belongs in a [module](#modules): add its folder under `shaderBase/modules/`, its entry to `MODULES` in `generateVanilla/shader_base.py`, and its drawing to `mcme_modules_main.glsl` under its define.
 
+## Fluids by pass
+
+The game compiles the terrain shaders once for each of its three passes, solid, cutout and translucent, and sends each face to one by the part of its texture it shows. A face with any partly transparent texel is translucent. One with any fully transparent texel is cutout, like grass and leaves. Anything else is solid. A fluid's code slows every face of a pass it is compiled into, even faces that never run it. Compiled into the cutout pass, the water halved Human's frame rate in front of grass.
+
+So the sync writes into each pack's `mcme_modules.glsl` which fluid kinds each pass can draw, from the alpha of its fluid textures (`fluid_signature.pass_kinds`). `mcme_pass.glsl` turns that into `MCME_PASS_KINDS` for the pass being compiled, and the base draws water and the modules only under `MCME_PASS_HAS(kind)`. A pass with no fluid doesn't look for one at all. Every kind a pack has is in the translucent pass too, because a model can force any texture there.
+
+- **A pack's hooks** can guard their own fluids' code the same way, `if (fluid == TAR && MCME_PASS_HAS(TAR))`. That makes the passes that can't draw the fluid as light as possible.
+- **After editing a fluid texture's transparency, run the sync again.** The build refuses a pack whose `mcme_modules.glsl` leaves out a kind its textures can draw in a pass: that pass would show it plain.
+- Shaders that don't import `mcme_pass.glsl`, such as Distant Horizons' and the mod's Iris patch, look for every fluid, as before.
+- **objmc's code** is compiled into the translucent pass only, because its faces always land there: their pointer texel's alpha is 254 (`OBJMC_PASS`, in `objmc_tools.glsl` and `objmc_fragment.glsl`). Mordor's fire eye is drawn the same way, so its hook guards the eye with `MCME_TRANSLUCENT_PASS`.
+- **In the cutout pass with no fluid**, a block's texel the cutout drops is discarded right after it is sampled, before objmc, the hooks or anything else. A hook can't draw over such texels there.
+
 ## Water
 
 The base draws water per pixel, fixed in the world, with one opacity as its texture had: layered ripples and crests, now and then a wave coming in from the west or north-west with a trail of foam, streaks where it flows and on falls, and, with Sodium, foam along the shores of still water. Its settings are in `water_config.glsl`.

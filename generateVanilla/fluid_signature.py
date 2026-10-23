@@ -101,6 +101,50 @@ def fluid_kinds(image) -> set[int]:
     return kinds
 
 
+# The game's three terrain passes. Each face goes to one by the part of its
+# texture it shows (26.3's FaceBakery.computeMaterialTransparency, and Sodium
+# keeps the game's choice): translucent if any of it is partly transparent,
+# else cutout if any of it is fully transparent, else solid. The terrain
+# shaders compile a fluid's code only into the passes it can be drawn in
+# (mcme_pass.glsl): that code weighs on every face of the pass.
+PASSES = ("solid", "cutout", "translucent")
+
+
+def texture_passes(image) -> set[str]:
+    """The passes some face showing part of the texture can go to: as small a
+    part as one texel, so a texel of each kind is enough."""
+    alpha = image.convert("RGBA").getchannel("A").histogram()
+    found = set()
+    if alpha[255]:
+        found.add("solid")
+    if alpha[0]:
+        found.add("cutout")
+    if sum(alpha[1:255]):
+        found.add("translucent")
+    return found
+
+
+def pass_kinds(roots, kinds) -> dict[str, set[int]]:
+    """For each pass, the fluid kinds (kinds: texture name -> kind) that the
+    pack's textures, in any of its asset roots, can draw in it. Every kind the
+    pack has is in the translucent pass too, where a model can force any
+    texture (26.3's force_translucent). A texture the pack doesn't have is the
+    game's own, which holds no code: no kind."""
+    found = {name: set() for name in PASSES}
+    for texture, kind in kinds.items():
+        for root in roots:
+            path = Path(root) / FOLDER / f"{texture}.png"
+            if not path.is_file():
+                continue
+            try:
+                passes = texture_passes(Image.open(path))
+            except OSError:
+                continue
+            for name in passes | {"translucent"}:
+                found[name].add(kind)
+    return found
+
+
 def strays(pack_path, own=None) -> list[str]:
     """Every texture of the pack, in any namespace, that the terrain shaders
     would take for a fluid but isn't that fluid's own (KINDS, or the pack's

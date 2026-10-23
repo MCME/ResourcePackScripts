@@ -172,17 +172,56 @@ def is_hook(relative: Path) -> bool:
     return relative.parent == HOOKS_PATH and relative.match(HOOK_PATTERN)
 
 
-def modules_glsl(modules) -> str:
-    """The pack's mcme_modules.glsl: a define and the includes of each module."""
+def fluid_textures(config: Config) -> dict[str, int]:
+    """The pack's fluid textures, by name, and their kinds: the water, its
+    modules' and its own."""
+    names = list(fluid_signature.WATER)
+    for name in config.modules:
+        names += MODULES[name].textures
+    return {**{n: fluid_signature.KINDS[n] for n in names}, **config.fluids}
+
+
+# The defines mcme_modules.glsl gives mcme_pass.glsl: each pass's kinds, as bits
+PASS_DEFINES = {"solid": "MCME_SOLID_KINDS", "cutout": "MCME_CUTOUT_KINDS", "translucent": "MCME_TRANSLUCENT_KINDS"}
+PASS_DEFINE = re.compile(r"^#define (MCME_\w+_KINDS) 0x([0-9A-Fa-f]+)u$", re.M)
+
+
+def modules_glsl(modules, passes) -> str:
+    """The pack's mcme_modules.glsl: a define and the includes of each module,
+    and which fluid kinds each terrain pass can draw (passes:
+    fluid_signature.pass_kinds)."""
     lines = [
-        "// The shader base's modules this pack has turned on, from its .mcme-shaders.json.",
+        "// The shader base's modules this pack has turned on, from its .mcme-shaders.json,",
+        "// and the fluid kinds each terrain pass can draw, from its fluid textures (mcme_pass.glsl).",
         "// Written by ResourcePackScripts' generateVanilla/syncShaderBase.py: don't edit it.",
     ]
     for name in sorted(modules):
         module = MODULES[name]
         lines.append(f"#define {module.define}")
         lines += [f"#moj_import <minecraft:{i}>" for i in module.imports]
+    for name, define in PASS_DEFINES.items():
+        lines.append(f"#define {define} 0x{sum(1 << k for k in passes[name]):X}u")
+    lines.append("#moj_import <minecraft:mcme_pass.glsl>")
     return "\n".join(lines) + "\n"
+
+
+def stale_passes(pack_path, config: Config) -> list[str]:
+    """Where the pack repository's mcme_modules.glsl leaves out a fluid kind
+    that its textures can draw in a pass - after they were edited, without a
+    sync. The server's release scripts ship that copy as it is."""
+    pack_path = Path(pack_path)
+    path = pack_path / MODULES_FILE
+    if not path.is_file():
+        return []
+    written = dict(PASS_DEFINE.findall(path.read_text(encoding="utf-8")))
+    found = []
+    for name, kinds in fluid_signature.pass_kinds([pack_path], fluid_textures(config)).items():
+        define = PASS_DEFINES[name]
+        bits = int(written[define], 16) if define in written else 0
+        missing = sorted(k for k in kinds if not bits >> k & 1)
+        if missing:
+            found.append(f"{MODULES_FILE.as_posix()}'s {define} lacks kind {', '.join(map(str, missing))}")
+    return found
 
 
 # --- 26.3's copies ---------------------------------------------------------------
@@ -389,16 +428,17 @@ def translate(pack_path) -> list[str]:
     return done
 
 
-def shipped(config: Config) -> dict[Path, bytes]:
+def shipped(config: Config, roots) -> dict[Path, bytes]:
     """What the base gives the pack, as file contents by path: the base, the
-    pack's modules and its mcme_modules.glsl - hooks and its own files aside."""
+    pack's modules and its mcme_modules.glsl, by its fluid textures in its
+    asset roots - hooks and its own files aside."""
     files = {}
     for relative in base_files():
         files[relative] = (BASE_PATH / relative).read_bytes()
     for name in config.modules:
         for relative in module_files(name):
             files[relative] = (MODULES_PATH / name / relative).read_bytes()
-    files[MODULES_FILE] = modules_glsl(config.modules).encode()
+    files[MODULES_FILE] = modules_glsl(config.modules, fluid_signature.pass_kinds(roots, fluid_textures(config))).encode()
     return {r: c for r, c in files.items() if not is_hook(r) and r not in config.own}
 
 
@@ -422,7 +462,7 @@ def changed_by_hand(asset_roots, config: Config, lock: dict[str, str]) -> list[P
     """The pack's copies of base and module files that differ from the base's
     and from what the sync wrote: changed by hand, or never synced. An
     unchanged copy of an older base is fine; the newer one replaces it."""
-    want = shipped(config)
+    want = shipped(config, asset_roots)
     found = []
     for root in asset_roots:
         root = Path(root)
@@ -478,8 +518,16 @@ def apply(asset_roots, output_path, lite=False) -> Config:
     pack_root = Path(asset_roots[0])
     config = load_config(pack_root)
     _check(asset_roots, pack_root, config)
+    stale = stale_passes(pack_root, config)
+    if stale:
+        print(
+            "WARNING!!! The pack repository's terrain shaders leave out fluids their passes "
+            "can draw, so a release made from it shows them plain - run syncShaderBase.py "
+            "on it (this build is right):\n" + "\n".join(f"  {s}" for s in stale),
+            flush=True,
+        )
     output_path = Path(output_path)
-    for relative, content in shipped(config).items():
+    for relative, content in shipped(config, asset_roots).items():
         target = output_path / relative
         target.parent.mkdir(parents=True, exist_ok=True)
         target.write_bytes(content)
@@ -519,7 +567,7 @@ def sync(pack_root, force=False) -> list[str]:
     if not force:
         _check([pack_root], pack_root, config)
     done = []
-    want = shipped(config)
+    want = shipped(config, [pack_root])
     _check_own(pack_root, config)
     for relative, content in want.items():
         target = pack_root / relative
@@ -643,7 +691,8 @@ def unresolved_imports(pack_path) -> list[str]:
 def finish(pack_path, config: Config = None):
     """Once the pack is complete: sign its fluids (its water, and its modules'
     and its own, by its config), check that no other texture would be drawn
-    as one, and that every shader import resolves."""
+    as one, that each terrain pass's shaders know the fluids it can draw, and
+    that every shader import resolves."""
     pack_path = Path(pack_path)
     config = config or Config()
     messages, ok = sign(pack_path, config)
@@ -660,6 +709,10 @@ def finish(pack_path, config: Config = None):
             "Textures the terrain shaders would draw over as a fluid (water, lava...), "
             "though they aren't one - edit a few texels of each:\n" + "\n".join(f"  {s}" for s in strays)
         )
+    # each pass's fluids, from the textures the pack ends up with
+    passes = fluid_signature.pass_kinds([pack_path], fluid_textures(config))
+    (pack_path / MODULES_FILE).parent.mkdir(parents=True, exist_ok=True)
+    (pack_path / MODULES_FILE).write_text(modules_glsl(config.modules, passes), encoding="utf-8")
     mark_for_sodium(pack_path)
     if (pack_path / OVERLAY).is_dir():
         translate(pack_path)
