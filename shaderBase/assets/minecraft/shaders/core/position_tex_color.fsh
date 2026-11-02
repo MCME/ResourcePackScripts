@@ -1,7 +1,7 @@
 #version 330
 
 // Vanilla 26.2's position_tex_color.fsh plus hiding the HUD while an MCME-GUI screen is open
-// (include/mcme_gui_hud.glsl): the crosshair, and every sprite pixel in the hotbar area.
+// (include/mcme_gui_hud.glsl): the quads whose corners are all the HUD's.
 
 #moj_import <minecraft:dynamictransforms.glsl>
 #moj_import <minecraft:projection.glsl>
@@ -12,14 +12,12 @@ uniform sampler2D Sampler0;
 
 in vec2 texCoord0;
 in vec4 vertexColor;
-flat in vec2 hudUi;
-in vec2 hudPos;
-in float hudCrosshair;
+in float hudCorner;
 
 out vec4 fragColor;
 
 void main() {
-    if (hudUi.x > 0.0 && (hudCrosshair > 0.999 || gui_in_hotbar_area(hudPos, hudUi))) {
+    if (hudCorner > 0.999) {
         discard;
     }
     vec4 color = texture(Sampler0, texCoord0) * vertexColor;

@@ -6,6 +6,9 @@
 //   192-223  panel, on layer alpha - 192: an mcme_gui:ui glyph scaled to the panel's size (plus GUI_PANEL_MARGIN
 //            on every side, room for its shadow); red = style, green = state (GUI_HOVER, ...), blue = the style's
 //            value (a progress bar's fill, a swatch's colour)
+//   224      image tile: a 240-pixel glyph on its own font page, scaled like a panel; red = layer (bits 0-4) and
+//            pixel-art sampling (bit 5), the image in its top-left, transparent past it
+//   240-252  reserved for add-ons (include/mcme_gui_addons.glsl), such as a map
 //   253      red 1: the backdrop, covering the screen; red 2: the cursor, placed by the head turn, blue 1 when
 //            over something that can be clicked
 // While a screen is open, the GUI pass hides the HUD (include/mcme_gui_hud.glsl).
@@ -28,6 +31,8 @@ const int GUI_PANEL = 3;
 const int GUI_TEXT = 4;
 // GUI pass text while a screen is open: guiBoard is its GUI position (include/mcme_gui_hud.glsl).
 const int GUI_HUD = 5;
+const int GUI_IMAGE = 6;
+const int GUI_ADDON = 7;
 
 // Must match MCME-GUI's Board.
 const vec2 GUI_BOARD_HALF = vec2(12.0, 6.75);
@@ -38,6 +43,9 @@ const int GUI_LAYERS = 32;
 
 const int GUI_TEXT_ALPHA = 160;
 const int GUI_PANEL_ALPHA = 192;
+const int GUI_IMAGE_ALPHA = 224;
+const int GUI_ADDON_FIRST = 240;
+const int GUI_ADDON_LAST = 252;
 const int GUI_SPECIAL_ALPHA = 253;
 
 // Panel states, bits of green.
@@ -59,6 +67,8 @@ int gui_kind(vec4 c) {
     int a = gui_byte(c.a);
     if (a >= GUI_TEXT_ALPHA && a < GUI_TEXT_ALPHA + GUI_LAYERS) return GUI_TEXT;
     if (a >= GUI_PANEL_ALPHA && a < GUI_PANEL_ALPHA + GUI_LAYERS) return GUI_PANEL;
+    if (a == GUI_IMAGE_ALPHA) return GUI_IMAGE;
+    if (a >= GUI_ADDON_FIRST && a <= GUI_ADDON_LAST) return GUI_ADDON;
     if (a == GUI_SPECIAL_ALPHA) {
         int r = gui_byte(c.r);
         if (r == 1) return GUI_BACKDROP;
@@ -101,10 +111,18 @@ vec2 gui_cursor() {
     return clamp(vec2(look.x, -look.y) * GUI_UNITS_PER_DEGREE, -GUI_CURSOR_EDGE, GUI_CURSOR_EDGE);
 }
 
+// A depth slot: 1 panels, 2 images, 3 text of a layer; the cursor past the last layer.
+float gui_slot(int layer, int part) {
+    return float(layer * 3 + part);
+}
+
+#moj_import <minecraft:mcme_gui_addons.glsl>
+
 // Depth just past the near plane, through the game's own projection so either depth convention works. Higher
-// layers are nearer: the backdrop 0, each layer's panels then its text, the cursor on top.
+// layers are nearer: the backdrop 0, each layer's panels, then its images, then its text (gui_slot), the cursor on
+// top.
 float gui_depth(float layer) {
-    float d = 0.2 - 0.0018 * layer;
+    float d = 0.2 - 0.0014 * layer;
     return (ProjMat[2][2] * -d + ProjMat[3][2]) / d;
 }
 
@@ -121,13 +139,19 @@ vec4 gui_place(int kind, vec4 color, vec3 position, vec2 uv, out vec2 corner, ou
     } else if (kind == GUI_CURSOR) {
         float size = GUI_CURSOR_SIZE * (gui_byte(color.b) == 1 ? 1.3 : 1.0);
         board = gui_cursor() + gui_spread(corner, vec2(size));
-        layer = float(GUI_LAYERS * 2 + 2);
+        layer = gui_slot(GUI_LAYERS, 0);
+    } else if (kind == GUI_IMAGE) {
+        board = gui_board(position);
+        layer = gui_slot(gui_byte(color.r) % 32, 2);
+    } else if (kind == GUI_ADDON) {
+        board = gui_board(position);
+        layer = gui_addon_place(color, position, uv, corner, board);
     } else if (kind == GUI_PANEL) {
         board = gui_board(position);
-        layer = float((a - GUI_PANEL_ALPHA) * 2 + 1);
+        layer = gui_slot(a - GUI_PANEL_ALPHA, 1);
     } else {
         board = gui_board(position);
-        layer = float((a - GUI_TEXT_ALPHA) * 2 + 2);
+        layer = gui_slot(a - GUI_TEXT_ALPHA, 3);
     }
     return vec4(board / viewHalf, gui_depth(layer), 1.0);
 }

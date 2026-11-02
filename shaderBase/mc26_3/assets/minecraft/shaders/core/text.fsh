@@ -26,7 +26,7 @@ layout(location = 1) in float cylindricalVertexDistance;
 layout(location = 2) in vec4 vertexColor;
 layout(location = 3) in vec2 texCoord0;
 layout(location = 4) flat in int guiKind;
-layout(location = 5) flat in ivec3 guiCode;
+layout(location = 5) flat in ivec4 guiCode;
 layout(location = 6) in vec2 guiCorner;
 layout(location = 7) in vec2 guiBoard;
 
@@ -55,7 +55,7 @@ vec4 calculateFinalColor(vec4 color) {
 
 void main() {
     #ifdef IS_GUI
-    if (guiKind == GUI_HUD && gui_in_hud_text_area(guiBoard, gui_hud_ui())) {
+    if (guiKind == GUI_HUD && guiCorner.x > 0.999) {
         discard;
     }
     #endif

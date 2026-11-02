@@ -23,7 +23,7 @@ in float cylindricalVertexDistance;
 in vec4 vertexColor;
 in vec2 texCoord0;
 flat in int guiKind;
-flat in ivec3 guiCode;
+flat in ivec4 guiCode;
 in vec2 guiCorner;
 in vec2 guiBoard;
 
@@ -31,7 +31,7 @@ out vec4 fragColor;
 
 void main() {
 #ifdef IS_GUI
-    if (guiKind == GUI_HUD && gui_in_hud_text_area(guiBoard, gui_hud_ui())) {
+    if (guiKind == GUI_HUD && guiCorner.x > 0.999) {
         discard;
     }
 #endif

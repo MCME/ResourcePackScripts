@@ -10,6 +10,8 @@
 #ifndef MCME_GUI_FRAG_GLSL
 #define MCME_GUI_FRAG_GLSL
 
+#moj_import <minecraft:mcme_gui_addons_frag.glsl>
+
 // Panel styles, red of a panel. Must match MCME-GUI's PanelStyle.
 const int GUI_SURFACE = 0;    // the background of a group: a side bar, a dialog
 const int GUI_BUTTON = 1;
@@ -223,9 +225,41 @@ vec4 gui_cursor_colour(vec2 corner, int state) {
     return outline >= 0.5 ? vec4(GUI_INK, 1.0) : vec4(0.0);
 }
 
+// An image tile's texel, clamped to its 240-pixel glyph, whose page has nothing past it.
+vec4 gui_texel(sampler2D tex, ivec2 p, ivec2 origin) {
+    return texelFetch(tex, clamp(p, origin, origin + ivec2(239)), 0);
+}
+
+vec4 gui_bilinear(sampler2D tex, vec2 px, ivec2 origin) {
+    vec2 p = px - 0.5;
+    vec2 f = fract(p);
+    ivec2 i = ivec2(floor(p));
+    return mix(mix(gui_texel(tex, i, origin), gui_texel(tex, i + ivec2(1, 0), origin), f.x),
+               mix(gui_texel(tex, i + ivec2(0, 1), origin), gui_texel(tex, i + ivec2(1, 1), origin), f.x), f.y);
+}
+
+// An image tile: the image in the top-left 240 pixels of its font page. Pixel art takes the nearest texel; the
+// rest blends, with four samples across the pixel where it is drawn smaller (font pages have no mipmaps).
+vec4 gui_image(sampler2D tex, vec2 uv, vec2 corner, bool pixelArt) {
+    // Where the glyph sits on its page: not always at 0,0.
+    vec2 local = corner * 240.0;
+    vec2 origin = floor(uv * vec2(textureSize(tex, 0)) - local + 0.5);
+    vec2 px = origin + local;
+    if (pixelArt) {
+        return gui_texel(tex, ivec2(origin) + clamp(ivec2(local), ivec2(0), ivec2(239)), ivec2(origin));
+    }
+    vec2 dx = dFdx(px) * 0.25;
+    vec2 dy = dFdy(px) * 0.25;
+    ivec2 o = ivec2(origin);
+    return (gui_bilinear(tex, px + dx + dy, o) + gui_bilinear(tex, px + dx - dy, o)
+          + gui_bilinear(tex, px - dx + dy, o) + gui_bilinear(tex, px - dx - dy, o)) * 0.25;
+}
+
 // The colour of a GUI piece and its coverage (0 for nothing): dither the coverage with gui_solid.
-vec4 gui_colour(int kind, ivec3 code, vec2 corner, vec2 board, sampler2D font, vec2 uv, vec4 tint) {
+vec4 gui_colour(int kind, ivec4 code, vec2 corner, vec2 board, sampler2D font, vec2 uv, vec4 tint) {
     if (kind == GUI_BACKDROP) return gui_backdrop(board);
+    if (kind == GUI_IMAGE) return gui_image(font, uv, corner, (code.r & 32) != 0);
+    if (kind == GUI_ADDON) return gui_addon_colour(code, corner, board, font, uv);
     if (kind == GUI_CURSOR) return gui_cursor_colour(corner, code.b);
     if (kind == GUI_PANEL) return gui_panel(code.r, code.g, code.b, corner, board);
     vec4 text = texture(font, uv) * tint;

@@ -61,7 +61,7 @@ out float cylindricalVertexDistance;
 out vec4 vertexColor;
 out vec2 texCoord0;
 flat out int guiKind;
-flat out ivec3 guiCode;
+flat out ivec4 guiCode;
 out vec2 guiCorner;
 out vec2 guiBoard;
 
@@ -83,15 +83,27 @@ out vec2 guiBoard;
 void main() {
     vec3 pos = Position;
     guiKind = GUI_NONE;
-    guiCode = ivec3(0);
+    guiCode = ivec4(0);
     guiCorner = vec2(0.0);
     guiBoard = vec2(0.0);
 
     #ifdef IS_GUI
-    // An MCME-GUI screen is open: the fragment shader drops text over the hidden hotbar, by its GUI position.
-    if (gui_hud_ui().x > 0.0) {
+    // A HUD overlay glyph (include/mcme_gui_hud.glsl): to its anchor, in its colour.
+    if (gui_is_overlay(Color) && ProjMat[3][3] == 1.0) {
+        vec2 ui = 2.0 / vec2(ProjMat[0][0], -ProjMat[1][1]);
+        vec3 tint;
+        vec2 at = gui_overlay_place(Color, Position, ui, tint);
+        gl_Position = ProjMat * ModelViewMat * vec4(at, Position.z, 1.0);
+        vertexColor = vec4(tint, Color.a);
+        texCoord0 = UV0;
+        return;
+    }
+
+    // An MCME-GUI screen is open: the fragment shader drops the HUD's text, glyphs all of whose corners are its.
+    vec2 hudUi = gui_hud_ui();
+    if (hudUi.x > 0.0) {
         guiKind = GUI_HUD;
-        guiBoard = Position.xy;
+        guiCorner = vec2(gui_hud_corner(Position.xy, hudUi, true));
     }
 
     // IS_GUI is defined by Minecraft (in RenderPipelines) when it compiles this
@@ -178,7 +190,7 @@ void main() {
     #if !defined(IS_GUI) && !defined(IS_SEE_THROUGH)
     guiKind = gui_kind(Color);
     if (guiKind != GUI_NONE) {
-        guiCode = ivec3(gui_byte(Color.r), gui_byte(Color.g), gui_byte(Color.b));
+        guiCode = ivec4(gui_byte(Color.r), gui_byte(Color.g), gui_byte(Color.b), gui_byte(Color.a));
         gl_Position = gui_place(guiKind, Color, Position, UV0, guiCorner, guiBoard);
     }
 

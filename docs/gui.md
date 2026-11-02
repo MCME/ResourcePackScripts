@@ -9,7 +9,8 @@ MCME-GUI is a Paper plugin that draws full-screen GUIs (menus, lists, maps) on a
 | `minecraft/shaders/include/mcme_gui.glsl` | What each display is, and where it goes |
 | `minecraft/shaders/include/mcme_gui_frag.glsl` | How panels, the cursor and the backdrop look |
 | `minecraft/shaders/core/position_tex_color.vsh`, `.fsh`<br>`minecraft/shaders/include/mcme_gui_hud.glsl` | Hide the HUD while a screen is open (see below) |
-| `mcme_gui/font/ui.json`, `mcme_gui/textures/font/ui.png` | The white glyph panels are drawn on, and space glyphs for aligning text |
+| `mcme_gui/font/ui.json`, `mcme_gui/textures/font/ui.png` | The white glyph panels are drawn on, and space glyphs for aligning text and placing HUD overlays |
+| `minecraft/shaders/include/mcme_gui_addons*.glsl` | Where add-ons plug in (none yet) |
 | `mcme_gui/items/invisible.json`, `mcme_gui/sounds.json` | The invisible item that fills the hotbar while a screen is open (it hides the arm, and holding right mouse with it is how dragging works), and the silent sound it is used with |
 
 All other text, such as signs, name tags and chat, goes through vanilla's path unchanged.
@@ -29,6 +30,8 @@ The **alpha byte** of a glyph's colour is the text display's text opacity, and i
 |---|---|---|
 | 160–191 | Text on layer alpha − 160, drawn where it is | Its colour |
 | 192–223 | A panel on layer alpha − 192: the ui glyph, scaled to the panel's size plus 0.1 units on every side for its shadow | Style, state, value |
+| 224 | An image tile: a 240 px glyph on its own font page, with the image in its top-left corner, scaled like a panel | Red: the layer (bits 0–4) and pixel-art sampling (bit 5) |
+| 240–252 | Add-ons (below) | Theirs |
 | 253 | Red 1: the backdrop, covering the screen.<br>Red 2: the cursor, placed by the head turn | Cursor: blue 1 while over something clickable |
 
 ## Hiding the HUD
@@ -40,7 +43,7 @@ So the plugin seats a player with a screen open where the camera's x and z are e
 - in `position_tex_color`, which draws every HUD sprite: the crosshair with its attack indicator, and the hotbar with the off hand, hearts, food, armour, air and the experience and locator bars;
 - in the text shader's GUI pass: the experience level and the held item's name. Not the chat line being typed or the action bar.
 
-The hotbar area is cut out per pixel: each vertex passes its GUI position to the fragment shader, which skips the pixels inside the area. The crosshair is found by its exact corners: 15 px square at `((w − 15) / 2, (h − 15) / 2)`, the attack indicator under it.
+A vertex says whether it lies on one of the HUD's rows (hotbar, bars, hearts, food, armour, air, XP level, held item name, action bar), within the hotbar's reach of the middle. Only quads with all four corners there go, so menus keep theirs. Cutting out the whole area per pixel also cut dialog buttons. The crosshair is found by its exact corners: 15 px square at `((w − 15) / 2, (h − 15) / 2)`, the attack indicator under it.
 
 No vertex is moved. Menus opened over a screen (Esc, chat) draw with the same shaders. A first version moved the HUD's vertices off screen, and any menu quad with only some corners in the area stretched across the screen.
 
@@ -62,6 +65,30 @@ The screen shows to the bottom with the cursor over it. Pressing F1 hides the sa
 A panel's size isn't sent: the fragment shader reads it from how fast the corner and the board point change across the quad, so a panel can be any size. Edges are smoothed over one screen pixel at any resolution.
 
 The plugin's `Board`, `PanelStyle` and `Element` classes hold the same numbers. Change both sides together.
+
+In each layer, panels draw under images, and images under text.
+
+## Add-ons
+
+A feature with its own pieces, such as a map, gets text opacities 240–252:
+
+- **Plugin side:** its widgets draw `Canvas.custom`, which is the ui glyph in its code, placed like a panel.
+- **Shader side:** its code joins the base as its own include, imported in `mcme_gui_addons.glsl` and called from:
+  - `gui_addon_place`, which can move the vertex and returns its depth slot;
+  - `gui_addon_colour` in `mcme_gui_addons_frag.glsl`, which returns the pixel's colour and coverage.
+
+  Both are given the display's colour and opacity.
+
+## HUD overlays
+
+MCME-GUI's `Hud` sends text and icons as the subtitle, under an empty title held for an hour. The GUI pass moves every glyph coloured 251, G, B (`mcme_gui_hud.glsl`):
+
+- **G's low 4 bits** are the anchor, from top-left to bottom-right.
+- **G's high 4 bits** are the colour, one of Minecraft's 16.
+- **B − 128** is the element's y offset in GUI pixels.
+- **The x offset** is space glyphs. Each element ends with negative space as wide as itself, so the subtitle line has no width. A glyph's place in its element is then where the subtitle puts it, scaled back from 2.
+
+They hide while a screen is open. The ui font has space glyphs of ±2^i pixels for this: U+E010 to U+E019 forward, U+E020 to U+E029 back.
 
 ## Draw order
 

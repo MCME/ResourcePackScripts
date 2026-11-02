@@ -15,16 +15,13 @@ in vec4 Color;
 
 out vec2 texCoord0;
 out vec4 vertexColor;
-flat out vec2 hudUi;
-out vec2 hudPos;
-out float hudCrosshair;
+out float hudCorner;
 
 void main() {
     gl_Position = ProjMat * ModelViewMat * vec4(Position, 1.0);
 
     texCoord0 = UV0;
     vertexColor = Color;
-    hudUi = gui_hud_ui();
-    hudPos = Position.xy;
-    hudCrosshair = hudUi.x > 0.0 ? gui_crosshair_corner(Position.xy, hudUi) : 0.0;
+    vec2 ui = gui_hud_ui();
+    hudCorner = ui.x > 0.0 ? max(gui_crosshair_corner(Position.xy, ui), gui_hud_corner(Position.xy, ui, false)) : 0.0;
 }
