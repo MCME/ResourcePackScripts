@@ -1,0 +1,28 @@
+{
+  "providers": [
+    {
+      "type": "bitmap",
+      "file": "mcme_gui:font/ui.png",
+      "height": 8,
+      "ascent": 7,
+      "chars": [
+        "\ue000"
+      ]
+    },
+    {
+      "type": "space",
+      "advances": {
+        "\ue010": 1,
+        "\ue011": 2,
+        "\ue012": 4,
+        "\ue013": 8,
+        "\ue014": 16,
+        "\ue015": 32,
+        "\ue016": 64,
+        "\ue017": 128,
+        "\ue018": 256,
+        "\ue019": 512
+      }
+    }
+  ]
+}

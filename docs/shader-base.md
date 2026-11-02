@@ -8,7 +8,7 @@ Every pack gets all of `shaderBase/assets/`:
 
 | Files | What they do |
 |---|---|
-| `minecraft/shaders/core/text.vsh` | The MCME action bar |
+| `minecraft/shaders/core/text.vsh`, `text.fsh`, `position_tex_color.vsh`, `.fsh`<br>`minecraft/shaders/include/mcme_gui*.glsl`<br>`mcme_gui/` (font, invisible item, silent sound) | The MCME action bar, and [MCME-GUI](gui.md)'s full-screen GUIs |
 | `minecraft/shaders/include/fog.glsl` | No fog |
 | `minecraft/shaders/core/terrain.vsh`, `terrain.fsh`<br>`minecraft/shaders/include/objmc_*.glsl` | objmc: draw the baked models' real shape |
 | `sodium/shaders/blocks/block_layer_opaque.*` | The same for players running the Vanilla pack with Sodium |

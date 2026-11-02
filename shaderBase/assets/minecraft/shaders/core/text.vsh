@@ -1,5 +1,7 @@
 #version 330
 
+// The MCME action bar (below) and MCME-GUI's screens (include/mcme_gui.glsl): every other text is vanilla's.
+
 // ============================================================
 //  MCME-Action-Bar – GUI-scale-invariant HUD positioning
 //
@@ -39,6 +41,9 @@
 
 #moj_import <minecraft:dynamictransforms.glsl>
 #moj_import <minecraft:projection.glsl>
+#moj_import <minecraft:globals.glsl>
+#moj_import <minecraft:mcme_gui.glsl>
+#moj_import <minecraft:mcme_gui_hud.glsl>
 
 in vec3 Position;
 in vec4 Color;
@@ -55,6 +60,10 @@ out float cylindricalVertexDistance;
 
 out vec4 vertexColor;
 out vec2 texCoord0;
+flat out int guiKind;
+flat out ivec3 guiCode;
+out vec2 guiCorner;
+out vec2 guiBoard;
 
 #ifdef IS_GUI
 // ── Encoding constants – must match the font ascent formula ──
@@ -73,8 +82,18 @@ out vec2 texCoord0;
 // Runs once per vertex — each character is a textured quad (4 vertices), and each vertex is processed independently
 void main() {
     vec3 pos = Position;
+    guiKind = GUI_NONE;
+    guiCode = ivec3(0);
+    guiCorner = vec2(0.0);
+    guiBoard = vec2(0.0);
 
     #ifdef IS_GUI
+    // An MCME-GUI screen is open: the fragment shader drops text over the hidden hotbar, by its GUI position.
+    if (gui_hud_ui().x > 0.0) {
+        guiKind = GUI_HUD;
+        guiBoard = Position.xy;
+    }
+
     // IS_GUI is defined by Minecraft (in RenderPipelines) when it compiles this
     // file for the gui_text pipeline — the pass that draws 2D UI elements
     // (e.g. the action bar).  The world-text and see-through pipelines compile
@@ -157,9 +176,16 @@ void main() {
     gl_Position = ProjMat * ModelViewMat * vec4(pos, 1.0);
 
     #if !defined(IS_GUI) && !defined(IS_SEE_THROUGH)
+    guiKind = gui_kind(Color);
+    if (guiKind != GUI_NONE) {
+        guiCode = ivec3(gui_byte(Color.r), gui_byte(Color.g), gui_byte(Color.b));
+        gl_Position = gui_place(guiKind, Color, Position, UV0, guiCorner, guiBoard);
+    }
+
     sphericalVertexDistance = fog_spherical_distance(Position);
     cylindricalVertexDistance = fog_cylindrical_distance(Position);
-    vertexColor = Color * sample_lightmap(Sampler2, UV2);
+    // GUI pieces are a screen, not something in the world: no light.
+    vertexColor = guiKind != GUI_NONE ? vec4(Color.rgb, 1.0) : Color * sample_lightmap(Sampler2, UV2);
     #else
     vertexColor = Color;
     #endif

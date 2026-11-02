@@ -45,6 +45,8 @@ ALLOWED_EXTENSIONS = {
 STAGES = {".vsh": "vert", ".vert": "vert", ".fsh": "frag", ".frag": "frag"}
 SHADER_SUFFIXES = set(STAGES) | {".glsl"}
 
+# The text shader's defines besides the transparency passes' (RenderPipelines)
+_TEXT_VARIANTS = [[], ["IS_GUI"], ["IS_SEE_THROUGH"], ["IS_GRAYSCALE"]]
 # The defines the game and Sodium compile these with, every combination used
 DEFINES = {
     ("minecraft", "core/terrain"): [[], ["ALPHA_CUTOUT 0.5"]],
@@ -53,6 +55,8 @@ DEFINES = {
         ["USE_VERTEX_COMPRESSION", "USE_FOG", "ALPHA_CUTOUT 0.5"],
         ["USE_VERTEX_COMPRESSION"],
     ],
+    # world text, the GUI's (the action bar, MCME-GUI's footer), see-through and grayscale
+    ("minecraft", "core/text"): _TEXT_VARIANTS,
 }
 # 26.3 compiles every shader to SPIR-V through shaderc, for Vulkan 1.2, with
 # uniforms bound for it but no input or output given a location
@@ -67,7 +71,7 @@ _TERRAIN = [[], ["ALPHA_CUTOUT 0.5"]] + [["ALPHA_CUTOUT 0.1"] + p for p in OIT_P
 SPIRV_DEFINES = {
     ("minecraft", "core/terrain"): _TERRAIN + [d + ["MULTIDRAW_TERRAIN"] for d in _TERRAIN],
     ("minecraft", "core/particle"): [[]] + OIT_PASSES,
-    ("minecraft", "core/text"): [[]] + OIT_PASSES,
+    ("minecraft", "core/text"): _TEXT_VARIANTS + OIT_PASSES,
     # Sodium's, through vanilla's transparency passes (ShaderChunkRenderer)
     ("sodium", "blocks/block_layer_opaque"): [
         base + cutout
