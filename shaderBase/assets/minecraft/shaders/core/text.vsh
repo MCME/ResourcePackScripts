@@ -188,11 +188,16 @@ void main() {
     gl_Position = ProjMat * ModelViewMat * vec4(pos, 1.0);
 
     #if !defined(IS_GUI) && !defined(IS_SEE_THROUGH)
+    // An MCME-GUI piece, to its place on the board. Chosen rather than placed in an if, as core/entity.vsh's stage:
+    // with these in a branch, a 26.2 client (NVIDIA, with Sodium and Iris) drew sign text wrong, though the branch
+    // never ran for it. Not mixed: mix(a, b, 1) can round off b, and the layers' depths are too near for that.
+    // Other text is placed as text of layer 0, whose numbers stay finite, and that is dropped.
     guiKind = gui_kind(Color);
-    if (guiKind != GUI_NONE) {
-        guiCode = ivec4(gui_byte(Color.r), gui_byte(Color.g), gui_byte(Color.b), gui_byte(Color.a));
-        gl_Position = gui_place(guiKind, Color, Position, UV0, guiCorner, guiBoard);
-    }
+    bool isGui = guiKind != GUI_NONE;
+    guiCode = isGui ? ivec4(gui_byte(Color.r), gui_byte(Color.g), gui_byte(Color.b), gui_byte(Color.a)) : ivec4(0);
+    vec4 placed = gui_place(isGui ? guiKind : GUI_TEXT, isGui ? Color : vec4(Color.rgb, float(GUI_TEXT_ALPHA) / 255.0),
+            Position, UV0, guiCorner, guiBoard);
+    gl_Position = isGui ? placed : gl_Position;
 
     sphericalVertexDistance = fog_spherical_distance(Position);
     cylindricalVertexDistance = fog_cylindrical_distance(Position);

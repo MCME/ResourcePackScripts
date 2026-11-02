@@ -10,6 +10,7 @@ MCME-GUI is a Paper plugin that draws full-screen GUIs (menus, lists, maps) on a
 | `minecraft/shaders/include/mcme_gui_frag.glsl` | How panels, the cursor and the backdrop look |
 | `minecraft/shaders/core/position_tex_color.vsh`, `.fsh`<br>`minecraft/shaders/include/mcme_gui_hud.glsl` | Hide the HUD while a screen is open (see below) |
 | `mcme_gui/font/ui.json`, `mcme_gui/textures/font/ui.png` | The white glyph panels are drawn on, and space glyphs for aligning text and placing HUD overlays |
+| `minecraft/shaders/core/item.vsh`, `core/entity.vsh`, `core/entity.fsh`<br>`mc26_3/.../core/` the same<br>`minecraft/shaders/include/mcme_gui_stage.glsl`, `mcme_gui_skin.glsl` | Draw MCME-GUI's 3D models and players on the board (see Models, Players). 26.3's copies are hand-written: its passes differ. |
 | `minecraft/shaders/include/mcme_gui_addons*.glsl` | Where add-ons plug in (none yet) |
 | `mcme_gui/items/invisible.json`, `mcme_gui/sounds.json` | The invisible item that fills the hotbar while a screen is open (it hides the arm, and holding right mouse with it is how dragging works), and the silent sound it is used with |
 
@@ -78,6 +79,26 @@ A feature with its own pieces, such as a map, gets text opacities 240–252:
   - `gui_addon_colour` in `mcme_gui_addons_frag.glsl`, which returns the pixel's colour and coverage.
 
   Both are given the display's colour and opacity.
+
+## Models
+
+MCME-GUI's `Model` widget shows an item's 3D model in a screen. A model can't float in front of the player: turning the head moves only the cursor, so it would slide across the screen, and the board covers the world anyway. So the plugin puts each model's item display on the **stage**, at y −2048 (`GUI_STAGE_Y`), straight under the camera, and the item shader draws it on the board:
+
+- **Which vertices:** with a screen open (the camera on the seat grid, as for the HUD), a vertex whose height in the world is within the stage's band. Nothing else is there: it is below any world, and displays don't fall out of it.
+- **Where:** the display lies like the board (model up is north, front is up), so its x and −z from the camera are its board point, exact as a text display's. Its height is its layer, 32 blocks a layer, and up to 12 blocks either way how near it is.
+- **Depth:** between its layer's panels and its text, nearer higher, through `gui_depth`'s formula.
+- **Look:** lit like an inventory item from its normal, without fog or the world's light. Alpha is multiplied far past 1, so every pixel the cutout keeps is opaque (see Draw order) without a change to item.fsh.
+- **Always drawn:** displays without a culling box aren't culled by the view, and the client skips its chunk check for entities past the world's height.
+
+Item models go through `core/item`; special models (player heads, chests, shields) through `core/entity`, which places them the same way. `entity.vsh` mixes the stage's changes in rather than branching on them, and `text.vsh` its GUI pieces' places: with them in an `if`, a 26.2 client (NVIDIA, with Sodium and Iris) drew every entity, and sign text, wrong, though the branch never ran for them. Keep it that way when changing them.
+
+## Players
+
+MCME-GUI's `PlayerModel` builds a player from their head: each part (head, body, arms, legs) is an item display of the player's head on the stage, stretched to the part's size.
+
+- **Which part:** the display's brightness, block light 15 and sky light 1–8 (`gui_stage_skin_part`): head, body, right arm, left arm, right leg, left leg, then slim right and left arms. Sky light 15 is a plain model.
+- **Its skin:** every box of a skin has the same layout around its corner, so a pixel's place on a face of the head is its place on that face of the part. `entity.fsh` reads the part's pixel instead (`gui_skin_uv` in `mcme_gui_skin.glsl`), from the interpolated texture coordinate, so it doesn't depend on vertex order.
+- **On the stage** every pixel is opaque or not drawn: below half alpha is dropped.
 
 ## HUD overlays
 
