@@ -113,10 +113,11 @@ They hide while a screen is open. The ui font has space glyphs of ±2^i pixels f
 
 ## Draw order
 
-Nothing the GUI draws is see-through. Every pixel is opaque or not drawn at all, so the depth test stacks the pieces by layer, and the order the client draws them in doesn't matter. Shapes have crisp edges, drawn where they cover at least half a pixel. Only shadows are soft, dithered with a 4×4 pattern that reads as a gradient at normal resolutions. Dithering the smoothed edges too made thin lines fuzzy. Looks that are meant to be see-through are blended in the shader with the colour underneath, which it knows:
+Nothing the GUI draws is see-through. Every pixel is opaque or not drawn at all, so the depth test stacks the pieces by layer, and the order the client draws them in doesn't matter. Shapes have crisp edges, drawn where they cover at least half a pixel. Dithering the smoothed edges made thin lines fuzzy, and dithered shadows showed as a dot pattern, so panels and their shadows are solid. Only see-through pixels in images and add-ons are still dithered (`gui_solid`). Looks that are meant to be see-through are blended in the shader with the colour underneath, which it knows:
 
 - the header band with the backdrop (`gui_backdrop`);
-- the shaded list rows with the surface they lie on (`GUI_SURFACE_FILL`, a flat colour for this reason).
+- the shaded list rows with the surface they lie on (`GUI_SURFACE_FILL`, a flat colour for this reason);
+- shadows, drawn solid: a surface's darkens the backdrop, and a button's, tab's or toggle's darkens a surface. Where a panel sits on something else (a button straight on the backdrop), its shadow is a shade off what's really there, which is hard to see at these dark colours. Tooltips have no shadow, since they lie over anything.
 
 This is because see-through pixels went wrong. A see-through pixel drawn before what lies under it hides that thing from the depth test, so the world shows through it. That happened at the tooltip's edge, the header and the cursor's outline. Vanilla 26.2 draws text displays in a pass for plain text and sorts each texture's quads back to front by their distance from the camera. In theory that is controllable: the plugin can set each panel's real distance, and a display with a background colour goes into a later pass. Two fixes built on that changed nothing on a client with Sodium, Iris and Distant Horizons, which is what most MCME players run. So the GUI no longer relies on any draw order, on any client.
 

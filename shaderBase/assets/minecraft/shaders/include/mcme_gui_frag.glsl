@@ -3,9 +3,9 @@
 // Nothing here is see-through: every pixel is drawn opaque or not at all (gui_solid), so the depth test alone
 // stacks the pieces and the order they're drawn in doesn't matter. Clients don't keep text displays in a
 // dependable order (docs/gui.md: Draw order), and a see-through pixel drawn before what is under it shows the
-// world instead. Shapes have crisp edges: drawn where they cover at least half a pixel. Only shadows are soft,
-// dithered. Looks that were see-through by design are mixed with what is under them here: the backdrop
-// (gui_backdrop) or a surface (GUI_SURFACE_FILL).
+// world instead. Shapes have crisp edges: drawn where they cover at least half a pixel. Looks that were
+// see-through by design, shadows too, are mixed with what is under them here: the backdrop (gui_backdrop) or a
+// surface (GUI_SURFACE_FILL).
 
 #ifndef MCME_GUI_FRAG_GLSL
 #define MCME_GUI_FRAG_GLSL
@@ -138,8 +138,8 @@ vec4 gui_panel(int style, int state, int value, vec2 corner, vec2 board) {
             alpha = 1.0;
         }
     } else if (style == GUI_TOOLTIP) {
+        // No shadow: it lies over anything, so there's nothing known to mix one with.
         radius = 0.05;
-        shadow = true;
         fill = vec3(0.035, 0.035, 0.045);
         line = GUI_GOLD * 0.85;
         lineWidth = 0.02;
@@ -208,9 +208,13 @@ vec4 gui_panel(int style, int state, int value, vec2 corner, vec2 board) {
         body = gui_over(body, vec4(selected ? GUI_CREAM : vec3(0.6), gui_cover(knob, aa)));
     }
     // Crisp edges: the panel where it covers at least half the pixel (inside it, lines and fills mix smoothly),
-    // else only its shadow, which gui_solid dithers.
+    // else its shadow, solid: darkened from what lies under it. A surface lies on the backdrop, and what has a
+    // shadow besides (buttons, tabs, toggles) on a surface. Where the shadow is too faint to see, nothing.
     body.a *= inside;
-    return body.a >= 0.5 ? vec4(body.rgb, 1.0) : vec4(0.0, 0.0, 0.0, shade);
+    if (body.a >= 0.5) return vec4(body.rgb, 1.0);
+    if (shade < 0.03) return vec4(0.0);
+    vec3 under = style == GUI_SURFACE ? gui_backdrop(board).rgb : GUI_SURFACE_FILL;
+    return vec4(under * (1.0 - shade), 1.0);
 }
 
 // A white ring and dot with a dark outline, crisp.
